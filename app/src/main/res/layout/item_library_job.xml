@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    A download that is running, waiting in line, or has failed.
+    Ring + bar show the progress; the buttons on the end cancel it (or retry / dismiss a failed one).
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/jobCard"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="12dp"
+    android:layout_marginTop="6dp"
+    android:layout_marginEnd="12dp"
+    android:layout_marginBottom="6dp"
+    android:background="@drawable/bg_job_card"
+    android:orientation="vertical"
+    android:paddingStart="12dp"
+    android:paddingTop="12dp"
+    android:paddingEnd="4dp"
+    android:paddingBottom="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:layout_width="48dp"
+            android:layout_height="48dp">
+
+            <com.google.android.material.progressindicator.CircularProgressIndicator
+                android:id="@+id/progressRing"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                app:indicatorColor="@color/brandText"
+                app:indicatorInset="2dp"
+                app:indicatorSize="44dp"
+                app:trackColor="@color/iconCircle"
+                app:trackThickness="3dp" />
+
+            <ImageView
+                android:id="@+id/ivJobIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_music_note_24dp"
+                app:tint="@color/brandText" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="4dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvJobTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="15sp"
+                tools:text="Video title goes here" />
+
+            <TextView
+                android:id="@+id/tvJobStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:textColor="@color/brandText"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                tools:text="Downloading… 45%" />
+
+            <TextView
+                android:id="@+id/tvJobMeta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="3"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp"
+                tools:text="MP4 720p • 1.2MiB/s • 00:05 left" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btnJobAction"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/jobCancel"
+            android:padding="11dp"
+            android:src="@drawable/ic_close_24dp"
+            app:tint="?android:attr/textColorSecondary" />
+
+        <ImageButton
+            android:id="@+id/btnJobRetry"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/jobRetry"
+            android:padding="11dp"
+            android:src="@drawable/ic_refresh_24dp"
+            android:visibility="gone"
+            app:tint="@color/brandText" />
+
+        <ImageButton
+            android:id="@+id/btnJobDismiss"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/jobDismiss"
+            android:padding="11dp"
+            android:src="@drawable/ic_close_24dp"
+            android:visibility="gone"
+            app:tint="?android:attr/textColorSecondary" />
+    </LinearLayout>
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/progressBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="8dp"
+        app:indicatorColor="@color/brandText"
+        app:trackColor="@color/iconCircle"
+        app:trackCornerRadius="3dp"
+        app:trackThickness="6dp" />
+</LinearLayout>

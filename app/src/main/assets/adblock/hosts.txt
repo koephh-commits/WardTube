@@ -1,0 +1,9 @@
+# Hosts blocked at the network level (shouldInterceptRequest).
+# One domain per line; subdomains are matched automatically. Lines starting with # are ignored.
+doubleclick.net
+googlesyndication.com
+googleadservices.com
+adservice.google.com
+2mdn.net
+imasdk.googleapis.com
+moatads.com

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <!-- Opens / closes the search field (LibraryActivity swaps the icon while it is open). -->
+    <item
+        android:id="@+id/action_search"
+        android:icon="@drawable/ic_search_24dp"
+        android:title="@string/librarySearch"
+        app:showAsAction="always" />
+    <!-- Another way into the multi-select mode besides a long press (the title flips while it is on). -->
+    <item
+        android:id="@+id/action_multi_select"
+        android:title="@string/libraryMultiSelectOn"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_all_files"
+        android:title="@string/allFilesMenu"
+        app:showAsAction="never" />
+</menu>

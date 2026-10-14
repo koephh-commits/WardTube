@@ -1,0 +1,1 @@
+Link field: the x clear button shows whenever the field has text, also right after Paste; a tap clears the field and opens the keyboard.

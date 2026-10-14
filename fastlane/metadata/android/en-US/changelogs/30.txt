@@ -1,0 +1,1 @@
+Media notification now shows the video cover and has Previous / Next buttons (headset and Bluetooth buttons work too).

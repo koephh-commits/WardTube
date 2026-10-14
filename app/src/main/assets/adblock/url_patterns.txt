@@ -1,0 +1,7 @@
+# Substrings blocked in any request URL (first-party YouTube ad endpoints).
+# One pattern per line. Lines starting with # are ignored.
+/pagead/
+/api/stats/ads
+/youtubei/v1/player/ad_break
+/get_midroll_info
+/ad_data_204

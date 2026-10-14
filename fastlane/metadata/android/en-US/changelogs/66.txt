@@ -1,0 +1,1 @@
+Browser: a pasted video or file link now opens the download window instead of the site (with an "Open site" button when nothing is found). Paste and Download buttons show only on the main screen, the floating download button can be dragged, and the top arrow leaves the browser.

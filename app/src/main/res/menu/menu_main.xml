@@ -1,0 +1,115 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context=".MainActivity">
+
+    <item
+        android:id="@+id/action_minimize"
+        android:icon="@drawable/ic_expand_more_white_24dp"
+        android:title="@string/minimizePlayer"
+        android:visible="false"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_home"
+        android:icon="@drawable/ic_home_white_24dp"
+        android:title="@string/home"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_voice_search"
+        android:icon="@drawable/ic_mic_white_24dp"
+        android:title="@string/voiceSearch"
+        app:showAsAction="ifRoom" />
+
+    <item
+        android:id="@+id/action_refresh"
+        android:icon="@drawable/ic_refresh_white_24dp"
+        android:title="@string/refresh"
+        app:showAsAction="ifRoom" />
+
+    <item
+        android:id="@+id/action_share"
+        android:icon="@drawable/ic_share_variant_white_24dp"
+        android:title="@string/share"
+        app:showAsAction="ifRoom" />
+
+    <item
+        android:id="@+id/action_browser"
+        android:icon="@drawable/ic_globe_white_24dp"
+        android:title="@string/browser"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_library"
+        android:icon="@drawable/ic_library_white_24dp"
+        android:title="@string/library"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_sleep_timer"
+        android:title="@string/sleepTimer"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_set_as_home"
+        android:title="@string/set_as_home"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_theme"
+        android:title="@string/theme"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_backgroundPlay"
+        android:checkable="true"
+        android:checked="true"
+        android:title="@string/playInBackground"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_auto_hide_bar"
+        android:checkable="true"
+        android:checked="true"
+        android:title="@string/hideBarOnScroll"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_adblock"
+        android:checkable="true"
+        android:checked="true"
+        android:title="@string/blockAds"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_update_filters"
+        android:title="@string/updateFilters"
+        app:showAsAction="never" />
+
+
+    <item
+        android:id="@+id/action_download"
+        android:title="@string/download"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_update_engine"
+        android:title="@string/updateEngine"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_accept_cookies"
+        android:checkable="true"
+        android:checked="true"
+        android:title="@string/acceptCookies"
+        app:showAsAction="never" />
+
+
+
+    <item
+        android:id="@+id/action_about"
+        android:title="@string/about"
+        app:showAsAction="never" />
+
+</menu>

@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:installLocation="auto">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Voice search: YouTube's mic button (WebView) and the in-app voice search button. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
+    <!-- Storage: fine-grained media permissions on Android 13+,
+         READ_EXTERNAL_STORAGE up to Android 12L, WRITE_EXTERNAL_STORAGE only up to Android 9. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- Optional "All files access" (Android 11+): lets the Library list every file in Download/WardTube,
+         including subtitle files and files left by an earlier install. Granted by the user in Settings. -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <application
+        android:name=".WardTubeApp"
+        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:hardwareAccelerated="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:name=".MainActivity"
+            android:alwaysRetainTaskState="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="au.youtube.com" />
+                <data android:host="br.youtube.com" />
+                <data android:host="ca.youtube.com" />
+                <data android:host="cz.youtube.com" />
+                <data android:host="de.youtube.com" />
+                <data android:host="dk.youtube.com" />
+                <data android:host="es.youtube.com" />
+                <data android:host="fi.youtube.com" />
+                <data android:host="fr.youtube.com" />
+                <data android:host="gr.youtube.com" />
+                <data android:host="hk.youtube.com" />
+                <data android:host="hu.youtube.com" />
+                <data android:host="il.youtube.com" />
+                <data android:host="in.youtube.com" />
+                <data android:host="it.youtube.com" />
+                <data android:host="jp.youtube.com" />
+                <data android:host="kr.youtube.com" />
+                <data android:host="m.youtube.com" />
+                <data android:host="mx.youtube.com" />
+                <data android:host="nl.youtube.com" />
+                <data android:host="no.youtube.com" />
+                <data android:host="nz.youtube.com" />
+                <data android:host="pl.youtube.com" />
+                <data android:host="ru.youtube.com" />
+                <data android:host="se.youtube.com" />
+                <data android:host="tr.youtube.com" />
+                <data android:host="tw.youtube.com" />
+                <data android:host="uk.youtube.com" />
+                <data android:host="www.youtube.co.uk" />
+                <data android:host="www.youtube.com" />
+                <data android:host="www.youtube.com.tr" />
+                <data android:host="youtu.be" />
+                <data android:host="youtube.co.uk" />
+                <data android:host="youtube.com" />
+                <data android:host="youtube.com.tr" />
+                <data android:host="za.youtube.com" />
+            </intent-filter>
+        </activity>
+
+        <!-- Share target: a YouTube / TikTok link shared from any app opens the "Download as" dialog over that app.
+             Transparent, its own (empty-affinity) task and not in Recents: the browser screen is never opened. -->
+        <activity
+            android:name=".ShareReceiverActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/shareTargetLabel"
+            android:taskAffinity=""
+            android:theme="@style/ShareTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+
+        <!-- Crash report screen: separate process so it still opens after the app has died. -->
+        <activity
+            android:name=".CrashActivity"
+            android:exported="false"
+            android:process=":crash"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="" />
+
+        <!-- Browser screen: paste a link of any site (or browse to it) and download. Opened by the globe button. -->
+        <activity
+            android:name=".browser.BrowserActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode"
+            android:exported="false"
+            android:theme="@style/BrowserTheme"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Browsing history of the browser screen: tap a page to open it, long press to select several and delete. -->
+        <activity
+            android:name=".browser.HistoryActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode"
+            android:exported="false"
+            android:theme="@style/BrowserTheme" />
+
+        <!-- Library: files downloaded from inside the app (play / share / delete). -->
+        <activity
+            android:name=".ui.LibraryActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
+
+        <!-- Downloads run here so they continue when the app is in the background. -->
+        <service
+            android:name=".download.DownloadService"
+            android:exported="false"
+            android:process=":download"
+            android:foregroundServiceType="dataSync" />
+
+        <service
+            android:name=".player.PlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
+
+</manifest>

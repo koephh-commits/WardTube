@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="24dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            style="@style/DownloadSectionLabel"
+            android:text="@string/optType" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chipKind"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
+
+        <!-- Video -->
+        <LinearLayout
+            android:id="@+id/sectionVideo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/DownloadSectionLabel"
+                android:text="@string/optVideoQuality" />
+
+            <Spinner
+                android:id="@+id/spVideoQuality"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                style="@style/DownloadSectionLabel"
+                android:text="@string/optContainer" />
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:selectionRequired="true"
+                app:singleSelection="true" />
+
+            <LinearLayout
+                android:id="@+id/sectionCodec"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/DownloadSectionLabel"
+                    android:text="@string/optCodec" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipCodec"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:selectionRequired="true"
+                    app:singleSelection="true" />
+
+                <TextView
+                    android:id="@+id/tvCodecHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/optCodecHint"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Audio -->
+        <LinearLayout
+            android:id="@+id/sectionAudio"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/DownloadSectionLabel"
+                android:text="@string/optAudioFormat" />
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipAudioFormat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:selectionRequired="true"
+                app:singleSelection="true" />
+
+            <LinearLayout
+                android:id="@+id/sectionAudioQuality"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/DownloadSectionLabel"
+                    android:text="@string/optAudioQuality" />
+
+                <Spinner
+                    android:id="@+id/spAudioQuality"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvLossless"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/optLosslessHint"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- Subtitles -->
+        <LinearLayout
+            android:id="@+id/sectionSubs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <CheckBox
+                android:id="@+id/cbWithSubs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/optWithSubs" />
+
+            <LinearLayout
+                android:id="@+id/sectionSubFormat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/DownloadSectionLabel"
+                    android:text="@string/optSubFormat" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipSubFormat"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:selectionRequired="true"
+                    app:singleSelection="true" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/optSubNextStep"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

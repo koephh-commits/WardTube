@@ -1,0 +1,1 @@
+Browser: a typed text that is not a link is now searched with Google instead of DuckDuckGo.

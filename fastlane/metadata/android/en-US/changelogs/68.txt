@@ -1,0 +1,1 @@
+Browser: the title moved up into the top row and the link field sits right under it. New Reload and Home buttons in the top row while a page is open.

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#E62118</color>
+    <color name="colorPrimaryDark">#C31C13</color>
+    <color name="colorAccent">#E62118</color>
+    <color name="colorWatch">#424242</color>
+    <color name="colorWatchDark">#212121</color>
+    <color name="white">#fafafa</color>
+    <color name="white_pressed">#f1f1f1</color>
+    <color name="black_semi_transparent">#B2000000</color>
+    <color name="half_black">#808080</color>
+
+    <!-- Light-mode values; values-night/colors.xml overrides them in dark mode. -->
+    <color name="barBrowse">@color/colorPrimary</color>
+    <color name="barWatch">@color/colorWatch</color>
+    <color name="webBackground">#FFFFFF</color>
+
+    <!-- Library / About screens. -->
+    <color name="accentLight">#FF6B61</color>
+    <color name="brandText">#E62118</color>
+    <color name="iconCircle">#1FE62118</color>
+    <color name="divider">#1F000000</color>
+    <!-- The Library's search button while the search field is open (it sits on the coloured toolbar). -->
+    <color name="searchActive">#FFE082</color>
+    <!-- Background of a ticked file in the Library. -->
+    <color name="rowSelected">#1FE62118</color>
+
+    <!-- Download cards in the Library. -->
+    <color name="jobCard">#FFF5F4</color>
+    <color name="jobError">#D32F2F</color>
+
+    <!-- Browser screen (download from any site): always dark green, in both day and night mode. -->
+    <color name="browserBg">#10160F</color>
+    <color name="browserText">#E1E4D9</color>
+    <color name="browserHint">#C4C8BB</color>
+    <color name="browserFab">#205211</color>
+    <color name="browserFabIcon">#B7F397</color>
+    <!-- Background of a ticked row in the browsing history. -->
+    <color name="browserRowSelected">#33B7F397</color>
+</resources>

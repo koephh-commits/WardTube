@@ -1,0 +1,1 @@
+Fixes the build error of the previous version. The link field's x clear button works as before.

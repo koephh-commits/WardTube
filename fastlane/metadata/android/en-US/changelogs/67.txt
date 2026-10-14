@@ -1,0 +1,1 @@
+Browser: removed the direct Download button under Paste; the globe button in the field and Go on the keyboard already open the download window for a link.

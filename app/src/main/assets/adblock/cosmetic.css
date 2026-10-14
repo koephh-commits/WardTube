@@ -1,0 +1,48 @@
+/* Elements hidden by the ad blocker. YouTube renames these now and then:
+   if an ad slips through, add its tag or class here. */
+
+/* Feed, search and watch-page ads (mobile layout) */
+ytm-promoted-sparkles-web-renderer,
+ytm-promoted-sparkles-text-search-renderer,
+ytm-promoted-video-renderer,
+ytm-companion-slot,
+ytm-companion-ad-renderer,
+ytm-ad-slot-renderer,
+ytm-in-feed-ad-layout-renderer,
+ytm-display-ad-renderer,
+ytm-statement-banner-renderer,
+ytm-banner-promo-renderer,
+ytm-mealbar-promo-renderer,
+ytm-upsell-dialog-renderer,
+
+/* Desktop-layout equivalents, in case the site serves them */
+ytd-promoted-sparkles-web-renderer,
+ytd-display-ad-renderer,
+ytd-ad-slot-renderer,
+ytd-in-feed-ad-layout-renderer,
+ytd-banner-promo-renderer,
+ytd-statement-banner-renderer,
+ytd-video-masthead-ad-v3-renderer,
+ytd-player-legacy-desktop-watch-ads-renderer,
+#masthead-ad,
+
+/* Ad UI inside the player */
+.video-ads,
+.ytp-ad-module,
+.ytp-ad-overlay-container,
+.ytp-ad-overlay-slot,
+.ytp-ad-image-overlay,
+.ytp-ad-text-overlay,
+.ytp-ad-player-overlay,
+.ytp-ad-player-overlay-layout {
+    display: none !important;
+}
+
+/* Shorts ads (separate rules: a selector the WebView does not know must not break the rules above) */
+ytm-reel-ad-renderer,
+ytm-shorts-ad-renderer {
+    display: none !important;
+}
+ytm-reel-video-renderer:has(ytm-ad-slot-renderer) {
+    display: none !important;
+}

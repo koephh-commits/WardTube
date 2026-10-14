@@ -1,0 +1,1 @@
+Browser: previous / next page buttons, a browsing history (tap to open, long press to select several and delete, clear all), and an x in the link field to clear what is typed.

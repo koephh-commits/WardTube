@@ -1,0 +1,243 @@
+<resources>
+    <string name="app_name" translatable="false">Ward Tube</string>
+
+    <string name="acceptCookies">Accept cookies</string>
+    <string name="download">Download</string>
+    <string name="error">Oh no!</string>
+    <string name="errorNoInternet">Oh no! You are not connected to the internet.</string>
+    <string name="error_no_video">No video!</string>
+    <string name="error_select_video_and_retry">Please select a video and try again.</string>
+    <string name="home">Home</string>
+    <string name="homePageHelp">If you want to change the homepage, just hold the Home button for it to change to the currently opened page.</string>
+    <string name="homePageSet">Your homepage has been set to this page.</string>
+    <string name="menu">Menu</string>
+    <string name="playInBackground">Play in background</string>
+    <string name="hideBarOnScroll">Hide bar while scrolling</string>
+    <string name="refresh">Refresh</string>
+    <string name="set_as_home">Set as home</string>
+    <string name="share">Share</string>
+    <string name="share_with">Share with…</string>
+    <string name="theme">Theme</string>
+    <string name="themeSystem">Follow system</string>
+    <string name="themeLight">Light</string>
+    <string name="themeDark">Dark</string>
+
+    <string name="blockAds">Block ads</string>
+    <string name="blockAdsCount">Block ads (%1$d blocked)</string>
+    <string name="notificationChannel">Background playback</string>
+    <string name="pause">Pause</string>
+    <string name="play">Play</string>
+    <string name="stop">Stop</string>
+    <string name="updateFilters">Update ad filters</string>
+    <string name="filtersUpdating">Updating ad filters…</string>
+    <string name="filtersUpdated">Ad filters updated (%1$d rules)</string>
+    <string name="filtersUpdateFailed">Could not update the ad filters</string>
+
+    <!-- Library -->
+    <string name="library">Library</string>
+    <string name="libraryEmpty">No downloads yet</string>
+    <string name="libraryNoResults">No results</string>
+    <string name="librarySearch">Search</string>
+    <string name="librarySearchHint">Search by file name</string>
+    <string name="libraryCount">%1$d files</string>
+    <string name="delete">Delete</string>
+    <string name="deleteConfirmTitle">Delete file?</string>
+    <string name="deleteConfirmMessage">The file will be permanently deleted from the phone and cannot be restored.</string>
+    <string name="deleteConfirmManyTitle">Delete the selected files?</string>
+    <plurals name="deleteConfirmManyMessage">
+        <item quantity="one">The file will be permanently deleted from the phone and cannot be restored.</item>
+        <item quantity="other">%1$d files will be permanently deleted from the phone and cannot be restored.</item>
+    </plurals>
+    <string name="deleteFailed">Could not delete %1$d file(s)</string>
+    <plurals name="deletedCount">
+        <item quantity="one">File deleted</item>
+        <item quantity="other">%1$d files deleted</item>
+    </plurals>
+
+    <!-- Library: selecting several files -->
+    <string name="libraryMultiSelectOn">Select multiple</string>
+    <string name="libraryMultiSelectOff">Done selecting</string>
+    <string name="librarySelectFiles">Select files</string>
+    <string name="libraryRangeHint">Long-press to select a whole range</string>
+    <plurals name="librarySelectedCount">
+        <item quantity="one">1 selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
+    <string name="librarySelectionShare">Share (%1$d)</string>
+    <string name="librarySelectionDelete">Delete (%1$d)</string>
+    <string name="noAppToOpen">No app can open this file</string>
+
+    <!-- Permissions / voice search -->
+    <string name="voiceSearch">Voice search</string>
+    <string name="voiceSearchPrompt">Say what you want to search for</string>
+    <string name="voiceNotAvailable">Voice search is not available on this device</string>
+    <string name="micPermissionDenied">Microphone permission is needed for voice search</string>
+    <string name="storagePermissionDenied">Storage permission is needed to save downloads</string>
+    <string name="openSettings">Settings</string>
+
+    <!-- About -->
+    <string name="about">About</string>
+    <string name="version">Version %1$s</string>
+    <string name="aboutDeveloperName" translatable="false">MØ⁷ÆmĒd WĀrd</string>
+    <string name="aboutDeveloperHandle" translatable="false">MWMods</string>
+    <string name="aboutBio">Passionate about building web and Android apps — simple, practical tools that solve real problems.</string>
+    <string name="aboutWhatsapp">WhatsApp</string>
+    <string name="aboutWhatsappNumber" translatable="false">+994 40 733 31 37</string>
+    <string name="aboutCopyright">© %1$d MWMods — Free software (GPL-3.0)</string>
+    <string name="aboutBasedOn">Based on webTube by martykan (GPL-3.0-or-later)</string>
+    <string name="errorUnknown">Something went wrong</string>
+
+    <!-- Downloads -->
+    <string name="downloadChoose">Download as</string>
+    <string name="dlVideo1080">Video MP4 – up to 1080p</string>
+    <string name="dlVideo720">Video MP4 – 720p</string>
+    <string name="dlVideo480">Video MP4 – 480p</string>
+    <string name="dlAudioMp3">Audio MP3</string>
+    <string name="dlAudioM4a">Audio M4A (best quality)</string>
+    <string name="dlSubsSrt">Subtitles SRT (if available)</string>
+    <string name="dlSubsLrc">Lyrics / subtitles LRC (if available)</string>
+    <string name="optType">Type</string>
+    <string name="optKindVideo">Video</string>
+    <string name="optKindAudio">Audio</string>
+    <string name="optKindSubs">Subtitles only</string>
+    <string name="optVideoQuality">Video quality</string>
+    <string name="optBest">Best available</string>
+    <string name="optContainer">Video format</string>
+    <string name="optCodec">Codec</string>
+    <string name="optCodecCompatible">Compatible (H.264)</string>
+    <string name="optCodecBest">Best quality (VP9 / AV1)</string>
+    <string name="optCodecHint">Compatible plays on every phone and TV. Best quality can be smaller or sharper, but some players cannot open it.</string>
+    <string name="optAudioFormat">Audio format</string>
+    <string name="optAudioQuality">Audio quality</string>
+    <string name="optLosslessHint">FLAC and WAV are lossless: they are large and have no bitrate setting.</string>
+    <string name="optWithSubs">Also download subtitles</string>
+    <string name="optSubFormat">Subtitle format</string>
+    <string name="optSubNextStep">Next you will choose the languages.</string>
+    <string name="filesSavedMany">Saved %1$d files to Library</string>
+    <string name="allFilesMenu">Show all files in the folder</string>
+    <string name="allFilesTitle">Show every file?</string>
+    <string name="allFilesMessage">By default Android lets the app see only some of the files in its folder, so subtitle files and files from an earlier install can be missing. Allow \"All files access\" for WardTube to list everything in Download/WardTube.</string>
+    <string name="allFilesAllow">Allow</string>
+    <string name="allFilesLater">Not now</string>
+    <string name="subsLoading">Looking for subtitles…</string>
+    <string name="subsChoose">Choose subtitle languages</string>
+    <string name="subsManual">subtitles</string>
+    <string name="subsAuto">auto-generated</string>
+    <string name="subsAutoTranslated">auto-translated</string>
+    <string name="subsFetchFailed">Could not read the subtitle list. Check the connection or update the download engine.</string>
+    <string name="subsPickOne">Pick at least one language</string>
+    <string name="subsNotAvailable">This video has no subtitles</string>
+    <string name="subsSavedMany">Saved %1$d subtitle files to Library</string>
+    <string name="downloadChannel">Downloads</string>
+    <string name="downloadPreparing">Preparing…</string>
+    <string name="downloadProgress">Downloading… %1$d%%</string>
+    <string name="downloadProcessing">Processing the file…</string>
+    <string name="downloadQueued">Added to downloads. Follow the progress in the Library.</string>
+    <string name="downloadSaved">Saved to Library: %1$s</string>
+    <string name="downloadFailed">Download failed</string>
+    <string name="downloadCancelled">Download cancelled</string>
+    <string name="downloadEngineFailed">The download engine could not start on this device</string>
+    <string name="updateEngine">Update download engine</string>
+    <string name="engineUpdating">Updating the download engine…</string>
+    <string name="engineUpdated">Download engine updated</string>
+    <string name="engineUpdateFailed">Could not update the download engine</string>
+    <string name="downloadAlreadyQueued">This download is already in the list</string>
+
+    <!-- Download by sharing a link to the app -->
+    <string name="shareTargetLabel">Download with Ward Tube</string>
+    <string name="shareNoLink">No link found in the shared text</string>
+    <string name="shareNotVideo">This link is not a video link</string>
+    <string name="downloadWaitingCount">%1$d waiting</string>
+    <string name="downloadEta">%1$s left</string>
+    <string name="downloadProgressParts">Downloading… %1$d%% • part %2$d of %3$d</string>
+
+    <!-- Library: downloads in progress -->
+    <string name="libraryDownloads">Downloads</string>
+    <string name="libraryFiles">Files</string>
+    <string name="libraryCountDownloading">%1$d files • %2$d downloading</string>
+    <string name="jobWaiting">Waiting</string>
+    <string name="jobWaitingNext">Waiting • up next</string>
+    <string name="jobWaitingPos">Waiting • #%1$d in line</string>
+    <string name="jobCancel">Cancel download</string>
+    <string name="jobRetry">Try again</string>
+    <string name="jobDismiss">Dismiss</string>
+    <string name="subsMissing">Saved without the subtitle file: YouTube did not provide it or refused the request. Try again later.</string>
+    <string name="sleepTimer">Sleep timer</string>
+    <string name="sleepTimerLeft">Sleep timer (%1$d min left)</string>
+    <string name="sleepTimerOff">Turn off the timer</string>
+    <string name="sleepTimerMinutes">%1$d minutes</string>
+    <string name="sleepTimerSet">Playback will stop in %1$d minutes</string>
+    <string name="sleepTimerCanceled">Sleep timer turned off</string>
+    <string name="sleepTimerDone">Sleep timer: playback stopped</string>
+    <string name="sleepCustom">Set a custom time…</string>
+    <string name="sleepCustomTitle">Custom sleep time</string>
+    <string name="sleepHours">Hours</string>
+    <string name="sleepMinutesField">Minutes</string>
+    <string name="sleepInvalid">Enter a time between 1 minute and 24 hours</string>
+    <string name="previousVideo">Previous</string>
+    <string name="nextVideo">Next</string>
+    <string name="liveNotDownloadable">Live streams cannot be downloaded</string>
+    <string name="subsNoneContinue">This video has no subtitles. Downloading it without them.</string>
+    <string name="subsFetchFailedContinue">Could not read the subtitle list. Downloading without subtitles.</string>
+    <string name="subsSkipped">No language picked. Downloading without subtitles.</string>
+    <string name="coverSkipped">Could not embed the cover picture. Saving the audio without it.</string>
+
+    <!-- Mini player -->
+    <string name="minimizePlayer">Minimize video</string>
+    <string name="miniPlayerPlayPause">Play or pause</string>
+    <string name="miniPlayerClose">Close video</string>
+    <string name="miniPlayerShow">Show mini player</string>
+
+    <!-- Library: filter chips and the file menu -->
+    <string name="filterAll">All</string>
+    <string name="filterVideo">Video</string>
+    <string name="filterAudio">Audio</string>
+    <string name="filterLyrics">Lyrics</string>
+    <string name="moreOptions">More options</string>
+
+    <!-- Browser screen -->
+    <string name="browser">Browser</string>
+    <string name="browserLinkHint">Video or file link</string>
+    <string name="browserPaste">Paste</string>
+    <string name="browserOpen">Open in the browser</string>
+    <string name="browserBack">Back</string>
+    <string name="browserClear">Clear</string>
+    <string name="browserReload">Reload page</string>
+    <string name="browserHome">Browser home</string>
+    <string name="browserClipboardEmpty">The clipboard is empty</string>
+    <string name="browserNothingToDownload">Paste a link first</string>
+    <string name="browserNothingFound">Nothing found at this link. Try opening the site.</string>
+    <string name="browserOpenSite">Open site</string>
+    <string name="browserLoadError">The page could not be loaded</string>
+    <string name="browserFileTitle">Download this file?</string>
+    <string name="browserFileStarted">Downloading %1$s</string>
+    <string name="browserFileFailed">The download could not be started</string>
+    <string name="browserFileUnsupported">This kind of link cannot be downloaded directly</string>
+    <string name="browserDetectNone">No video or file detected on this page yet</string>
+    <string name="browserDetectFound">Download from this page (%1$d found)</string>
+    <string name="browserDetectTitle">Found on this page</string>
+    <string name="browserKindPage">Video of this page</string>
+    <string name="browserKindVideo">Video</string>
+    <string name="browserKindStream">Video stream</string>
+    <string name="browserKindAudio">Audio</string>
+    <string name="browserKindFile">File</string>
+    <string name="browserPrevious">Previous page</string>
+    <string name="browserNext">Next page</string>
+    <string name="browserHistory">Browsing history</string>
+    <string name="historyTitle">Browsing history</string>
+    <string name="historySelectItems">Select pages</string>
+    <string name="historySelectAll">Select all</string>
+    <string name="historyClear">Clear all history</string>
+    <string name="historyEmpty">No pages visited yet</string>
+    <string name="historyClearTitle">Clear all history?</string>
+    <string name="historyClearMessage">Every visited page will be removed from the history.</string>
+    <string name="historyDeleteTitle">Delete from history?</string>
+    <plurals name="historySelectedCount">
+        <item quantity="one">1 selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
+    <plurals name="historyDeleteMessage">
+        <item quantity="one">This page will be removed from the history.</item>
+        <item quantity="other">%1$d pages will be removed from the history.</item>
+    </plurals>
+</resources>

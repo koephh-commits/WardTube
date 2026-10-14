@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <!-- Another way into the multi-select mode besides a long press (the title flips while it is on). -->
+    <item
+        android:id="@+id/action_select"
+        android:title="@string/libraryMultiSelectOn"
+        app:showAsAction="never" />
+    <!-- Only while selecting. -->
+    <item
+        android:id="@+id/action_select_all"
+        android:title="@string/historySelectAll"
+        android:visible="false"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_clear"
+        android:title="@string/historyClear"
+        app:showAsAction="never" />
+</menu>

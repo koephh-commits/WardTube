@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Background of a file row in the Library: tinted while the row is ticked (itemView.isActivated). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/rowSelected" android:state_activated="true" />
+    <item android:drawable="@android:color/transparent" />
+</selector>

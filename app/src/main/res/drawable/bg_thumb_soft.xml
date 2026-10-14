@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Behind a Library thumbnail: what shows while it loads, and for files that have no picture. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/iconCircle" />
+    <corners android:radius="10dp" />
+</shape>

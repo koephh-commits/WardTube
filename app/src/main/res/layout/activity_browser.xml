@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/browserRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/browserBg"
+    tools:context=".browser.BrowserActivity">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Top row: back, Library and History (the first buttons of the Seal app), then the big thin title.
+             While a page is open the title is hidden (it keeps its room) and the page buttons show at the far end:
+             previous page, next page, Reload and Home. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
+
+            <ImageButton
+                android:id="@+id/browserBack"
+                android:layout_width="44dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/browserBack"
+                android:src="@drawable/ic_arrow_back_white_24dp"
+                android:tint="@color/browserText" />
+
+            <ImageButton
+                android:id="@+id/browserLibrary"
+                android:layout_width="44dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/library"
+                android:src="@drawable/ic_library_white_24dp"
+                android:tint="@color/browserText" />
+
+            <ImageButton
+                android:id="@+id/browserHistory"
+                android:layout_width="44dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/browserHistory"
+                android:src="@drawable/ic_history_white_24dp"
+                android:tint="@color/browserText" />
+
+            <TextView
+                android:id="@+id/browserTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-light"
+                android:maxLines="1"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/browser"
+                android:textAlignment="viewStart"
+                android:textColor="@color/browserText"
+                android:textSize="34sp" />
+
+            <ImageButton
+                android:id="@+id/browserPrev"
+                android:layout_width="44dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/browserPrevious"
+                android:src="@drawable/ic_chevron_back_24dp"
+                android:tint="@color/browserText"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@+id/browserNext"
+                android:layout_width="44dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/browserNext"
+                android:src="@drawable/ic_chevron_24dp"
+                android:tint="@color/browserText"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@+id/browserReload"
+                android:layout_width="44dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/browserReload"
+                android:src="@drawable/ic_refresh_24dp"
+                android:tint="@color/browserText"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@+id/browserHome"
+                android:layout_width="44dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/browserHome"
+                android:src="@drawable/ic_home_white_24dp"
+                android:tint="@color/browserText"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/browserFieldLayout"
+            style="@style/BrowserField"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="16dp"
+            android:hint="@string/browserLinkHint"
+            app:endIconContentDescription="@string/browserClear"
+            app:endIconDrawable="@drawable/ic_close_24dp"
+            app:endIconMode="custom"
+            app:startIconContentDescription="@string/browserOpen"
+            app:startIconDrawable="@drawable/ic_globe_white_24dp">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/browserField"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:imeOptions="actionGo"
+                android:inputType="textUri"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:textColor="@color/browserText" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- The page being browsed. Its WebView is created only when a page is opened (see BrowserActivity). -->
+        <FrameLayout
+            android:id="@+id/browserWebContainer"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1"
+            android:visibility="gone">
+
+            <ProgressBar
+                android:id="@+id/browserProgress"
+                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_gravity="top"
+                android:max="100"
+                android:progressBackgroundTint="@android:color/transparent"
+                android:progressTint="@color/browserFabIcon"
+                android:visibility="gone" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Paste: bottom corner. Only on the main screen: BrowserActivity hides it while a page is open. -->
+    <LinearLayout
+        android:id="@+id/browserHomeButtons"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/browserPaste"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="@string/browserPaste"
+            app:backgroundTint="@color/browserFab"
+            app:fabSize="normal"
+            app:shapeAppearanceOverlay="@style/BrowserFabShape"
+            app:srcCompat="@drawable/ic_paste_24dp"
+            app:tint="@color/browserFabIcon" />
+    </LinearLayout>
+
+    <!-- Detected download: only while a page is open (BrowserActivity shows it), and the person can drag it anywhere.
+         Dimmed until the page offers a video or a file; light colors so it stands out. -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/browserDetect"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="16dp"
+        android:alpha="0.4"
+        android:contentDescription="@string/browserDetectNone"
+        android:visibility="gone"
+        app:backgroundTint="@color/browserFabIcon"
+        app:fabSize="normal"
+        app:shapeAppearanceOverlay="@style/BrowserFabShape"
+        app:srcCompat="@drawable/ic_download_24dp"
+        app:tint="@color/browserFab" />
+</FrameLayout>

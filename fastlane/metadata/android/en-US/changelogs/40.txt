@@ -1,0 +1,1 @@
+Downloaded audio now has embedded tags (title, artist...) and a cover picture.

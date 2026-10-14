@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    tools:context=".MainActivity">
+
+    <LinearLayout
+        android:id="@+id/appWindow"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Height is set to the status bar inset in MainActivity. -->
+        <View
+            android:id="@+id/statusBarSpace"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:background="@color/barBrowse" />
+
+        <!-- The browsing WebView, with the video player (full screen or mini) on top of it. -->
+        <FrameLayout
+            android:id="@+id/webArea"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <com.mwmods.wardtube.web.BackgroundWebView
+                android:id="@+id/webView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <!-- The player's WebView is added here in code, below the mini player's buttons. -->
+            <FrameLayout
+                android:id="@+id/playerContainer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="#000000"
+                android:visibility="gone">
+
+                <FrameLayout
+                    android:id="@+id/miniOverlay"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clickable="true"
+                    android:focusable="false"
+                    android:visibility="gone">
+
+                    <ImageButton
+                        android:id="@+id/miniPlayPause"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_gravity="top|start"
+                        android:layout_margin="6dp"
+                        android:background="@drawable/bg_mini_button"
+                        android:contentDescription="@string/miniPlayerPlayPause"
+                        android:padding="6dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_pause_white_24dp" />
+
+                    <ImageButton
+                        android:id="@+id/miniClose"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_gravity="top|end"
+                        android:layout_margin="6dp"
+                        android:background="@drawable/bg_mini_button"
+                        android:contentDescription="@string/miniPlayerClose"
+                        android:padding="6dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_close_24dp" />
+                </FrameLayout>
+            </FrameLayout>
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/bottomBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/barBrowse">
+
+            <androidx.appcompat.widget.ActionMenuView
+                android:id="@+id/menu_main"
+                android:layout_width="match_parent"
+                android:layout_height="?attr/actionBarSize" />
+
+            <ProgressBar
+                android:id="@+id/progress"
+                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_gravity="top"
+                android:max="100"
+                android:progress="0"
+                android:progressBackgroundTint="@android:color/transparent"
+                android:progressTint="@color/white" />
+        </FrameLayout>
+
+        <!-- Height is set to the navigation bar inset in MainActivity, only while the bottom bar is hidden. -->
+        <View
+            android:id="@+id/navBarSpace"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:background="@color/barBrowse" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/customViewContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000"
+        android:visibility="gone" />
+
+</RelativeLayout>

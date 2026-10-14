@@ -1,0 +1,1 @@
+Downloads with "also download subtitles" are no longer dropped when the video has no subtitles; they continue without them.

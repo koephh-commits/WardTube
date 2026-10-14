@@ -1,0 +1,252 @@
+<resources>
+    <string name="acceptCookies">قبول ملفات تعريف الارتباط</string>
+    <string name="download">تنزيل</string>
+    <string name="error">عذرًا!</string>
+    <string name="errorNoInternet">عذرًا! لا يوجد اتصال بالإنترنت.</string>
+    <string name="error_no_video">لا يوجد فيديو!</string>
+    <string name="error_select_video_and_retry">اختر فيديو ثم حاول مرة أخرى.</string>
+    <string name="home">الرئيسية</string>
+    <string name="homePageHelp">لتغيير الصفحة الرئيسية، اضغط مطولًا على زر الرئيسية ليتم تعيين الصفحة المفتوحة حاليًا.</string>
+    <string name="homePageSet">تم تعيين هذه الصفحة كصفحة رئيسية.</string>
+    <string name="menu">القائمة</string>
+    <string name="playInBackground">التشغيل في الخلفية</string>
+    <string name="hideBarOnScroll">إخفاء الشريط عند التمرير</string>
+    <string name="refresh">تحديث</string>
+    <string name="set_as_home">تعيين كصفحة رئيسية</string>
+    <string name="share">مشاركة</string>
+    <string name="share_with">مشاركة عبر…</string>
+    <string name="theme">المظهر</string>
+    <string name="themeSystem">حسب النظام</string>
+    <string name="themeLight">فاتح</string>
+    <string name="themeDark">داكن</string>
+    <string name="blockAds">حظر الإعلانات</string>
+    <string name="blockAdsCount">حظر الإعلانات (تم حظر %1$d)</string>
+    <string name="notificationChannel">التشغيل في الخلفية</string>
+    <string name="pause">إيقاف مؤقت</string>
+    <string name="play">تشغيل</string>
+    <string name="stop">إيقاف</string>
+    <string name="updateFilters">تحديث مرشحات الإعلانات</string>
+    <string name="filtersUpdating">جارٍ تحديث مرشحات الإعلانات…</string>
+    <string name="filtersUpdated">تم تحديث مرشحات الإعلانات (%1$d قاعدة)</string>
+    <string name="filtersUpdateFailed">تعذّر تحديث مرشحات الإعلانات</string>
+
+    <!-- المكتبة -->
+    <string name="library">المكتبة</string>
+    <string name="libraryEmpty">لا توجد تنزيلات بعد</string>
+    <string name="libraryNoResults">لا توجد نتائج</string>
+    <string name="librarySearch">بحث</string>
+    <string name="librarySearchHint">ابحث باسم الملف</string>
+    <string name="libraryCount">%1$d ملف</string>
+    <string name="delete">حذف</string>
+    <string name="deleteConfirmTitle">حذف الملف؟</string>
+    <string name="deleteConfirmMessage">سيتم حذف الملف نهائياً من الهاتف ولا يمكن التراجع</string>
+    <string name="deleteConfirmManyTitle">حذف الملفات المحددة؟</string>
+    <plurals name="deleteConfirmManyMessage">
+        <item quantity="one">سيتم حذف الملف نهائياً من الهاتف ولا يمكن التراجع</item>
+        <item quantity="two">سيتم حذف الملفين نهائياً من الهاتف ولا يمكن التراجع</item>
+        <item quantity="few">سيتم حذف %1$d ملفات نهائياً من الهاتف ولا يمكن التراجع</item>
+        <item quantity="many">سيتم حذف %1$d ملفاً نهائياً من الهاتف ولا يمكن التراجع</item>
+        <item quantity="other">سيتم حذف %1$d ملف نهائياً من الهاتف ولا يمكن التراجع</item>
+    </plurals>
+    <string name="deleteFailed">تعذّر حذف %1$d من الملفات</string>
+    <plurals name="deletedCount">
+        <item quantity="one">تم حذف الملف</item>
+        <item quantity="two">تم حذف الملفين</item>
+        <item quantity="few">تم حذف %1$d ملفات</item>
+        <item quantity="many">تم حذف %1$d ملفاً</item>
+        <item quantity="other">تم حذف %1$d ملف</item>
+    </plurals>
+
+    <!-- المكتبة: تحديد عدة ملفات -->
+    <string name="libraryMultiSelectOn">اختيار متعدد</string>
+    <string name="libraryMultiSelectOff">إنهاء الاختيار</string>
+    <string name="librarySelectFiles">حدّد الملفات</string>
+    <string name="libraryRangeHint">اضغط مطولاً لتحديد نطاق كامل</string>
+    <plurals name="librarySelectedCount">
+        <item quantity="one">تم تحديد ملف واحد</item>
+        <item quantity="two">تم تحديد ملفين</item>
+        <item quantity="few">تم تحديد %1$d ملفات</item>
+        <item quantity="many">تم تحديد %1$d ملفاً</item>
+        <item quantity="other">تم تحديد %1$d ملف</item>
+    </plurals>
+    <string name="librarySelectionShare">مشاركة (%1$d)</string>
+    <string name="librarySelectionDelete">حذف (%1$d)</string>
+    <string name="noAppToOpen">لا يوجد تطبيق يستطيع فتح هذا الملف</string>
+
+    <!-- الصلاحيات / البحث الصوتي -->
+    <string name="voiceSearch">بحث صوتي</string>
+    <string name="voiceSearchPrompt">قل ما تريد البحث عنه</string>
+    <string name="voiceNotAvailable">البحث الصوتي غير متاح على هذا الجهاز</string>
+    <string name="micPermissionDenied">يحتاج البحث الصوتي صلاحية الميكروفون</string>
+    <string name="storagePermissionDenied">يحتاج التطبيق صلاحية التخزين لحفظ التنزيلات</string>
+    <string name="openSettings">الإعدادات</string>
+
+    <!-- حول البرنامج -->
+    <string name="about">حول البرنامج</string>
+    <string name="version">الإصدار %1$s</string>
+    <string name="aboutBio">شغوف بتطوير تطبيقات الويب والأندرويد، وأبني أدوات عملية بسيطة تحل مشاكل حقيقية.</string>
+    <string name="aboutWhatsapp">واتساب</string>
+    <string name="aboutCopyright">© %1$d MWMods — برنامج حر (GPL-3.0)</string>
+    <string name="aboutBasedOn">مبني على webTube للمطوّر martykan (GPL-3.0 أو أحدث)</string>
+    <string name="errorUnknown">حدث خطأ غير متوقع</string>
+
+    <!-- التنزيل -->
+    <string name="downloadChoose">تنزيل بصيغة</string>
+    <string name="dlVideo1080">فيديو MP4 – حتى 1080p</string>
+    <string name="dlVideo720">فيديو MP4 – 720p</string>
+    <string name="dlVideo480">فيديو MP4 – 480p</string>
+    <string name="dlAudioMp3">صوت MP3</string>
+    <string name="dlAudioM4a">صوت M4A (أعلى جودة)</string>
+    <string name="dlSubsSrt">ترجمة SRT (إن توفرت)</string>
+    <string name="dlSubsLrc">كلمات / ترجمة LRC (إن توفرت)</string>
+    <string name="optType">النوع</string>
+    <string name="optKindVideo">فيديو</string>
+    <string name="optKindAudio">صوت</string>
+    <string name="optKindSubs">ترجمة فقط</string>
+    <string name="optVideoQuality">جودة الفيديو</string>
+    <string name="optBest">أعلى جودة متاحة</string>
+    <string name="optContainer">صيغة الفيديو</string>
+    <string name="optCodec">الترميز</string>
+    <string name="optCodecCompatible">متوافق (H.264)</string>
+    <string name="optCodecBest">أعلى جودة (VP9 / AV1)</string>
+    <string name="optCodecHint">المتوافق يعمل على كل الهواتف والتلفزيونات. أعلى جودة قد يكون أصغر حجماً أو أوضح، لكن بعض المشغلات لا تفتحه.</string>
+    <string name="optAudioFormat">صيغة الصوت</string>
+    <string name="optAudioQuality">جودة الصوت</string>
+    <string name="optLosslessHint">FLAC وWAV بلا فقد في الجودة: حجمهما كبير وليس لهما إعداد معدل بت.</string>
+    <string name="optWithSubs">تنزيل الترجمة أيضاً</string>
+    <string name="optSubFormat">صيغة الترجمة</string>
+    <string name="optSubNextStep">في الخطوة التالية تختار اللغات.</string>
+    <string name="filesSavedMany">تم حفظ %1$d ملفات في المكتبة</string>
+    <string name="allFilesMenu">إظهار كل الملفات في المجلد</string>
+    <string name="allFilesTitle">إظهار كل الملفات؟</string>
+    <string name="allFilesMessage">يسمح أندرويد للتطبيق افتراضياً برؤية بعض ملفات مجلده فقط، فقد تغيب ملفات الترجمة والملفات من تثبيت سابق. اسمح بـ «الوصول إلى كل الملفات» لـ WardTube ليعرض كل ما في Download/WardTube.</string>
+    <string name="allFilesAllow">سماح</string>
+    <string name="allFilesLater">ليس الآن</string>
+    <string name="subsLoading">جارٍ البحث عن الترجمات…</string>
+    <string name="subsChoose">اختر لغات الترجمة</string>
+    <string name="subsManual">ترجمة</string>
+    <string name="subsAuto">تلقائية</string>
+    <string name="subsAutoTranslated">تلقائية مترجمة</string>
+    <string name="subsFetchFailed">تعذّر قراءة قائمة الترجمات. تحقق من الاتصال أو حدّث محرك التنزيل.</string>
+    <string name="subsPickOne">اختر لغة واحدة على الأقل</string>
+    <string name="subsNotAvailable">لا توجد ترجمة لهذا الفيديو</string>
+    <string name="subsSavedMany">تم حفظ %1$d ملفات ترجمة في المكتبة</string>
+    <string name="downloadChannel">التنزيلات</string>
+    <string name="downloadPreparing">جارٍ التحضير…</string>
+    <string name="downloadProgress">جارٍ التنزيل… %1$d%%</string>
+    <string name="downloadProcessing">جارٍ معالجة الملف…</string>
+    <string name="downloadQueued">أُضيف إلى التنزيلات. تابع التقدّم من المكتبة.</string>
+    <string name="downloadSaved">تم الحفظ في المكتبة: %1$s</string>
+    <string name="downloadFailed">فشل التنزيل</string>
+    <string name="downloadCancelled">تم إلغاء التنزيل</string>
+    <string name="downloadEngineFailed">تعذّر تشغيل محرك التنزيل على هذا الجهاز</string>
+    <string name="updateEngine">تحديث محرك التنزيل</string>
+    <string name="engineUpdating">جارٍ تحديث محرك التنزيل…</string>
+    <string name="engineUpdated">تم تحديث محرك التنزيل</string>
+    <string name="engineUpdateFailed">تعذّر تحديث محرك التنزيل</string>
+    <string name="downloadAlreadyQueued">هذا التنزيل موجود بالفعل في القائمة</string>
+
+    <!-- التنزيل بمشاركة رابط إلى التطبيق -->
+    <string name="shareTargetLabel">التنزيل عبر Ward Tube</string>
+    <string name="shareNoLink">لا يوجد رابط في النص المُشارَك</string>
+    <string name="shareNotVideo">هذا الرابط ليس رابط فيديو</string>
+    <string name="downloadWaitingCount">%1$d في الانتظار</string>
+    <string name="downloadEta">متبقي %1$s</string>
+    <string name="downloadProgressParts">جارٍ التنزيل… %1$d%% • الجزء %2$d من %3$d</string>
+
+    <!-- المكتبة: التنزيلات الجارية -->
+    <string name="libraryDownloads">التنزيلات</string>
+    <string name="libraryFiles">الملفات</string>
+    <string name="libraryCountDownloading">%1$d ملف • %2$d قيد التنزيل</string>
+    <string name="jobWaiting">في الانتظار</string>
+    <string name="jobWaitingNext">في الانتظار • التالي</string>
+    <string name="jobWaitingPos">في الانتظار • رقم %1$d في الدور</string>
+    <string name="jobCancel">إلغاء التنزيل</string>
+    <string name="jobRetry">إعادة المحاولة</string>
+    <string name="jobDismiss">إخفاء</string>
+    <string name="subsMissing">تم الحفظ بدون ملف الترجمة: لم يوفّره يوتيوب أو رفض الطلب. حاول مرة أخرى لاحقًا.</string>
+    <string name="sleepTimer">مؤقت النوم</string>
+    <string name="sleepTimerLeft">مؤقت النوم (متبقٍ %1$d دقيقة)</string>
+    <string name="sleepTimerOff">إيقاف المؤقت</string>
+    <string name="sleepTimerMinutes">%1$d دقيقة</string>
+    <string name="sleepTimerSet">سيتوقف التشغيل بعد %1$d دقيقة</string>
+    <string name="sleepTimerCanceled">تم إيقاف مؤقت النوم</string>
+    <string name="sleepTimerDone">مؤقت النوم: تم إيقاف التشغيل</string>
+    <string name="sleepCustom">تحديد وقت يدوي…</string>
+    <string name="sleepCustomTitle">وقت مؤقت النوم</string>
+    <string name="sleepHours">ساعات</string>
+    <string name="sleepMinutesField">دقائق</string>
+    <string name="sleepInvalid">أدخل وقتاً بين دقيقة واحدة و24 ساعة</string>
+    <string name="previousVideo">السابق</string>
+    <string name="nextVideo">التالي</string>
+    <string name="liveNotDownloadable">لا يمكن تنزيل البث المباشر</string>
+    <string name="subsNoneContinue">لا توجد ترجمة لهذا الفيديو. سيتم تنزيله بدونها.</string>
+    <string name="subsFetchFailedContinue">تعذّر قراءة قائمة الترجمات. سيتم التنزيل بدون ترجمة.</string>
+    <string name="subsSkipped">لم تختر لغة. سيتم التنزيل بدون ترجمة.</string>
+    <string name="coverSkipped">تعذّر تضمين الغلاف. سيتم حفظ الصوت بدونه.</string>
+
+    <!-- المشغّل المصغّر -->
+    <string name="minimizePlayer">تصغير الفيديو</string>
+    <string name="miniPlayerPlayPause">تشغيل أو إيقاف مؤقت</string>
+    <string name="miniPlayerClose">إغلاق الفيديو</string>
+    <string name="miniPlayerShow">إظهار المشغل المصغر</string>
+
+    <!-- Library: filter chips and the file menu -->
+    <string name="filterAll">الكل</string>
+    <string name="filterVideo">فيديو</string>
+    <string name="filterAudio">الصوت</string>
+    <string name="filterLyrics">كلمات</string>
+    <string name="moreOptions">خيارات أخرى</string>
+
+    <!-- شاشة المتصفح -->
+    <string name="browser">المتصفح</string>
+    <string name="browserLinkHint">رابط الفيديو أو الملف</string>
+    <string name="browserPaste">لصق</string>
+    <string name="browserOpen">فتح في المتصفح</string>
+    <string name="browserBack">رجوع</string>
+    <string name="browserClear">مسح</string>
+    <string name="browserReload">إعادة تحميل الصفحة</string>
+    <string name="browserHome">الصفحة الرئيسية للمتصفح</string>
+    <string name="browserClipboardEmpty">الحافظة فارغة</string>
+    <string name="browserNothingToDownload">الصق رابطًا أولًا</string>
+    <string name="browserNothingFound">لم يُعثر على شيء في هذا الرابط. جرّب فتح الموقع.</string>
+    <string name="browserOpenSite">فتح الموقع</string>
+    <string name="browserLoadError">تعذّر تحميل الصفحة</string>
+    <string name="browserFileTitle">تنزيل هذا الملف؟</string>
+    <string name="browserFileStarted">جارٍ تنزيل %1$s</string>
+    <string name="browserFileFailed">تعذّر بدء التنزيل</string>
+    <string name="browserFileUnsupported">لا يمكن تنزيل هذا النوع من الروابط مباشرة</string>
+    <string name="browserDetectNone">لم يُكتشف فيديو أو ملف في هذه الصفحة بعد</string>
+    <string name="browserDetectFound">التنزيل من هذه الصفحة (تم اكتشاف %1$d)</string>
+    <string name="browserDetectTitle">تم اكتشافه في هذه الصفحة</string>
+    <string name="browserKindPage">فيديو الصفحة</string>
+    <string name="browserKindVideo">فيديو</string>
+    <string name="browserKindStream">بث فيديو</string>
+    <string name="browserKindAudio">صوت</string>
+    <string name="browserKindFile">ملف</string>
+    <string name="browserPrevious">الصفحة السابقة</string>
+    <string name="browserNext">الصفحة التالية</string>
+    <string name="browserHistory">سجل التصفح</string>
+    <string name="historyTitle">سجل التصفح</string>
+    <string name="historySelectItems">حدد الصفحات</string>
+    <string name="historySelectAll">تحديد الكل</string>
+    <string name="historyClear">مسح السجل بالكامل</string>
+    <string name="historyEmpty">لم تزر أي صفحة بعد</string>
+    <string name="historyClearTitle">مسح السجل بالكامل؟</string>
+    <string name="historyClearMessage">ستُحذف كل الصفحات التي زرتها من السجل.</string>
+    <string name="historyDeleteTitle">الحذف من السجل؟</string>
+    <plurals name="historySelectedCount">
+        <item quantity="one">تم تحديد صفحة واحدة</item>
+        <item quantity="two">تم تحديد صفحتين</item>
+        <item quantity="few">تم تحديد %1$d صفحات</item>
+        <item quantity="many">تم تحديد %1$d صفحةً</item>
+        <item quantity="other">تم تحديد %1$d صفحة</item>
+    </plurals>
+    <plurals name="historyDeleteMessage">
+        <item quantity="one">ستُحذف هذه الصفحة من السجل.</item>
+        <item quantity="two">ستُحذف الصفحتان من السجل.</item>
+        <item quantity="few">ستُحذف %1$d صفحات من السجل.</item>
+        <item quantity="many">ستُحذف %1$d صفحةً من السجل.</item>
+        <item quantity="other">ستُحذف %1$d صفحة من السجل.</item>
+    </plurals>
+</resources>

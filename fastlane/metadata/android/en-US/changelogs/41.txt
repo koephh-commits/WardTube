@@ -1,0 +1,1 @@
+Fixed SRT / LRC lyric files that players could not read when the phone language is Arabic (timestamps now use 0-9).

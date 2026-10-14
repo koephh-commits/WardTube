@@ -1,0 +1,23 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+
+# Signing keys and secrets: never commit these
+*.jks
+*.keystore
+keystore.properties
+*.apk
+*.aab
+
+# OS / editor leftovers
+.DS_Store
+Thumbs.db
+*.log
+*.hprof
+/captures/
+.externalNativeBuild/
+.cxx/
+/dist/

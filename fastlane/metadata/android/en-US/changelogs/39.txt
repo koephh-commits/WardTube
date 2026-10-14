@@ -1,0 +1,1 @@
+Fixed a crash when leaving a video page right after it started.

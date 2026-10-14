@@ -1,0 +1,1 @@
+The subtitle search window closes only with its Cancel button; tapping outside no longer cancels the download.

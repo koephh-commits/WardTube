@@ -1,0 +1,18 @@
+Ward Tube is a lightweight Android app around the YouTube mobile site.
+
+<b>Features</b>
+<ul>
+<li>Built-in ad blocker (EasyList, Liste AR and YouTube-specific rules) that updates itself every four days, including Shorts ads</li>
+<li>Play in the background and with the screen off, with a notification that shows the cover and has Previous / Next</li>
+<li>Sleep timer: pick a time or type your own</li>
+<li>Download videos (MP4) or audio (MP3/M4A), with subtitles, on the device itself using yt-dlp and ffmpeg</li>
+<li>Library for your downloads, available without internet</li>
+<li>Browser screen: paste a video link from any site, or open the page and download files from it</li>
+<li>Voice search, dark mode, landscape fullscreen</li>
+</ul>
+
+Based on webTube by martykan (github.com/martykan/webTube).
+
+No account, no tracking, no analytics. Free software under the GPL-3.0.
+
+Ward Tube is not affiliated with or endorsed by Google or YouTube. Using it may go against YouTube's terms of service; that is your responsibility.

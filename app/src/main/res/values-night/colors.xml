@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Top and bottom bars while browsing / while watching a video. -->
+    <color name="barBrowse">#212121</color>
+    <color name="barWatch">#0F0F0F</color>
+    <!-- Shown by the WebView before a page has painted. -->
+    <color name="webBackground">#0F0F0F</color>
+    <color name="brandText">#FF6B61</color>
+    <color name="iconCircle">#33FF6B61</color>
+    <color name="divider">#33FFFFFF</color>
+    <color name="searchActive">#FF6B61</color>
+    <color name="rowSelected">#33FF6B61</color>
+    <color name="jobCard">#2B2120</color>
+    <color name="jobError">#FF8A80</color>
+</resources>

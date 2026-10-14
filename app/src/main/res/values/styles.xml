@@ -1,0 +1,66 @@
+<resources>
+    <!-- System bars are transparent: MainActivity draws edge-to-edge and colours its own bars. -->
+    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorSecondary">@color/colorAccent</item>
+        <item name="colorAccent">@color/colorAccent</item>
+    </style>
+
+    <!-- The share screen: fully transparent, only its dialog shows over the app the link was shared from. -->
+    <style name="ShareTheme" parent="AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <!-- The filter chips above the Library list: outlined, slightly rounded rectangles. -->
+    <style name="LibraryFilterChip" parent="Widget.MaterialComponents.Chip.Choice">
+        <item name="chipStrokeWidth">1dp</item>
+        <item name="chipStrokeColor">@color/divider</item>
+        <item name="chipCornerRadius">12dp</item>
+    </style>
+
+    <!-- Rounded corners of a Library thumbnail. -->
+    <style name="ThumbRounded">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">10dp</item>
+    </style>
+
+    <style name="DownloadSectionLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?attr/colorSecondary</item>
+    </style>
+
+    <!-- The browser screen: dark green from the first frame (no white flash while it opens). -->
+    <style name="BrowserTheme" parent="AppTheme">
+        <item name="android:windowBackground">@color/browserBg</item>
+    </style>
+
+    <!-- The link field of the browser screen: thin light outline, like the Seal app. -->
+    <style name="BrowserField" parent="Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+        <item name="boxStrokeColor">@color/browserHint</item>
+        <item name="boxStrokeWidth">1dp</item>
+        <item name="boxStrokeWidthFocused">2dp</item>
+        <item name="hintTextColor">@color/browserHint</item>
+        <item name="android:textColorHint">@color/browserHint</item>
+        <item name="startIconTint">@color/browserFabIcon</item>
+        <item name="endIconTint">@color/browserHint</item>
+        <item name="boxCornerRadiusTopStart">4dp</item>
+        <item name="boxCornerRadiusTopEnd">4dp</item>
+        <item name="boxCornerRadiusBottomStart">4dp</item>
+        <item name="boxCornerRadiusBottomEnd">4dp</item>
+    </style>
+
+    <!-- The round-cornered square buttons (paste / download) of the browser screen. -->
+    <style name="BrowserFabShape">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">16dp</item>
+    </style>
+</resources>

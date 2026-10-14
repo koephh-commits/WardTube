@@ -1,0 +1,1 @@
+Fixed SRT lyrics missing the first line of the song (and of each block).

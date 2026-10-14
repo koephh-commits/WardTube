@@ -1,0 +1,1 @@
+The ad blocker now works in the Browser screen too. A floating download button appears there and turns on when the page offers a video or a file.

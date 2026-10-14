@@ -1,0 +1,1 @@
+The download format and subtitle language windows close only with their buttons.

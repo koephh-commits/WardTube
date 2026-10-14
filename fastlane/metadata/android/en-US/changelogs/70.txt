@@ -1,0 +1,1 @@
+Link field: the x clear button now shows (the globe moved to the start). History: a page is recorded once, not for every address change while it loads; selecting works like the Library's (long press ticks the range).

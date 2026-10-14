@@ -1,0 +1,1 @@
+Sleep timer with manual time entry, ad filters refresh themselves every four days, ad blocking for Shorts, landscape fullscreen, offline notice no longer covers the bottom bar.

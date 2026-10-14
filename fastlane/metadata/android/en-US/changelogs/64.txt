@@ -1,0 +1,1 @@
+The Bookmarks button is replaced by a globe button: a Browser screen to paste a link of a video from any site and download it, or open the page and download files from it.
