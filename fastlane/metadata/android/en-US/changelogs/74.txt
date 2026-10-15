@@ -1,0 +1,1 @@
+No change for users. Build files only: the Gradle download is now verified with a checksum.

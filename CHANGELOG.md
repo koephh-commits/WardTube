@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.6.29
+- Build files only, no change in the app: new manual workflow `.github/workflows/update-wrapper.yml` that regenerates
+  `gradle-wrapper.jar`, `gradlew` and `gradlew.bat` for Gradle 8.9 and checks the jar against Gradle's published checksum
+  (the jar was from Gradle 4.10, which is what the F-Droid scanner reported as a version mismatch).
+
+## 2.6.28
+- Build files only, no change in the app: `gradle/wrapper/gradle-wrapper.properties` now has `distributionSha256Sum`
+  for `gradle-8.9-bin.zip`, so the Gradle download is verified (F-Droid scanner finding).
+
 ## 2.6.27
 - Browser screen: a text that is not a link is now searched with Google (google.com/search) instead of DuckDuckGo.
 
