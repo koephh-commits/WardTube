@@ -42,7 +42,7 @@ Needs Android 7.0 (API 24) or newer.
 
 ## Privacy
 
-No account, no analytics, no tracking. The app only talks to:
+No account and no analytics: WardTube itself collects no data and sends nothing to its developers. The app only talks to:
 
 - YouTube (the page you browse, inside the WebView, and the video covers shown in the notification and in the list
   of videos of a playlist; for a playlist of another site the pictures come from that site),
@@ -53,6 +53,11 @@ The Browser screen opens whatever site you type or paste (a text that is not a l
 `google.com`).
 
 Your settings, browsing history and downloads stay on the device; Android backup is turned off for the app.
+
+The sites you open (YouTube, Google...) are not part of the app: even when you are not signed in, they may see your IP
+address and use cookies and similar identifiers, under their own privacy policies. The "Accept cookies" option in the
+menu turns cookies off for the pages in the app (first-party and third-party), which reduces this but does not remove
+it (the IP address stays visible), and some sites then stop remembering your choices or your sign-in.
 
 ## Build
 

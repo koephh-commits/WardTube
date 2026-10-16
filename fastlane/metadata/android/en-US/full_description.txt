@@ -13,6 +13,6 @@ Ward Tube is a lightweight Android app around the YouTube mobile site.
 
 Based on webTube by martykan (github.com/martykan/webTube).
 
-No account, no tracking, no analytics. Free software under the GPL-3.0.
+No account and no analytics: the app itself collects nothing. The sites you open (YouTube, Google...) follow their own privacy policies. Free software under the GPL-3.0.
 
 Ward Tube is not affiliated with or endorsed by Google or YouTube. Using it may go against YouTube's terms of service; that is your responsibility.
