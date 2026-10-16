@@ -44,7 +44,8 @@ Needs Android 7.0 (API 24) or newer.
 
 No account, no analytics, no tracking. The app only talks to:
 
-- YouTube (the page you browse, inside the WebView, and the video covers shown in the notification),
+- YouTube (the page you browse, inside the WebView, and the video covers shown in the notification and in the list
+  of videos of a playlist; for a playlist of another site the pictures come from that site),
 - `easylist-downloads.adblockplus.org` (ad filter lists),
 - the yt-dlp update servers (only when you update the download engine or a download needs it).
 
@@ -98,7 +99,7 @@ app/src/main/java/com/mwmods/wardtube/
   player/                    PlayerHost (mini player), PlayerController (JS remote), PlaybackService (media
                              notification), SleepTimer, BecomingNoisyReceiver (pause on unplug)
   ui/                        MenuController (bottom bar and overflow menu), LibraryActivity/LibraryAdapter,
-                             MultiSelection, ThumbnailLoader, AboutSheet, ThemeHelper, Insets
+                             MultiSelection, ThumbnailLoader, RemoteThumbnails (pictures of a playlist's videos), AboutSheet, ThemeHelper, Insets
   download/                  Downloader (format dialog), DownloadService (queue + yt-dlp, runs in its own process),
                              DownloadJob (queue entry + broadcast codec), DownloadOptions, SubtitleLister/
                              SubtitleCleaner, PlaylistLister (reads a link's videos with yt-dlp; ListProbe runs it

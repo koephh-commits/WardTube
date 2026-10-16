@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One video in the list the person picks from before a playlist is downloaded: check box, picture (16:9, with the
+     length in its corner) and the title with the channel under it. Every row has the same height. A row that is not
+     ticked is dimmed (done in code). The check box is not clickable on purpose: the tap reaches the row, which ticks it. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingTop="6dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="6dp">
+
+    <com.google.android.material.checkbox.MaterialCheckBox
+        android:id="@+id/cbEntry"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:clickable="false"
+        android:focusable="false" />
+
+    <!-- 16:9 box. The icon shows until the picture is ready, and stays for videos that have none. -->
+    <FrameLayout
+        android:layout_width="112dp"
+        android:layout_height="63dp"
+        android:background="@drawable/bg_thumb_soft">
+
+        <ImageView
+            android:id="@+id/ivEntryIcon"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_play_white_24dp"
+            app:tint="@color/brandText" />
+
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/ivThumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            app:shapeAppearanceOverlay="@style/ThumbRounded" />
+
+        <TextView
+            android:id="@+id/tvEntryDuration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="4dp"
+            android:background="@drawable/bg_duration_badge"
+            android:paddingStart="4dp"
+            android:paddingTop="1dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="1dp"
+            android:textColor="#FFFFFF"
+            android:textDirection="ltr"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="4:30"
+            tools:visibility="visible" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <!-- anyRtl: a title with any Arabic letter reads right to left as a whole, so a mixed title is not scrambled. -->
+        <TextView
+            android:id="@+id/tvEntryTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textAlignment="viewStart"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textDirection="anyRtl"
+            android:textSize="14sp"
+            tools:text="Hamza Namira - Bos Bos (Lyric Video) | حمزة نمرة - بص بص" />
+
+        <TextView
+            android:id="@+id/tvEntryMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textAlignment="viewStart"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textDirection="anyRtl"
+            android:textSize="12sp"
+            tools:text="Hamza Namira" />
+    </LinearLayout>
+</LinearLayout>

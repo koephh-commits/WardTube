@@ -3,11 +3,15 @@
 
 package com.mwmods.wardtube.download
 
+import android.content.Context
 import android.content.Intent
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.widget.BaseAdapter
 import android.widget.CheckBox
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
@@ -24,6 +28,7 @@ import com.google.android.material.snackbar.Snackbar
 import com.mwmods.wardtube.Prefs
 import com.mwmods.wardtube.R
 import com.mwmods.wardtube.ui.LibraryActivity
+import com.mwmods.wardtube.ui.RemoteThumbnails
 import com.mwmods.wardtube.util.PlaylistLinks
 import com.mwmods.wardtube.util.UrlUtils
 import java.util.Locale
@@ -159,7 +164,10 @@ object Downloader {
         }
     }
 
-    /** The videos of a list with a tick box each (all ticked), and one button that ticks or unticks them all. */
+    /**
+     * The videos of a list, one row each (picture with its length, title, channel, tick box), all ticked at first, and
+     * one button that ticks or unticks them all. The list is the dialog's own ListView, which reuses its rows.
+     */
     private fun chooseEntries(
         activity: AppCompatActivity,
         info: PlaylistInfo,
@@ -168,20 +176,14 @@ object Downloader {
         onClosed: () -> Unit,
     ) {
         val entries = info.entries
-        val labels = entries.map { entry ->
-            val name = entry.title.ifBlank { entry.url }
-            if (entry.durationSec > 0) "$name  •  ${formatDuration(entry.durationSec)}" else name
-        }.toTypedArray()
         val checked = BooleanArray(entries.size) { true }
-        var onChange: () -> Unit = {}
+        val adapter = EntryAdapter(activity, entries, checked)
 
         val dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(info.title.ifBlank { activity.getString(R.string.listChoose) })
             .setCancelable(false)
-            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
-                checked[which] = isChecked
-                onChange()
-            }
+            // No click listener here: a dialog closes after a click on an item when it is given one.
+            .setAdapter(adapter, null)
             .setPositiveButton(R.string.download) { _, _ ->
                 val chosen = entries.filterIndexed { i, _ -> checked[i] }
                 if (chosen.isEmpty()) {
@@ -209,14 +211,16 @@ object Downloader {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.text =
                 activity.getString(if (count == checked.size) R.string.listSelectNone else R.string.listSelectAll)
         }
-        onChange = { refresh() }
         dialog.setOnShowListener {
+            dialog.listView.setOnItemClickListener { _, _, position, _ ->
+                checked[position] = !checked[position]
+                adapter.notifyDataSetChanged()
+                refresh()
+            }
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                 val tickAll = checked.any { !it }
-                for (i in checked.indices) {
-                    checked[i] = tickAll
-                    dialog.listView.setItemChecked(i, tickAll)
-                }
+                checked.fill(tickAll)
+                adapter.notifyDataSetChanged()
                 refresh()
             }
             refresh()
@@ -224,6 +228,46 @@ object Downloader {
         dialog.show()
         if (info.truncated) {
             Toast.makeText(activity, activity.getString(R.string.listTruncated, PlaylistLister.MAX_ENTRIES), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** A row for each video of a list. [checked] is shared with the dialog, which flips it and asks for a redraw. */
+    private class EntryAdapter(
+        private val context: Context,
+        private val entries: List<PlaylistEntry>,
+        private val checked: BooleanArray,
+    ) : BaseAdapter() {
+
+        override fun getCount(): Int = entries.size
+        override fun getItem(position: Int): Any = entries[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+            val row = convertView ?: LayoutInflater.from(context).inflate(R.layout.item_playlist_entry, parent, false)
+            val entry = entries[position]
+            val ticked = checked[position]
+
+            row.findViewById<CheckBox>(R.id.cbEntry).isChecked = ticked
+            // A video that is not ticked fades, so what will be downloaded stands out.
+            row.alpha = if (ticked) 1f else 0.5f
+            row.findViewById<TextView>(R.id.tvEntryTitle).text = entry.title.ifBlank { entry.url }
+            row.findViewById<TextView>(R.id.tvEntryMeta).apply {
+                text = entry.uploader
+                isVisible = entry.uploader.isNotBlank()
+            }
+            row.findViewById<TextView>(R.id.tvEntryDuration).apply {
+                text = formatDuration(entry.durationSec)
+                isVisible = entry.durationSec > 0
+            }
+
+            // The play icon shows until the picture arrives, and stays when the video has none.
+            val thumb = row.findViewById<ImageView>(R.id.ivThumb)
+            val icon = row.findViewById<android.view.View>(R.id.ivEntryIcon)
+            RemoteThumbnails.load(entry.thumbnail, thumb) { shown ->
+                thumb.isVisible = shown
+                icon.isVisible = !shown
+            }
+            return row
         }
     }
 

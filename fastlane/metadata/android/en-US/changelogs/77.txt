@@ -1,0 +1,1 @@
+The list of videos of a playlist is tidier: every video is a row with its picture (and length), its title and its channel, all the same height. Mixed Arabic / English titles are no longer scrambled.

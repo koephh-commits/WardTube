@@ -13,8 +13,19 @@ import org.json.JSONObject
 import java.util.UUID
 import kotlin.concurrent.thread
 
-/** One video of a list. [url] is what yt-dlp is given for it; [item] is explained in [DownloadTarget]. */
-data class PlaylistEntry(val url: String, val title: String, val durationSec: Int = 0, val item: Int = 0)
+/**
+ * One video of a list. [url] is what yt-dlp is given for it; [item] is explained in [DownloadTarget]. [thumbnail] is the
+ * address of a small picture of the video (an https address, or empty) and [uploader] the channel / artist, for the list
+ * the person picks from.
+ */
+data class PlaylistEntry(
+    val url: String,
+    val title: String,
+    val durationSec: Int = 0,
+    val item: Int = 0,
+    val thumbnail: String = "",
+    val uploader: String = "",
+)
 
 /** A list of videos as yt-dlp reads it. [truncated] means the list has more videos than [PlaylistLister.MAX_ENTRIES]. */
 class PlaylistInfo(val title: String, val entries: List<PlaylistEntry>, val truncated: Boolean)
@@ -124,8 +135,38 @@ object PlaylistLister {
             ?: if (key == "Youtube" && id.length == 11) "https://www.youtube.com/watch?v=$id" else null
         if (url == null) return null
         val duration = if (e.isNull("duration")) 0 else e.optDouble("duration", 0.0).toInt().coerceAtLeast(0)
-        return PlaylistEntry(url, title, duration, item = position)
+        return PlaylistEntry(
+            url, title, duration, item = position,
+            thumbnail = thumbnailOf(e, key, id, url),
+            uploader = text(e, "uploader").ifEmpty { text(e, "channel") },
+        )
     }
+
+    /** A small picture of the video: YouTube's has a fixed address; for other sites the one the list gives (https only). */
+    private fun thumbnailOf(e: JSONObject, key: String, id: String, url: String): String {
+        if (id.length == 11 && (key == "Youtube" || url.startsWith("https://www.youtube.com/watch"))) {
+            return "https://i.ytimg.com/vi/$id/mqdefault.jpg"
+        }
+        httpsOrNull(text(e, "thumbnail"))?.let { return it }
+        val list = e.optJSONArray("thumbnails") ?: return ""
+        // The smallest picture that is still sharp enough for a row (at least 160 px wide); else the last one given.
+        var best = ""
+        var bestWidth = Int.MAX_VALUE
+        var fallback = ""
+        for (i in 0 until list.length()) {
+            val item = list.optJSONObject(i) ?: continue
+            val address = httpsOrNull(text(item, "url")) ?: continue
+            fallback = address
+            val width = if (item.isNull("width")) 0 else item.optInt("width", 0)
+            if (width in 160 until bestWidth) {
+                best = address
+                bestWidth = width
+            }
+        }
+        return best.ifEmpty { fallback }
+    }
+
+    private fun httpsOrNull(value: String): String? = value.takeIf { it.startsWith("https://") }
 
     private fun httpOrNull(value: String): String? =
         value.takeIf { it.startsWith("http://") || it.startsWith("https://") }

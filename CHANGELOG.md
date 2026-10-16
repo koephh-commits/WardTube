@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.6.31
+- The list of videos shown for a playlist is tidier. Every video is a row of the same height: a tick box, its picture
+  (16:9, with the video's length in its corner), the title (two lines at most) and the channel under it. The length no
+  longer sits inside the title, which scrambled mixed Arabic / English titles; a title with any Arabic letter is now laid
+  out right to left as a whole. A video that is not ticked fades.
+- The pictures are small ones fetched on three background threads and kept in a cache of about 5 MB (no image library;
+  https only). For YouTube they are `i.ytimg.com/vi/ID/mqdefault.jpg`, the same picture the playback notification uses.
+  For other sites the address comes from the list yt-dlp reads.
+
 ## 2.6.30
 - Playlists. A link to a list of videos used to be refused ("not a video link"), and a list that did get through was
   downloaded as one file. Now the "Download as" window opens for a list too, and after it the videos of the list are
