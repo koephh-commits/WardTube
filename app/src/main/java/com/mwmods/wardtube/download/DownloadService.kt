@@ -30,6 +30,8 @@ import com.mwmods.wardtube.util.CrashLog
 import com.mwmods.wardtube.util.DownloadStore
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -94,52 +96,85 @@ class DownloadService : Service() {
             return START_NOT_STICKY
         }
         val request = intent
-        val url = request?.getStringExtra(EXTRA_URL)
-        if (request == null || url == null) {
+        val targets = if (request == null) emptyList<DownloadTarget>() else targetsOf(request)
+        if (request == null || targets.isEmpty()) {
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
         val options = DownloadOptions.fromJson(request.getStringExtra(EXTRA_OPTIONS))
-        val title = request.getStringExtra(EXTRA_TITLE).orEmpty().trim()
 
         createChannel()
 
-        // The same video in the same format twice would only waste data and storage.
-        val duplicate = synchronized(lock) { jobs.values.any { it.url == url && it.options == options } }
-        if (duplicate) {
-            ensureForeground()
+        // One request can carry a whole playlist: every video is a job of its own (own progress, cancel and retry).
+        val added = ArrayList<String>()
+        for (target in targets) {
+            // The same video in the same format twice would only waste data and storage.
+            val duplicate = synchronized(lock) {
+                jobs.values.any { it.url == target.url && it.item == target.item && it.options == options }
+            }
+            if (duplicate) continue
+            val job = DownloadJob(
+                id = UUID.randomUUID().toString(),
+                url = target.url,
+                item = target.item,
+                title = target.title.orEmpty().trim(),
+                options = options,
+                status = JobStatus.QUEUED,
+            )
+            synchronized(lock) { jobs[job.id] = job }
+            pendingJobs.incrementAndGet()
+            added += job.id
+        }
+        ensureForeground()
+        if (added.isEmpty()) {
             toast(R.string.downloadAlreadyQueued)
             return START_NOT_STICKY
         }
-
-        val job = DownloadJob(
-            id = UUID.randomUUID().toString(),
-            url = url,
-            title = title,
-            options = options,
-            status = JobStatus.QUEUED,
-        )
-        synchronized(lock) { jobs[job.id] = job }
-        pendingJobs.incrementAndGet()
-        ensureForeground()
         publish(force = true)
+        for (jobId in added) schedule(jobId)
+        return START_NOT_STICKY
+    }
 
+    /** The videos a start request asks for: the batch of a playlist, or the single link. */
+    private fun targetsOf(request: Intent): List<DownloadTarget> {
+        request.getStringExtra(EXTRA_ITEMS)?.let { json ->
+            return runCatching {
+                val array = JSONArray(json)
+                (0 until array.length()).mapNotNull { i ->
+                    val o = array.optJSONObject(i) ?: return@mapNotNull null
+                    val url = o.optString("url").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                    DownloadTarget(url, o.optString("title"), o.optInt("item", 0))
+                }
+            }.getOrDefault(emptyList())
+        }
+        val url = request.getStringExtra(EXTRA_URL) ?: return emptyList()
+        return listOf(
+            DownloadTarget(url, request.getStringExtra(EXTRA_TITLE).orEmpty(), request.getIntExtra(EXTRA_ITEM, 0))
+        )
+    }
+
+    /** Puts one queued job on the worker; the jobs run one after another. */
+    private fun schedule(jobId: String) {
         worker.execute {
             try {
-                runJob(job.id)
+                runJob(jobId)
             } catch (e: Throwable) {
                 CrashLog.record(this, "download", e)
-                fail(job.id, (e.message ?: e.javaClass.simpleName).take(200))
+                fail(jobId, (e.message ?: e.javaClass.simpleName).take(200))
             } finally {
-                finish(job.id)
+                finish(jobId)
                 if (pendingJobs.decrementAndGet() == 0) {
+                    // The last job did not save anything (it failed or was cancelled): still announce the earlier ones.
+                    if (quietSaves > 0) {
+                        notifyResult(getString(R.string.filesSavedMany, quietSaves), openLibrary = true)
+                        quietSaves = 0
+                    }
                     ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                     // Only stops if no newer start request arrived in the meantime.
                     stopSelfResult(lastStartId)
                 }
             }
         }
-        return START_NOT_STICKY
     }
 
     /**
@@ -331,11 +366,31 @@ class DownloadService : Service() {
                 options.isSubsOnly -> getString(R.string.subsSavedMany, outputs.size)
                 else -> getString(R.string.filesSavedMany, outputs.size)
             }
-            notifyResult(savedText, openLibrary = true)
+            reportSaved(savedText, outputs.size)
         } catch (e: Throwable) {
             fail(id, (e.message ?: e.javaClass.simpleName).take(200))
         } finally {
             workDir.deleteRecursively()
+        }
+    }
+
+    /** Files saved while more jobs were still waiting; they are announced together when the queue is empty. */
+    private var quietSaves = 0
+
+    /**
+     * One notification per saved file is right for a single download, but a playlist would bury the phone in them:
+     * while more jobs are waiting nothing is posted, and the last one announces them all.
+     */
+    private fun reportSaved(text: String, files: Int) {
+        if (pendingJobs.get() > 1) {
+            quietSaves += files
+            return
+        }
+        if (quietSaves > 0) {
+            notifyResult(getString(R.string.filesSavedMany, quietSaves + files), openLibrary = true)
+            quietSaves = 0
+        } else {
+            notifyResult(text, openLibrary = true)
         }
     }
 
@@ -348,7 +403,14 @@ class DownloadService : Service() {
     private fun download(job: DownloadJob, workDir: File, withCover: Boolean) {
         val options = job.options
         val request = YoutubeDLRequest(job.url).apply {
-            addOption("--no-playlist")
+            if (job.item > 0) {
+                // A page with several videos and no address for each: ask for this one by its position.
+                addOption("--playlist-items", job.item.toString())
+            } else {
+                // Every video of a playlist is its own job with its own address; a link that still carries a list
+                // (watch?v=...&list=...) means the one video.
+                addOption("--no-playlist")
+            }
             addOption("--no-mtime")
             addOption("-o", "${workDir.absolutePath}/%(title).80s.%(ext)s")
             when (options.kind) {
@@ -594,6 +656,8 @@ class DownloadService : Service() {
         private const val EXTRA_URL = "url"
         private const val EXTRA_OPTIONS = "options"
         private const val EXTRA_TITLE = "title"
+        private const val EXTRA_ITEM = "item"
+        private const val EXTRA_ITEMS = "items"
         private const val EXTRA_JOB_ID = "jobId"
         private const val ACTION_CANCEL = "com.mwmods.wardtube.CANCEL_DOWNLOAD"
 
@@ -617,11 +681,26 @@ class DownloadService : Service() {
         )
 
         /** [title] is shown while the job waits; yt-dlp's own file name replaces it if it is empty. */
-        fun start(context: Context, url: String, options: DownloadOptions, title: String? = null) {
+        fun start(context: Context, url: String, options: DownloadOptions, title: String? = null, item: Int = 0) {
             val intent = Intent(context, DownloadService::class.java)
                 .putExtra(EXTRA_URL, url)
+                .putExtra(EXTRA_ITEM, item)
                 .putExtra(EXTRA_OPTIONS, options.toJson())
                 .putExtra(EXTRA_TITLE, title.orEmpty())
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        /** Queues several videos (a playlist) with one request, so the Library and the notification are refreshed once. */
+        fun startMany(context: Context, targets: List<DownloadTarget>, options: DownloadOptions) {
+            val array = JSONArray()
+            for (target in targets) {
+                array.put(
+                    JSONObject().put("url", target.url).put("title", target.title.orEmpty()).put("item", target.item)
+                )
+            }
+            val intent = Intent(context, DownloadService::class.java)
+                .putExtra(EXTRA_ITEMS, array.toString())
+                .putExtra(EXTRA_OPTIONS, options.toJson())
             ContextCompat.startForegroundService(context, intent)
         }
 

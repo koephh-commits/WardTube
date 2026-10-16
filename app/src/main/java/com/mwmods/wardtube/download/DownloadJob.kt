@@ -20,6 +20,14 @@ enum class JobStatus {
     FAILED,
 }
 
+/**
+ * One thing to download: a link and the name to show while it waits.
+ *
+ * [item] is 0 for a normal link. It is the 1-based position inside the page's own list for the rare page whose videos
+ * have no address of their own (a post with several videos): yt-dlp is then given the page and `--playlist-items`.
+ */
+data class DownloadTarget(val url: String, val title: String? = null, val item: Int = 0)
+
 /** One entry of the download queue, as shown in the Library. */
 data class DownloadJob(
     val id: String,
@@ -28,6 +36,8 @@ data class DownloadJob(
     val title: String,
     val options: DownloadOptions,
     val status: JobStatus,
+    /** See [DownloadTarget.item]; 0 = the link is the video itself. */
+    val item: Int = 0,
     /** Overall progress 0..100 (video + audio streams together), or -1 when unknown. */
     val percent: Int = -1,
     val speed: String = "",
@@ -61,6 +71,7 @@ object DownloadEvents {
                 JSONObject()
                     .put("id", job.id)
                     .put("url", job.url)
+                    .put("item", job.item)
                     .put("title", job.title)
                     .put("options", job.options.toJson())
                     .put("status", job.status.name)
@@ -86,6 +97,7 @@ object DownloadEvents {
                 jobs += DownloadJob(
                     id = o.getString("id"),
                     url = o.optString("url"),
+                    item = o.optInt("item", 0),
                     title = o.optString("title"),
                     options = DownloadOptions.fromJson(o.optString("options")),
                     status = runCatching { JobStatus.valueOf(o.optString("status")) }.getOrDefault(JobStatus.QUEUED),

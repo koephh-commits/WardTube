@@ -11,7 +11,10 @@ import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.core.view.isVisible
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
@@ -21,7 +24,9 @@ import com.google.android.material.snackbar.Snackbar
 import com.mwmods.wardtube.Prefs
 import com.mwmods.wardtube.R
 import com.mwmods.wardtube.ui.LibraryActivity
+import com.mwmods.wardtube.util.PlaylistLinks
 import com.mwmods.wardtube.util.UrlUtils
+import java.util.Locale
 import kotlin.concurrent.thread
 
 /** Entry point for downloads: asks for the format, then hands the job to [DownloadService] (which queues it). */
@@ -32,6 +37,11 @@ object Downloader {
 
     /**
      * [title] (the page title) names the job in the Library while it waits in the queue.
+     *
+     * A link can be one video or a list of them (a playlist, a Mix, a channel, a SoundCloud set...). A link that is known
+     * to be a list, and any site this app knows nothing about, is read by yt-dlp right away, while the "Download as"
+     * window is open, so that the answer is usually ready by the time the person taps Download. A list then shows its
+     * videos to pick from, and every picked video becomes a download of its own.
      *
      * [onClosed] runs once the whole flow is over: cancelled, nothing to download, or queued and its message gone.
      * The share screen uses it to close itself; the browser screen has nothing to do and leaves it out.
@@ -44,31 +54,216 @@ object Downloader {
         onClosed: () -> Unit = {},
     ) {
         val prefs = Prefs(activity)
+        val analysis = PlaylistLinks.analyze(videoUrl)
+        var probe: ListProbe? = when (analysis.kind) {
+            PlaylistLinks.Kind.LIST -> ListProbe(activity, analysis.listUrl ?: analysis.videoUrl, mustBeList = true).start()
+            PlaylistLinks.Kind.UNKNOWN -> ListProbe(activity, analysis.videoUrl, mustBeList = false).start()
+            else -> null
+        }
         val view = LayoutInflater.from(activity).inflate(R.layout.dialog_download_options, null)
-        val ui = OptionsUi(activity, view, DownloadOptions.fromJson(prefs.downloadOptionsJson))
+        val ui = OptionsUi(
+            activity, view, DownloadOptions.fromJson(prefs.downloadOptionsJson),
+            showScope = analysis.kind == PlaylistLinks.Kind.VIDEO_IN_LIST,
+        )
         MaterialAlertDialogBuilder(activity)
-            .setTitle(R.string.downloadChoose)
+            .setTitle(if (analysis.kind == PlaylistLinks.Kind.LIST) R.string.downloadChooseList else R.string.downloadChoose)
             .setView(view)
             // Closed only by its Cancel / Download buttons: a tap outside must not drop the choices being made.
             .setCancelable(false)
             .setPositiveButton(R.string.download) { _, _ ->
                 val options = ui.read()
                 prefs.downloadOptionsJson = options.copy(langs = "").toJson()
-                // YouTube's playback position (&t=) is not part of the video. Other sites keep their address as it is:
-                // for them `t` may be part of what identifies the video.
-                val url = if (UrlUtils.isYouTubeUrl(videoUrl)) UrlUtils.withoutTime(videoUrl) else videoUrl
-                if (options.wantsSubs) {
-                    chooseSubtitles(activity, url, options, snackbarAnchor, title, onClosed)
+                // A video that was opened from a playlist: the person chose to download the whole list.
+                if (analysis.kind == PlaylistLinks.Kind.VIDEO_IN_LIST && ui.wantsList) {
+                    probe = ListProbe(activity, analysis.listUrl ?: analysis.videoUrl, mustBeList = true).start()
+                }
+                val reading = probe
+                if (reading == null) {
+                    startSingle(activity, singleUrl(analysis, videoUrl), options, snackbarAnchor, title, onClosed)
                 } else {
-                    enqueue(activity, url, options, snackbarAnchor, title, onClosed = onClosed)
+                    val mustBeList = analysis.kind != PlaylistLinks.Kind.UNKNOWN
+                    awaitList(activity, reading, mustBeList, singleUrl(analysis, videoUrl), options, snackbarAnchor, title, onClosed)
                 }
             }
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                probe?.cancel()
+                onClosed()
+            }
+            .show()
+    }
+
+    /**
+     * The link of one video. YouTube's playback position (&t=) and the playlist a video was opened from are not part of
+     * the video. Other sites keep their address as it is: for them `t` may be part of what identifies the video.
+     */
+    private fun singleUrl(analysis: PlaylistLinks.Analysis, videoUrl: String): String = when {
+        analysis.kind == PlaylistLinks.Kind.VIDEO_IN_LIST -> analysis.videoUrl
+        UrlUtils.isYouTubeUrl(videoUrl) -> UrlUtils.withoutTime(videoUrl)
+        else -> videoUrl
+    }
+
+    /** One video: its subtitle languages are asked first when subtitles were requested, then it joins the queue. */
+    private fun startSingle(
+        activity: AppCompatActivity,
+        url: String,
+        options: DownloadOptions,
+        snackbarAnchor: android.view.View,
+        title: String?,
+        onClosed: () -> Unit,
+    ) {
+        val targets = listOf(DownloadTarget(url, title))
+        if (options.wantsSubs) {
+            chooseSubtitles(activity, targets, options, snackbarAnchor, onClosed)
+        } else {
+            enqueue(activity, targets, options, snackbarAnchor, onClosed = onClosed)
+        }
+    }
+
+    // ---- Lists of videos ----
+
+    /** Waits for what yt-dlp says about the link (a "reading" window only if it is not ready yet) and acts on it. */
+    private fun awaitList(
+        activity: AppCompatActivity,
+        probe: ListProbe,
+        mustBeList: Boolean,
+        singleUrl: String,
+        options: DownloadOptions,
+        snackbarAnchor: android.view.View,
+        title: String?,
+        onClosed: () -> Unit,
+    ) {
+        val loading = if (probe.ready == null) {
+            showLoading(activity, R.string.listLoading) {
+                probe.cancel()
+                onClosed()
+            }
+        } else {
+            null
+        }
+        probe.whenReady { result ->
+            loading?.dismiss()
+            if (activity.isDestroyed) return@whenReady
+            when (result) {
+                is ProbeResult.Playlist -> chooseEntries(activity, result.info, options, snackbarAnchor, onClosed)
+                // A link that is known to be a list but has no video in it: say so instead of starting a job that
+                // would make yt-dlp download the whole page as one file.
+                ProbeResult.Single ->
+                    if (mustBeList) {
+                        Snackbar.make(snackbarAnchor, R.string.listEmpty, Snackbar.LENGTH_LONG).thenClose(onClosed).show()
+                    } else {
+                        startSingle(activity, singleUrl, options, snackbarAnchor, title, onClosed)
+                    }
+                is ProbeResult.Failed ->
+                    Snackbar.make(snackbarAnchor, R.string.listFetchFailed, Snackbar.LENGTH_LONG).thenClose(onClosed).show()
+            }
+        }
+    }
+
+    /** The videos of a list with a tick box each (all ticked), and one button that ticks or unticks them all. */
+    private fun chooseEntries(
+        activity: AppCompatActivity,
+        info: PlaylistInfo,
+        options: DownloadOptions,
+        snackbarAnchor: android.view.View,
+        onClosed: () -> Unit,
+    ) {
+        val entries = info.entries
+        val labels = entries.map { entry ->
+            val name = entry.title.ifBlank { entry.url }
+            if (entry.durationSec > 0) "$name  •  ${formatDuration(entry.durationSec)}" else name
+        }.toTypedArray()
+        val checked = BooleanArray(entries.size) { true }
+        var onChange: () -> Unit = {}
+
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(info.title.ifBlank { activity.getString(R.string.listChoose) })
+            .setCancelable(false)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+                onChange()
+            }
+            .setPositiveButton(R.string.download) { _, _ ->
+                val chosen = entries.filterIndexed { i, _ -> checked[i] }
+                if (chosen.isEmpty()) {
+                    Snackbar.make(snackbarAnchor, R.string.listPickOne, Snackbar.LENGTH_LONG).thenClose(onClosed).show()
+                } else {
+                    val targets = chosen.map { DownloadTarget(it.url, it.title.ifBlank { null }, it.item) }
+                    if (options.wantsSubs) {
+                        chooseSubtitles(activity, targets, options, snackbarAnchor, onClosed)
+                    } else {
+                        enqueue(activity, targets, options, snackbarAnchor, onClosed = onClosed)
+                    }
+                }
+            }
+            // The click listener is set after show(): a button given here would close the window.
+            .setNeutralButton(R.string.listSelectNone, null)
             .setNegativeButton(android.R.string.cancel) { _, _ -> onClosed() }
+            .create()
+
+        fun refresh() {
+            val count = checked.count { it }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
+                text = activity.getString(R.string.listDownloadCount, count)
+                isEnabled = count > 0
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.text =
+                activity.getString(if (count == checked.size) R.string.listSelectNone else R.string.listSelectAll)
+        }
+        onChange = { refresh() }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val tickAll = checked.any { !it }
+                for (i in checked.indices) {
+                    checked[i] = tickAll
+                    dialog.listView.setItemChecked(i, tickAll)
+                }
+                refresh()
+            }
+            refresh()
+        }
+        dialog.show()
+        if (info.truncated) {
+            Toast.makeText(activity, activity.getString(R.string.listTruncated, PlaylistLister.MAX_ENTRIES), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun formatDuration(seconds: Int): String {
+        val h = seconds / 3600
+        val m = seconds % 3600 / 60
+        val s = seconds % 60
+        return if (h > 0) String.format(Locale.ROOT, "%d:%02d:%02d", h, m, s) else String.format(Locale.ROOT, "%d:%02d", m, s)
+    }
+
+    /** A window with a spinner and [text], closed only by Cancel: a stray tap or the Back button must not throw the work away. */
+    private fun showLoading(activity: AppCompatActivity, @StringRes text: Int, onCancel: () -> Unit): AlertDialog {
+        val density = activity.resources.displayMetrics.density
+        val pad = (24 * density).toInt()
+        val loadingView = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(pad, pad, pad, pad)
+            addView(CircularProgressIndicator(activity).apply { isIndeterminate = true })
+            addView(TextView(activity).apply {
+                setText(text)
+                textSize = 16f
+                setPadding(pad / 2, 0, 0, 0)
+            })
+        }
+        return MaterialAlertDialogBuilder(activity)
+            .setView(loadingView)
+            .setCancelable(false)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> onCancel() }
             .show()
     }
 
     /** The "Download" dialog: type, then only the settings that matter for that type. */
-    private class OptionsUi(private val activity: AppCompatActivity, root: android.view.View, initial: DownloadOptions) {
+    private class OptionsUi(
+        private val activity: AppCompatActivity,
+        root: android.view.View,
+        initial: DownloadOptions,
+        showScope: Boolean = false,
+    ) {
+        private val chipScope = root.findViewById<ChipGroup>(R.id.chipScope)
         private val chipKind = root.findViewById<ChipGroup>(R.id.chipKind)
         private val chipContainer = root.findViewById<ChipGroup>(R.id.chipContainer)
         private val chipCodec = root.findViewById<ChipGroup>(R.id.chipCodec)
@@ -90,7 +285,16 @@ object Downloader {
         private val audioCodecs = AudioCodec.entries
         private val subFormats = listOf("srt", "lrc")
 
+        /** The video was opened from a playlist and the person picked the whole playlist instead of the one video. */
+        val wantsList: Boolean get() = scopeShown && selectedIndex(chipScope) == 1
+        private val scopeShown = showScope
+
         init {
+            root.findViewById<android.view.View>(R.id.sectionScope).isVisible = showScope
+            fill(chipScope, listOf(
+                activity.getString(R.string.optScopeVideo),
+                activity.getString(R.string.optScopeList),
+            ), 0)
             fill(chipKind, kinds.map {
                 activity.getString(when (it) {
                     MediaKind.VIDEO -> R.string.optKindVideo
@@ -171,15 +375,21 @@ object Downloader {
 
     private fun enqueue(
         activity: AppCompatActivity,
-        url: String,
+        targets: List<DownloadTarget>,
         options: DownloadOptions,
         snackbarAnchor: android.view.View,
-        title: String?,
         message: Int = R.string.downloadQueued,
         onClosed: () -> Unit = {},
     ) {
-        DownloadService.start(activity, url, options, title)
-        Snackbar.make(snackbarAnchor, message, Snackbar.LENGTH_LONG)
+        val text = if (targets.size > 1) {
+            DownloadService.startMany(activity, targets, options)
+            activity.getString(R.string.downloadQueuedMany, targets.size)
+        } else {
+            val target = targets[0]
+            DownloadService.start(activity, target.url, options, target.title, target.item)
+            activity.getString(message)
+        }
+        Snackbar.make(snackbarAnchor, text, Snackbar.LENGTH_LONG)
             .setAction(R.string.library) { activity.startActivity(Intent(activity, LibraryActivity::class.java)) }
             .thenClose(onClosed)
             .show()
@@ -190,47 +400,32 @@ object Downloader {
         override fun onDismissed(transientBottomBar: Snackbar?, event: Int) = onClosed()
     })
 
-    /** Second step for subtitles: reads which languages the video has, then lets the user tick the ones they want. */
+    /**
+     * Second step for subtitles: reads which languages the video has, then lets the user tick the ones they want.
+     * For several videos (a playlist) the languages of the first one are offered and apply to all of them.
+     */
     private fun chooseSubtitles(
         activity: AppCompatActivity,
-        url: String,
+        targets: List<DownloadTarget>,
         options: DownloadOptions,
         snackbarAnchor: android.view.View,
-        title: String?,
         onClosed: () -> Unit,
     ) {
-        val density = activity.resources.displayMetrics.density
-        val pad = (24 * density).toInt()
-        val loadingView = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(pad, pad, pad, pad)
-            addView(CircularProgressIndicator(activity).apply { isIndeterminate = true })
-            addView(TextView(activity).apply {
-                setText(R.string.subsLoading)
-                textSize = 16f
-                setPadding(pad / 2, 0, 0, 0)
-            })
-        }
         var cancelled = false
-        val loading = MaterialAlertDialogBuilder(activity)
-            .setView(loadingView)
-            // Only the Cancel button stops the search: a stray tap outside the dialog or the Back button must not
-            // throw the download away.
-            .setCancelable(false)
-            .setNegativeButton(android.R.string.cancel) { _, _ ->
-                cancelled = true
-                onClosed()
-            }
-            .show()
+        val loading = showLoading(activity, R.string.subsLoading) {
+            cancelled = true
+            onClosed()
+        }
 
         val app = activity.applicationContext
+        val first = targets[0]
         thread(name = "wardtube-subtitle-list") {
-            val fetched = runCatching { SubtitleLister.fetch(app, url) }
+            val fetched = runCatching { SubtitleLister.fetch(app, first.url, first.item) }
             activity.runOnUiThread {
                 if (cancelled || activity.isDestroyed) return@runOnUiThread
                 loading.dismiss()
                 val list = fetched.getOrNull()
+                val withoutSubs = options.copy(withSubs = false, langs = "")
                 when {
                     // Subtitles only: with no subtitles there is nothing to download, so say why.
                     list == null && options.isSubsOnly ->
@@ -241,15 +436,9 @@ object Downloader {
                             .thenClose(onClosed).show()
                     // A video / audio download with "also download subtitles": the subtitles are a bonus, so the
                     // download goes on without them instead of being dropped.
-                    list == null -> enqueue(
-                        activity, url, options.copy(withSubs = false, langs = ""), snackbarAnchor, title,
-                        R.string.subsFetchFailedContinue, onClosed
-                    )
-                    list.isEmpty() -> enqueue(
-                        activity, url, options.copy(withSubs = false, langs = ""), snackbarAnchor, title,
-                        R.string.subsNoneContinue, onClosed
-                    )
-                    else -> showSubtitleChoices(activity, url, options, snackbarAnchor, title, list, onClosed)
+                    list == null -> enqueue(activity, targets, withoutSubs, snackbarAnchor, R.string.subsFetchFailedContinue, onClosed)
+                    list.isEmpty() -> enqueue(activity, targets, withoutSubs, snackbarAnchor, R.string.subsNoneContinue, onClosed)
+                    else -> showSubtitleChoices(activity, targets, options, snackbarAnchor, list, onClosed)
                 }
             }
         }
@@ -257,10 +446,9 @@ object Downloader {
 
     private fun showSubtitleChoices(
         activity: AppCompatActivity,
-        url: String,
+        targets: List<DownloadTarget>,
         options: DownloadOptions,
         snackbarAnchor: android.view.View,
-        title: String?,
         tracks: List<SubtitleOption>,
         onClosed: () -> Unit,
     ) {
@@ -286,11 +474,11 @@ object Downloader {
                 } else if (langs.isEmpty()) {
                     // Video / audio with no language ticked: download it without subtitles.
                     enqueue(
-                        activity, url, options.copy(withSubs = false, langs = ""), snackbarAnchor, title,
+                        activity, targets, options.copy(withSubs = false, langs = ""), snackbarAnchor,
                         R.string.subsSkipped, onClosed
                     )
                 } else {
-                    enqueue(activity, url, options.copy(langs = langs), snackbarAnchor, title, onClosed = onClosed)
+                    enqueue(activity, targets, options.copy(langs = langs), snackbarAnchor, onClosed = onClosed)
                 }
             }
             .setNegativeButton(android.R.string.cancel) { _, _ -> onClosed() }

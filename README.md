@@ -21,6 +21,8 @@ library that works offline. Free software under the [GPL-3.0](LICENSE).
   keep browsing.
 - **Sleep timer**: ready-made times or a time you type (up to 24 hours).
 - **Downloads** done on the device (yt-dlp + ffmpeg): MP4, MP3 or M4A, with subtitles. A queue shows progress.
+- **Playlists**: share or paste a playlist, Mix or channel link (YouTube, and any other site yt-dlp reads as a list),
+  tick the videos you want and they join the queue one by one.
 - **Download by sharing**: share a video link from any app and pick Ward Tube.
 - **Library** of your downloads, available without internet. Select several files to share or delete them together.
 - **Browser** (globe button): paste a link of a video from any site and download it, or open the page and download
@@ -99,8 +101,10 @@ app/src/main/java/com/mwmods/wardtube/
                              MultiSelection, ThumbnailLoader, AboutSheet, ThemeHelper, Insets
   download/                  Downloader (format dialog), DownloadService (queue + yt-dlp, runs in its own process),
                              DownloadJob (queue entry + broadcast codec), DownloadOptions, SubtitleLister/
-                             SubtitleCleaner, YtDlpEngine
-  util/                      UrlUtils, ShareLinks, CookieHelper, Permissions, DownloadStore, CrashLog
+                             SubtitleCleaner, PlaylistLister (reads a link's videos with yt-dlp; ListProbe runs it
+                             in the background), YtDlpEngine
+  util/                      UrlUtils, ShareLinks, PlaylistLinks (video or list?), CookieHelper, Permissions,
+                             DownloadStore, CrashLog
   web/                       WardTubeWebViewClient, WardTubeChromeClient, PageScripts, NativeBridge, WebTargets,
                              BackgroundWebView
 app/src/main/assets/
@@ -154,7 +158,9 @@ and applied by `ui/ThemeHelper.kt` (called from `WardTubeApp` before any activit
 - **Download by sharing**: share a video link from any app and pick *Ward Tube* (`ShareReceiverActivity`, text/plain `SEND`).
   Any site is accepted and yt-dlp decides whether it can download it. Only the transparent "Download as" dialog opens over
   the sharing app; the file is queued like any other download. `util/ShareLinks.kt` cuts the link out of the shared text;
-  YouTube and TikTok links are also rewritten to a plain form, and their non-video pages are refused.
+  YouTube and TikTok links are also rewritten to a plain form, and their pages that are neither a video nor a list are refused.
+  Lists (a playlist, Mix or channel; any other site yt-dlp reads as a list) get a choice of videos after the format window;
+  each chosen video is queued as a job of its own (`DownloadService` takes the whole batch in one request).
 - **Library** (bottom bar): lists every file downloaded from inside the app (`Download/WardTube`), with search, play, share and delete, one file at a time or several at once (long-press to select).
   The *Download* menu item downloads on the device itself (bundled yt-dlp + ffmpeg via youtubedl-android, no external website):
   pick MP4 1080/720/480 or MP3/M4A, the finished file lands in the Library.

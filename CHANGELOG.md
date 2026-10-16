@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.6.30
+- Playlists. A link to a list of videos used to be refused ("not a video link"), and a list that did get through was
+  downloaded as one file. Now the "Download as" window opens for a list too, and after it the videos of the list are
+  shown with a tick box each (all ticked, a button ticks / unticks them all). Every ticked video becomes a download of
+  its own in the queue, with its own progress, cancel and retry. Up to 200 videos of a list are read.
+  - YouTube: playlists, Mixes (the link of a Mix such as `playlist?list=RD...` is read through its video, which is
+    the form YouTube and yt-dlp accept) and channels (`@name`, `/channel/`, `/c/`, `/user/`: their videos). A video
+    opened from a playlist keeps its list: the window then asks "This video only" or "The whole playlist".
+    The Download item of the menu also works on a playlist or channel page that is open in the app.
+  - Other sites: yt-dlp is asked what is behind the link while the format window is still open (SoundCloud sets,
+    Vimeo albums, Dailymotion / Bilibili lists, TikTok profiles and collections, a post with several videos...).
+    A link that is one video downloads as before; if yt-dlp cannot tell within 25 seconds the link is treated as one video.
+  - A list that cannot be read says so (and the engine is updated once and tried again first) instead of starting a download.
+  - Subtitles with a list: the languages offered are those of the first video and apply to all of them.
+  - Notifications: while a playlist downloads, the files are announced with one "Saved N files" message at the end
+    instead of one notification per file.
+
 ## 2.6.29
 - Build files only, no change in the app: new manual workflow `.github/workflows/update-wrapper.yml` that regenerates
   `gradle-wrapper.jar`, `gradlew` and `gradlew.bat` for Gradle 8.9 and checks the jar against Gradle's published checksum

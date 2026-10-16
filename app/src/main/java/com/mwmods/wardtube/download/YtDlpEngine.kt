@@ -13,6 +13,11 @@ object YtDlpEngine {
     @Volatile
     private var ready = false
 
+    /** True once an update was tried in this process, so a failing link does not trigger one update after another. */
+    @Volatile
+    var updateAttempted = false
+        private set
+
     /** Unpacks the engine on first use (a few seconds). Blocking: call from a background thread. */
     @Synchronized
     fun ensureReady(context: Context): Boolean {
@@ -32,6 +37,7 @@ object YtDlpEngine {
     @Synchronized
     fun update(context: Context): Boolean {
         if (!ensureReady(context)) return false
+        updateAttempted = true
         return try {
             YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext)
             true

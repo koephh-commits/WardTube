@@ -14,6 +14,26 @@
         android:paddingEnd="24dp"
         android:paddingBottom="8dp">
 
+        <!-- Only for a video that was opened from a playlist: this video, or the whole playlist. -->
+        <LinearLayout
+            android:id="@+id/sectionScope"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                style="@style/DownloadSectionLabel"
+                android:text="@string/optScope" />
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipScope"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:selectionRequired="true"
+                app:singleSelection="true" />
+        </LinearLayout>
+
         <TextView
             style="@style/DownloadSectionLabel"
             android:text="@string/optType" />

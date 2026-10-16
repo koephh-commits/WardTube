@@ -27,10 +27,10 @@ data class SubtitleOption(val code: String, val kind: Kind) {
 object SubtitleLister {
 
     /** Throws if the engine or the network fails. An empty list means the video has no subtitles at all. */
-    fun fetch(context: Context, url: String): List<SubtitleOption> {
+    fun fetch(context: Context, url: String, item: Int = 0): List<SubtitleOption> {
         check(YtDlpEngine.ensureReady(context)) { "engine" }
         val request = YoutubeDLRequest(url).apply {
-            addOption("--no-playlist")
+            if (item > 0) addOption("--playlist-items", item.toString()) else addOption("--no-playlist")
             addOption("--skip-download")
             addOption("--dump-single-json")
             addOption("--no-warnings")

@@ -92,6 +92,20 @@
 
     <!-- التنزيل -->
     <string name="downloadChoose">تنزيل بصيغة</string>
+    <string name="downloadChooseList">تنزيل القائمة بصيغة</string>
+    <string name="optScope">ما المراد تنزيله</string>
+    <string name="optScopeVideo">هذا الفيديو فقط</string>
+    <string name="optScopeList">قائمة التشغيل كاملة</string>
+    <string name="listLoading">جارٍ قراءة القائمة…</string>
+    <string name="listChoose">اختر الفيديوهات</string>
+    <string name="listDownloadCount">تنزيل (%1$d)</string>
+    <string name="listSelectAll">تحديد الكل</string>
+    <string name="listSelectNone">إلغاء التحديد</string>
+    <string name="listPickOne">اختر فيديو واحدًا على الأقل</string>
+    <string name="listEmpty">لا توجد فيديوهات في هذه القائمة</string>
+    <string name="listFetchFailed">تعذّر قراءة هذه القائمة. تحقق من الاتصال، وتأكد أنها عامة، أو حدّث محرك التنزيل.</string>
+    <string name="listTruncated">تم عرض أول %1$d فيديو فقط من القائمة</string>
+    <string name="downloadQueuedMany">أُضيف %1$d فيديو إلى التنزيلات. تابع التقدّم من المكتبة.</string>
     <string name="dlVideo1080">فيديو MP4 – حتى 1080p</string>
     <string name="dlVideo720">فيديو MP4 – 720p</string>
     <string name="dlVideo480">فيديو MP4 – 480p</string>
@@ -149,7 +163,7 @@
     <!-- التنزيل بمشاركة رابط إلى التطبيق -->
     <string name="shareTargetLabel">التنزيل عبر Ward Tube</string>
     <string name="shareNoLink">لا يوجد رابط في النص المُشارَك</string>
-    <string name="shareNotVideo">هذا الرابط ليس رابط فيديو</string>
+    <string name="shareNotVideo">هذا الرابط ليس رابط فيديو أو قائمة تشغيل</string>
     <string name="downloadWaitingCount">%1$d في الانتظار</string>
     <string name="downloadEta">متبقي %1$s</string>
     <string name="downloadProgressParts">جارٍ التنزيل… %1$d%% • الجزء %2$d من %3$d</string>

@@ -579,7 +579,7 @@ class LibraryActivity : AppCompatActivity() {
             return
         }
         failedJobs.remove(job.id)
-        DownloadService.start(this, job.url, job.options, job.title)
+        DownloadService.start(this, job.url, job.options, job.title, job.item)
         refreshList()
     }
 

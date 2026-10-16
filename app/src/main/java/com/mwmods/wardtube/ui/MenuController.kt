@@ -20,6 +20,7 @@ import com.mwmods.wardtube.R
 import com.mwmods.wardtube.adblock.AdBlocker
 import com.mwmods.wardtube.player.SleepTimer
 import com.mwmods.wardtube.util.CookieHelper
+import com.mwmods.wardtube.util.PlaylistLinks
 import com.mwmods.wardtube.download.Downloader
 import com.mwmods.wardtube.util.UrlUtils
 import com.mwmods.wardtube.web.WebTargets
@@ -126,7 +127,7 @@ class MenuController(
                 targets.current.reload()
             }
             R.id.action_update_filters -> updateFilters()
-            R.id.action_download -> withWatchUrl { onDownload(it) }
+            R.id.action_download -> withDownloadUrl { onDownload(it) }
             R.id.action_update_engine -> Downloader.updateEngine(activity, snackbarAnchor)
             R.id.action_accept_cookies -> {
                 prefs.cookies = !prefs.cookies
@@ -260,6 +261,21 @@ class MenuController(
                 prefs.homepageTutorialSeen = true
             }
             .show()
+    }
+
+    /**
+     * Download: a playlist or channel page that is open is downloaded as a list (the person picks the videos);
+     * otherwise it is the video being looked at, as for [withWatchUrl].
+     */
+    private fun withDownloadUrl(action: (String) -> Unit) {
+        val page = targets.current.url
+        if (page != null && UrlUtils.isYouTubeUrl(page) &&
+            PlaylistLinks.analyze(page).kind == PlaylistLinks.Kind.LIST
+        ) {
+            action(page)
+        } else {
+            withWatchUrl(action)
+        }
     }
 
     /**

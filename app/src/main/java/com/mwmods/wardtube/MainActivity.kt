@@ -56,6 +56,7 @@ import com.mwmods.wardtube.player.SleepTimer
 import com.mwmods.wardtube.ui.MenuController
 import com.mwmods.wardtube.util.CookieHelper
 import com.mwmods.wardtube.util.Permissions
+import com.mwmods.wardtube.util.PlaylistLinks
 import com.mwmods.wardtube.util.UrlUtils
 import com.mwmods.wardtube.web.BackgroundWebView
 import com.mwmods.wardtube.web.ErrorKind
@@ -844,8 +845,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     // ---- Downloads ----
 
     private fun startDownloadFlow(url: String) {
-        // A Short is never live (and the player may be holding a different video, even a live one).
-        if (UrlUtils.isShortsPage(url)) {
+        // A Short is never live (and the player may be holding a different video, even a live one). A playlist or
+        // channel page is not a video at all: it is read as a list, whatever the player holds.
+        if (UrlUtils.isShortsPage(url) || isListPage(url)) {
             beginDownload(url)
             return
         }
@@ -861,10 +863,14 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
     }
 
+    /** A YouTube playlist or channel page (a list of videos), as opposed to a video. */
+    private fun isListPage(url: String): Boolean =
+        UrlUtils.isYouTubeUrl(url) && PlaylistLinks.analyze(url).kind == PlaylistLinks.Kind.LIST
+
     private fun beginDownload(url: String) {
         // The page title names the download in the Library while it waits in the queue.
-        // A Short is on the browsing page, whatever the player may be holding.
-        val source = if (UrlUtils.isShortsPage(url)) webView else playerHost.webView ?: webView
+        // A Short and a list page are on the browsing page, whatever the player may be holding.
+        val source = if (UrlUtils.isShortsPage(url) || isListPage(url)) webView else playerHost.webView ?: webView
         val title = source.title.orEmpty()
             .removeSuffix(" - YouTube")
             .replace(Regex("^\\(\\d+\\)\\s*"), "") // YouTube prefixes "(3) " when there are notifications

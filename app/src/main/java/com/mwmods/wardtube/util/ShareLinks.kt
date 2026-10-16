@@ -14,8 +14,9 @@ import java.util.Locale
  *
  * Any site is accepted and yt-dlp, which knows well over a thousand of them, decides whether it can download the page.
  * Only YouTube and TikTok get more attention: their links are rewritten to a plain form (so the same video always gives
- * the same URL, which the download queue uses to spot a duplicate), and their pages that are not a video (channels,
- * playlists, profiles, photo posts) are turned down, because yt-dlp would take them for a whole list of videos.
+ * the same URL, which the download queue uses to spot a duplicate). Their lists of videos (YouTube playlists, Mixes and
+ * channels, TikTok profiles and collections) are accepted too: the download flow lets the person choose which videos
+ * of the list to download (see [PlaylistLinks]). Their other pages (home, search, photo posts) are turned down.
  *
  * No Android classes are used here on purpose: this is plain string and [URI] work.
  */
@@ -30,7 +31,7 @@ object ShareLinks {
     sealed interface Result {
         /** A link to give to yt-dlp. */
         class Found(val link: Link) : Result
-        /** Links are there, but none can be a video: a YouTube / TikTok page that is not one, or a site's bare home page. */
+        /** Links are there, but none can be a video or a list: a YouTube / TikTok page that is neither, or a site's bare home page. */
         object NotVideo : Result
         /** No link at all. */
         object NoLink : Result
@@ -39,6 +40,7 @@ object ShareLinks {
     // ASCII only, so a link written right before Arabic text does not swallow the first Arabic letters.
     private val URL_PATTERN = Regex("https?://[A-Za-z0-9\\-._~:/?#\\[\\]@!$&()*+,;=%]+", RegexOption.IGNORE_CASE)
     private val ID_PATTERN = Regex("[A-Za-z0-9_-]{11}")
+    private val LIST_PATTERN = Regex("[A-Za-z0-9_-]{2,}")
     private val DIGITS = Regex("[0-9]+")
     private const val TRAILING_PUNCTUATION = ".,;:!?)]"
 
@@ -96,17 +98,30 @@ object ShareLinks {
     private fun isYouTubeHost(host: String): Boolean =
         !host.startsWith("accounts.google.") && UrlUtils.isInternalHost(host)
 
-    /** youtu.be/ID, youtube.com/watch?v=ID, /shorts/ID and /live/ID. Channels, playlists and the home page are not videos. */
+    /**
+     * youtu.be/ID, youtube.com/watch?v=ID, /shorts/ID and /live/ID are videos. A video link that carries `list=` keeps it
+     * (the download window then offers the playlist next to the video); /playlist?list=ID and channels are lists.
+     * The home page, search and the other pages are not downloadable.
+     */
     private fun youTube(host: String, segments: List<String>, rawQuery: String?): Link? {
+        val first = segments.firstOrNull()
         val id = when {
-            host == "youtu.be" || host.endsWith(".youtu.be") -> segments.firstOrNull()
-            segments.firstOrNull() == "watch" -> queryValue(rawQuery, "v")
-            segments.size >= 2 && (segments[0] == "shorts" || segments[0] == "live") -> segments[1]
+            host == "youtu.be" || host.endsWith(".youtu.be") -> first
+            first == "watch" -> queryValue(rawQuery, "v")
+            segments.size >= 2 && (first == "shorts" || first == "live") -> segments[1]
             else -> null
         }
-        if (id == null || !ID_PATTERN.matches(id)) return null
-        // One form for every kind of link: it also drops `si`, `t`, `list`... which a download does not need.
-        return Link("https://www.youtube.com/watch?v=$id", Site.YOUTUBE)
+        val list = queryValue(rawQuery, "list")?.takeIf { LIST_PATTERN.matches(it) }
+        if (id != null && ID_PATTERN.matches(id)) {
+            // One form for every kind of link: it drops `si`, `t`, `index`... which a download does not need.
+            val video = "https://www.youtube.com/watch?v=$id"
+            return Link(if (list != null && first != "shorts" && first != "live") "$video&list=$list" else video, Site.YOUTUBE)
+        }
+        if (list != null && (first == "playlist" || first == "watch")) {
+            return Link(PlaylistLinks.youTubeListUrl(null, list), Site.YOUTUBE)
+        }
+        PlaylistLinks.channelPath(segments)?.let { return Link("https://www.youtube.com$it", Site.YOUTUBE) }
+        return null
     }
 
     private fun queryValue(rawQuery: String?, name: String): String? =
@@ -121,7 +136,8 @@ object ShareLinks {
 
     /**
      * Short links (vm. / vt.tiktok.com/CODE, tiktok.com/t/CODE), full links (tiktok.com/@user/video/ID) and the old
-     * mobile form (m.tiktok.com/v/ID.html). Photo posts (/@user/photo/ID) are not videos. The query (`?_t=...&_r=1`) is
+     * mobile form (m.tiktok.com/v/ID.html). Lists are a profile (tiktok.com/@user) and a collection
+     * (tiktok.com/@user/collection/NAME-ID). Photo posts (/@user/photo/ID) are not videos. The query (`?_t=...&_r=1`) is
      * only tracking and is dropped.
      */
     private fun tikTok(host: String, segments: List<String>): Link? {
@@ -132,6 +148,9 @@ object ShareLinks {
                 "/" + segments.take(3).joinToString("/")
             segments.size >= 2 && segments[0] == "t" -> "/t/" + segments[1] + "/"
             segments.size >= 2 && segments[0] == "v" -> "/v/" + segments[1]
+            segments.size == 1 && segments[0].length > 1 && segments[0].startsWith("@") -> "/" + segments[0]
+            segments.size >= 3 && segments[0].startsWith("@") && segments[1] == "collection" ->
+                "/" + segments.take(3).joinToString("/")
             else -> return null
         }
         return Link("https://$host$path", Site.TIKTOK)

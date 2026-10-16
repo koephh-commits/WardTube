@@ -1,0 +1,1 @@
+Playlists: share or paste a playlist, Mix or channel link (also from other sites), tick the videos you want and each one joins the download queue. A video opened from a playlist can be downloaded alone or with the whole playlist.

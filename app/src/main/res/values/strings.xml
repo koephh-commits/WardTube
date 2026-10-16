@@ -89,6 +89,20 @@
 
     <!-- Downloads -->
     <string name="downloadChoose">Download as</string>
+    <string name="downloadChooseList">Download the list as</string>
+    <string name="optScope">What to download</string>
+    <string name="optScopeVideo">This video only</string>
+    <string name="optScopeList">The whole playlist</string>
+    <string name="listLoading">Reading the list…</string>
+    <string name="listChoose">Choose videos</string>
+    <string name="listDownloadCount">Download (%1$d)</string>
+    <string name="listSelectAll">Select all</string>
+    <string name="listSelectNone">Select none</string>
+    <string name="listPickOne">Pick at least one video</string>
+    <string name="listEmpty">No videos found in this list</string>
+    <string name="listFetchFailed">Could not read this list. Check the connection, make sure the list is public, or update the download engine.</string>
+    <string name="listTruncated">Only the first %1$d videos of the list are shown</string>
+    <string name="downloadQueuedMany">%1$d videos added to downloads. Follow the progress in the Library.</string>
     <string name="dlVideo1080">Video MP4 – up to 1080p</string>
     <string name="dlVideo720">Video MP4 – 720p</string>
     <string name="dlVideo480">Video MP4 – 480p</string>
@@ -146,7 +160,7 @@
     <!-- Download by sharing a link to the app -->
     <string name="shareTargetLabel">Download with Ward Tube</string>
     <string name="shareNoLink">No link found in the shared text</string>
-    <string name="shareNotVideo">This link is not a video link</string>
+    <string name="shareNotVideo">This link is not a video or playlist link</string>
     <string name="downloadWaitingCount">%1$d waiting</string>
     <string name="downloadEta">%1$s left</string>
     <string name="downloadProgressParts">Downloading… %1$d%% • part %2$d of %3$d</string>
