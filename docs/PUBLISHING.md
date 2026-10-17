@@ -11,7 +11,7 @@
 cd WardTube
 git init
 git add .
-git commit -m "Ward Tube 2.6.31"
+git commit -m "Ward Tube 2.6.32"
 git branch -M main
 git remote add origin https://github.com/<username>/WardTube.git
 git pull origin main --allow-unrelated-histories   # only if GitHub already created LICENSE
@@ -48,8 +48,8 @@ Repository → **Settings → Secrets and variables → Actions → New reposito
 3. Commit, then:
 
 ```bash
-git tag v2.6.31
-git push origin v2.6.31
+git tag v2.6.32
+git push origin v2.6.32
 ```
 
 GitHub Actions builds the signed APKs (`arm64-v8a`, `armeabi-v7a`, `universal`) and attaches

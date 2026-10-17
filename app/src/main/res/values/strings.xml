@@ -140,7 +140,7 @@
     <string name="subsAutoTranslated">auto-translated</string>
     <string name="subsFetchFailed">Could not read the subtitle list. Check the connection or update the download engine.</string>
     <string name="subsPickOne">Pick at least one language</string>
-    <string name="subsNotAvailable">This video has no subtitles</string>
+    <string name="subsNotAvailable">This clip has no lyrics or subtitles</string>
     <string name="subsSavedMany">Saved %1$d subtitle files to Library</string>
     <string name="downloadChannel">Downloads</string>
     <string name="downloadPreparing">Preparing…</string>
@@ -191,7 +191,7 @@
     <string name="previousVideo">Previous</string>
     <string name="nextVideo">Next</string>
     <string name="liveNotDownloadable">Live streams cannot be downloaded</string>
-    <string name="subsNoneContinue">This video has no subtitles. Downloading it without them.</string>
+    <string name="subsNoneContinue">This clip has no lyrics or subtitles. Downloading it without them.</string>
     <string name="subsFetchFailedContinue">Could not read the subtitle list. Downloading without subtitles.</string>
     <string name="subsSkipped">No language picked. Downloading without subtitles.</string>
     <string name="coverSkipped">Could not embed the cover picture. Saving the audio without it.</string>

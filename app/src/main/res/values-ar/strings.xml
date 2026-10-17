@@ -143,7 +143,7 @@
     <string name="subsAutoTranslated">تلقائية مترجمة</string>
     <string name="subsFetchFailed">تعذّر قراءة قائمة الترجمات. تحقق من الاتصال أو حدّث محرك التنزيل.</string>
     <string name="subsPickOne">اختر لغة واحدة على الأقل</string>
-    <string name="subsNotAvailable">لا توجد ترجمة لهذا الفيديو</string>
+    <string name="subsNotAvailable">لا توجد كلمات أو ترجمة لهذا المقطع</string>
     <string name="subsSavedMany">تم حفظ %1$d ملفات ترجمة في المكتبة</string>
     <string name="downloadChannel">التنزيلات</string>
     <string name="downloadPreparing">جارٍ التحضير…</string>
@@ -194,7 +194,7 @@
     <string name="previousVideo">السابق</string>
     <string name="nextVideo">التالي</string>
     <string name="liveNotDownloadable">لا يمكن تنزيل البث المباشر</string>
-    <string name="subsNoneContinue">لا توجد ترجمة لهذا الفيديو. سيتم تنزيله بدونها.</string>
+    <string name="subsNoneContinue">لا توجد كلمات أو ترجمة لهذا المقطع. سيتم التنزيل بدونها.</string>
     <string name="subsFetchFailedContinue">تعذّر قراءة قائمة الترجمات. سيتم التنزيل بدون ترجمة.</string>
     <string name="subsSkipped">لم تختر لغة. سيتم التنزيل بدون ترجمة.</string>
     <string name="coverSkipped">تعذّر تضمين الغلاف. سيتم حفظ الصوت بدونه.</string>

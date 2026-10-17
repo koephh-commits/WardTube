@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.6.32
+- Wording only. The message shown when a link has no subtitles said "this video", even when the download was an audio
+  file. It now says "this clip" and mentions lyrics, like the "Lyrics / subtitles LRC" option does: "This clip has no
+  lyrics or subtitles" (Arabic: «لا توجد كلمات أو ترجمة لهذا المقطع»). Both messages of this kind changed: the one shown
+  with "subtitles only" and the one shown before a video / audio download goes on without them.
+
 ## 2.6.31
 - The list of videos shown for a playlist is tidier. Every video is a row of the same height: a tick box, its picture
   (16:9, with the video's length in its corner), the title (two lines at most) and the channel under it. The length no
