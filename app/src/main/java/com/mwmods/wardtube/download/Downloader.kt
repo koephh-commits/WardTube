@@ -58,8 +58,8 @@ object Downloader {
         videoUrl: String,
         snackbarAnchor: android.view.View,
         title: String? = null,
-        onClosed: () -> Unit = {},
         direct: Boolean = false,
+        onClosed: () -> Unit = {},
     ) {
         val prefs = Prefs(activity)
         // A file or stream the browser found is one video by definition: nothing is read from its server before the
