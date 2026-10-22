@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.6.34
+- Browser screen: a video file or a stream found on a page is now downloaded by the app's own queue (yt-dlp) instead of
+  the system's download manager, so its progress, waiting list and retry show in the Library. Some sites (Anime3rb's
+  player, for one) have no extractor in yt-dlp and their player page fails with "Unsupported URL", while the video file
+  the player loads can be downloaded when the server is answered as it answers the page. The file is therefore sent
+  what the page sent: the open page as referer, the WebView's user agent and the cookies of the file's host. They are
+  carried inside the address (`RequestHeaders`, after `#__youtubedl_smuggle=`), so they also survive a retry from the
+  Library, and the service turns them into `--add-header` options.
+- The file is saved under the page's title (before, it kept the server's name, often "480p.mp4" for every episode).
+- A file or stream the browser found is never read from its server before the person chooses (no list check): a
+  signed address may answer only once.
+- Audio and other files found in the browser still go to the system's download manager.
+- Library: a waiting job without a title shows its address without the hidden header part.
+- Library: a failed download can now show its whole error. The card still shows only the first lines, but it now says
+  "tap for the full error"; the tap opens a window with the complete message of yt-dlp (warnings included), whose text
+  can be selected, and a Copy button that copies it together with the title, the link and the format. Before, the
+  message was cut to 200 characters when the job failed, so the end of a long address (the part that tells most) was
+  lost. The job now keeps up to 6000 characters; the notification still shows a short version.
+
 ## 2.6.33
 - Browser screen: a pasted link is now told apart by what it is. A direct link to a file or a stream still opens the
   file's confirmation window, and a link of YouTube, TikTok or another video site (Facebook, Instagram, X, Vimeo,

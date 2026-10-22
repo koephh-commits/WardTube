@@ -58,6 +58,7 @@ import com.mwmods.wardtube.Prefs
 import com.mwmods.wardtube.R
 import com.mwmods.wardtube.adblock.AdBlocker
 import com.mwmods.wardtube.download.Downloader
+import com.mwmods.wardtube.download.RequestHeaders
 import com.mwmods.wardtube.ui.LibraryActivity
 import com.mwmods.wardtube.util.CookieHelper
 import com.mwmods.wardtube.util.DownloadStore
@@ -703,16 +704,26 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun startDetected(item: Detected) {
         when (item.kind) {
-            // A video that lives inside the page, and a streamed one (an m3u8 / mpd playlist): yt-dlp's job.
+            // A video that lives inside the page: yt-dlp's job.
             Detected.Kind.PAGE -> downloadPageVideo()
             // A player in an iframe: yt-dlp is given the frame's page, told that the open page embeds it.
             Detected.Kind.FRAME -> withPermissions {
                 Downloader.chooseAndStart(this, withReferer(item.url, webView?.url), root, webView?.title)
             }
-            Detected.Kind.STREAM -> withPermissions {
-                Downloader.chooseAndStart(this, item.url, root, webView?.title)
+            // A video file or a stream (m3u8 / mpd) the page loaded: the app's own queue (yt-dlp), so its progress shows
+            // in the Library. It is sent what the page sent (see [withIdentity]), as the system's download manager was.
+            Detected.Kind.VIDEO, Detected.Kind.STREAM -> {
+                val scheme = Uri.parse(item.url).scheme?.lowercase()
+                if (scheme != "http" && scheme != "https") {
+                    // blob: and data: addresses only exist inside the page; nothing outside it can fetch them.
+                    snack(R.string.browserFileUnsupported)
+                } else {
+                    withPermissions {
+                        Downloader.chooseAndStart(this, withIdentity(item.url), root, webView?.title, direct = true)
+                    }
+                }
             }
-            // A file: the system's download manager, after a confirmation that shows the name.
+            // Audio and other files: the system's download manager, after a confirmation that shows the name.
             else -> offerFileDownload(
                 item.url, webView?.settings?.userAgentString, null, item.mimeType.ifEmpty { null }, item.name,
             )
@@ -733,6 +744,19 @@ class BrowserActivity : AppCompatActivity() {
         val data = JSONObject().put("referer", referer).toString()
         return frameUrl.substringBefore('#') + "#__youtubedl_smuggle=" + Uri.encode(data)
     }
+
+    /**
+     * A media address with what the open page would send for it: the page as referer, the WebView's user agent and the
+     * cookies of the address's host. The video servers of many sites refuse a request that lacks them.
+     * The file is named after the page's title, because its own name is often the same for every episode.
+     */
+    private fun withIdentity(fileUrl: String): String = RequestHeaders.attach(
+        fileUrl,
+        referer = webView?.url,
+        userAgent = webView?.settings?.userAgentString,
+        cookie = CookieManager.getInstance().getCookie(fileUrl),
+        name = webView?.title,
+    )
 
     private fun downloadPageVideo() {
         when (val result = ShareLinks.find(webView?.url.orEmpty())) {

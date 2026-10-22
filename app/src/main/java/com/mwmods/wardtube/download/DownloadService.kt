@@ -160,7 +160,7 @@ class DownloadService : Service() {
                 runJob(jobId)
             } catch (e: Throwable) {
                 CrashLog.record(this, "download", e)
-                fail(jobId, (e.message ?: e.javaClass.simpleName).take(200))
+                fail(jobId, e.message ?: e.javaClass.simpleName)
             } finally {
                 finish(jobId)
                 if (pendingJobs.decrementAndGet() == 0) {
@@ -215,11 +215,19 @@ class DownloadService : Service() {
         if (removed != null) publish(force = true)
     }
 
-    private fun fail(id: String, detail: String, notification: String = getString(R.string.downloadFailed) + ": " + detail) {
+    /**
+     * [detail] is yt-dlp's whole message (warnings and the error): the Library shows it in full when the card is
+     * tapped. Only the notification, a single line, gets a short version.
+     */
+    private fun fail(
+        id: String,
+        detail: String,
+        notification: String = getString(R.string.downloadFailed) + ": " + detail.take(NOTIFICATION_ERROR_LENGTH),
+    ) {
         notifyResult(notification, null)
         // The Library keeps this entry on screen (with Retry) after the job has left the queue.
         update(id, force = true) {
-            it.copy(status = JobStatus.FAILED, percent = -1, speed = "", eta = "", error = detail)
+            it.copy(status = JobStatus.FAILED, percent = -1, speed = "", eta = "", error = detail.take(MAX_ERROR_LENGTH))
         }
     }
 
@@ -314,7 +322,7 @@ class DownloadService : Service() {
                         }
                         if (YtDlpEngine.update(this)) continue
                     }
-                    fail(id, (e.message ?: e.javaClass.simpleName).take(200))
+                    fail(id, e.message ?: e.javaClass.simpleName)
                     return
                 }
             }
@@ -356,19 +364,23 @@ class DownloadService : Service() {
             update(id, force = true) {
                 it.copy(status = JobStatus.PROCESSING, percent = -1, speed = "", eta = "", size = "")
             }
+            // A file found in the browser is named after the page (its own name is often the same for every episode).
+            val pageName = RequestHeaders.nameOf(job.url)
+            fun savedName(file: File): String =
+                if (pageName != null && file == media) "$pageName.${file.extension}" else file.name
             for (output in outputs) {
                 output.inputStream().use { input ->
-                    DownloadStore.save(this, output.name, mimeFor(output), input)
+                    DownloadStore.save(this, savedName(output), mimeFor(output), input)
                 }
             }
             val savedText = when {
-                outputs.size == 1 -> getString(R.string.downloadSaved, outputs[0].name)
+                outputs.size == 1 -> getString(R.string.downloadSaved, savedName(outputs[0]))
                 options.isSubsOnly -> getString(R.string.subsSavedMany, outputs.size)
                 else -> getString(R.string.filesSavedMany, outputs.size)
             }
             reportSaved(savedText, outputs.size)
         } catch (e: Throwable) {
-            fail(id, (e.message ?: e.javaClass.simpleName).take(200))
+            fail(id, e.message ?: e.javaClass.simpleName)
         } finally {
             workDir.deleteRecursively()
         }
@@ -413,6 +425,8 @@ class DownloadService : Service() {
             }
             addOption("--no-mtime")
             addOption("-o", "${workDir.absolutePath}/%(title).80s.%(ext)s")
+            // A file found in the browser: the server is sent what the page sent (referer, user agent, cookies).
+            for ((name, value) in RequestHeaders.headersOf(job.url)) addOption("--add-header", "$name:$value")
             when (options.kind) {
                 MediaKind.SUBS -> addOption("--skip-download")
                 MediaKind.AUDIO -> {
@@ -653,6 +667,10 @@ class DownloadService : Service() {
         private const val CHANNEL_ID = "downloads"
         private const val ONGOING_ID = 2001
         private const val RESULT_BASE_ID = 2100
+        /** A failed job keeps up to this much of the engine's message; the queue is broadcast with it. */
+        private const val MAX_ERROR_LENGTH = 6000
+        private const val NOTIFICATION_ERROR_LENGTH = 200
+
         private const val EXTRA_URL = "url"
         private const val EXTRA_OPTIONS = "options"
         private const val EXTRA_TITLE = "title"

@@ -25,6 +25,7 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.mwmods.wardtube.R
 import com.mwmods.wardtube.download.DownloadJob
 import com.mwmods.wardtube.download.JobStatus
+import com.mwmods.wardtube.download.RequestHeaders
 import com.mwmods.wardtube.util.DownloadItem
 import com.mwmods.wardtube.util.MediaCategory
 import java.text.DateFormat
@@ -67,6 +68,7 @@ class LibraryAdapter(
     private val onCancelJob: (DownloadJob) -> Unit,
     private val onRetryJob: (DownloadJob) -> Unit,
     private val onDismissJob: (DownloadJob) -> Unit,
+    private val onShowJobError: (DownloadJob) -> Unit,
 ) : ListAdapter<LibraryRow, RecyclerView.ViewHolder>(DIFF) {
 
     private val dateFormat: DateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
@@ -259,7 +261,7 @@ class LibraryAdapter(
             val failed = job.status == JobStatus.FAILED
             val waiting = job.status == JobStatus.QUEUED
 
-            title.text = job.title.ifBlank { job.url }
+            title.text = job.title.ifBlank { RequestHeaders.display(job.url) }
             itemView.alpha = if (waiting) 0.75f else 1f
 
             // Icon: what it is (audio / video), or why it is not moving (waiting / failed).
@@ -283,6 +285,14 @@ class LibraryAdapter(
             cancel.setOnClickListener { onCancelJob(job) }
             retry.setOnClickListener { onRetryJob(job) }
             dismiss.setOnClickListener { onDismissJob(job) }
+            // A failed card opens the whole error (the card itself shows only its first lines).
+            val hasError = failed && job.error.isNotBlank()
+            if (hasError) {
+                itemView.setOnClickListener { onShowJobError(job) }
+            } else {
+                itemView.setOnClickListener(null)
+                itemView.isClickable = false
+            }
 
             val details = ArrayList<String>(4)
             details.add(job.options.shortLabel)
@@ -325,7 +335,7 @@ class LibraryAdapter(
                     if (job.size.isNotEmpty()) details.add(job.size)
                 }
                 JobStatus.FAILED -> {
-                    status.setText(R.string.downloadFailed)
+                    status.setText(if (job.error.isNotBlank()) R.string.downloadFailedTap else R.string.downloadFailed)
                     ring.visibility = View.GONE
                     bar.visibility = View.GONE
                 }

@@ -50,6 +50,8 @@ object Downloader {
      *
      * [onClosed] runs once the whole flow is over: cancelled, nothing to download, or queued and its message gone.
      * The share screen uses it to close itself; the browser screen has nothing to do and leaves it out.
+     *
+     * [direct]: [videoUrl] is a media file or stream the browser found (see [RequestHeaders]), not a page.
      */
     fun chooseAndStart(
         activity: AppCompatActivity,
@@ -57,9 +59,12 @@ object Downloader {
         snackbarAnchor: android.view.View,
         title: String? = null,
         onClosed: () -> Unit = {},
+        direct: Boolean = false,
     ) {
         val prefs = Prefs(activity)
-        val analysis = PlaylistLinks.analyze(videoUrl)
+        // A file or stream the browser found is one video by definition: nothing is read from its server before the
+        // person chooses (a signed address may answer only once), and it is never offered as a list.
+        val analysis = if (direct) PlaylistLinks.Analysis(PlaylistLinks.Kind.SINGLE, videoUrl) else PlaylistLinks.analyze(videoUrl)
         var probe: ListProbe? = when (analysis.kind) {
             PlaylistLinks.Kind.LIST -> ListProbe(activity, analysis.listUrl ?: analysis.videoUrl, mustBeList = true).start()
             PlaylistLinks.Kind.UNKNOWN -> ListProbe(activity, analysis.videoUrl, mustBeList = false).start()

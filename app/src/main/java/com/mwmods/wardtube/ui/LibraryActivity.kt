@@ -8,10 +8,13 @@ import android.app.Activity
 import android.app.RecoverableSecurityException
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.IntentSender
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -27,6 +30,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -51,6 +55,7 @@ import com.mwmods.wardtube.download.DownloadJob
 import com.mwmods.wardtube.download.DownloadService
 import com.mwmods.wardtube.download.JobStatus
 import com.mwmods.wardtube.download.MediaKind
+import com.mwmods.wardtube.download.RequestHeaders
 import com.mwmods.wardtube.util.DownloadItem
 import com.mwmods.wardtube.util.DownloadStore
 import com.mwmods.wardtube.util.MediaCategory
@@ -241,6 +246,7 @@ class LibraryActivity : AppCompatActivity() {
             onCancelJob = ::cancelJob,
             onRetryJob = ::retryJob,
             onDismissJob = ::dismissJob,
+            onShowJobError = ::showJobError,
         )
         list.adapter = adapter
         // Progress updates rebind the same row in place; a cross-fade on every tick would make the card flicker.
@@ -586,6 +592,41 @@ class LibraryActivity : AppCompatActivity() {
     private fun dismissJob(job: DownloadJob) {
         failedJobs.remove(job.id)
         refreshList()
+    }
+
+    /**
+     * The whole message of a failed download: the card shows only its first lines. The text can be selected, and the
+     * Copy button puts it on the clipboard together with the link and the format, ready to be sent to someone.
+     */
+    private fun showJobError(job: DownloadJob) {
+        val report = buildString {
+            if (job.title.isNotBlank()) appendLine(job.title)
+            appendLine(RequestHeaders.display(job.url))
+            appendLine(job.options.shortLabel)
+            appendLine()
+            append(job.error)
+        }
+        val padding = (20 * resources.displayMetrics.density).toInt()
+        val text = TextView(this).apply {
+            this.text = report
+            setTextIsSelectable(true)
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            // Engine messages are English text and addresses: left to right even in an Arabic screen.
+            textDirection = View.TEXT_DIRECTION_LTR
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            setPadding(padding, padding / 2, padding, padding / 2)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.downloadErrorTitle)
+            .setView(ScrollView(this).apply { addView(text) })
+            .setPositiveButton(android.R.string.copy) { _, _ ->
+                val clipboard = getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(ClipData.newPlainText(getString(R.string.downloadErrorTitle), report))
+                toast(getString(R.string.downloadErrorCopied))
+            }
+            .setNegativeButton(R.string.close, null)
+            .show()
     }
 
     // ---- Play / share ----

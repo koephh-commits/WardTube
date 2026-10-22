@@ -149,6 +149,10 @@
     <string name="downloadQueued">Added to downloads. Follow the progress in the Library.</string>
     <string name="downloadSaved">Saved to Library: %1$s</string>
     <string name="downloadFailed">Download failed</string>
+    <string name="downloadFailedTap">Download failed — tap for the full error</string>
+    <string name="downloadErrorTitle">Full error</string>
+    <string name="downloadErrorCopied">Copied</string>
+    <string name="close">Close</string>
     <string name="downloadCancelled">Download cancelled</string>
     <string name="downloadEngineFailed">The download engine could not start on this device</string>
     <string name="updateEngine">Update download engine</string>

@@ -152,6 +152,10 @@
     <string name="downloadQueued">أُضيف إلى التنزيلات. تابع التقدّم من المكتبة.</string>
     <string name="downloadSaved">تم الحفظ في المكتبة: %1$s</string>
     <string name="downloadFailed">فشل التنزيل</string>
+    <string name="downloadFailedTap">فشل التنزيل — اضغط لعرض الخطأ كاملاً</string>
+    <string name="downloadErrorTitle">الخطأ كاملاً</string>
+    <string name="downloadErrorCopied">تم النسخ</string>
+    <string name="close">إغلاق</string>
     <string name="downloadCancelled">تم إلغاء التنزيل</string>
     <string name="downloadEngineFailed">تعذّر تشغيل محرك التنزيل على هذا الجهاز</string>
     <string name="updateEngine">تحديث محرك التنزيل</string>
