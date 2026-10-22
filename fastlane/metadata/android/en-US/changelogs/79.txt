@@ -1,0 +1,1 @@
+Browser: a pasted site link now opens as a page instead of being treated as a video, and video players shown inside a page's frame are found and can be downloaded.

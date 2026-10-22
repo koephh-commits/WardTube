@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.6.33
+- Browser screen: a pasted link is now told apart by what it is. A direct link to a file or a stream still opens the
+  file's confirmation window, and a link of YouTube, TikTok or another video site (Facebook, Instagram, X, Vimeo,
+  Dailymotion, SoundCloud... see `ShareLinks.MEDIA_SITES`) still opens the "Download as" window. Any other link is an
+  ordinary site and is opened in the browser (before, every site's link was handed to yt-dlp as if it were a video).
+  A link with no file extension that the server answers with a download is caught by the WebView's download listener;
+  when it was the first thing opened, the empty page behind the window is closed.
+- Browser screen: a player that a site shows in its own iframe is now found. The floating button lights up and lists it
+  as "Player in the page"; choosing it gives yt-dlp the frame's address, with the open page as referer (smuggled into
+  the address, which needs no change in the download queue). Only frames that look like a player are listed: a visible
+  box that allows full screen, or a video-shaped box whose address says player / embed / video. Ads, comment boxes,
+  share widgets and hidden frames are left out.
+
 ## 2.6.32
 - Wording only. The message shown when a link has no subtitles said "this video", even when the download was an audio
   file. It now says "this clip" and mentions lyrics, like the "Lyrics / subtitles LRC" option does: "This clip has no

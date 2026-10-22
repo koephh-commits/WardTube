@@ -25,6 +25,12 @@ class Detected(
         /** A video that lives inside the page (no file address to see): yt-dlp is given the page. */
         PAGE,
 
+        /**
+         * A player that lives in a frame (iframe) of the page. The address is the frame's own page; yt-dlp is given it
+         * with the open page as referer, because such players often refuse to answer without it.
+         */
+        FRAME,
+
         /** A video file (mp4, webm...). */
         VIDEO,
 
@@ -160,8 +166,8 @@ class MediaSniffer(
 
     inner class Bridge {
         /**
-         * [kind]: "page" (a video that lives inside the page, [url] empty), "video", "audio" or "file". [name] is the
-         * link's own file name when it has one.
+         * [kind]: "page" (a video that lives inside the page, [url] empty), "frame" (a player in an iframe, [url] is
+         * the frame's address), "video", "audio" or "file". [name] is the link's own file name when it has one.
          */
         @JavascriptInterface
         fun report(kind: String?, url: String?, name: String?) {
@@ -170,6 +176,16 @@ class MediaSniffer(
                     val page = pageUrl()?.substringBefore('#')
                     if (page != null && isWeb(page)) add(Detected(page, Detected.Kind.PAGE, page, ""))
                 }
+                return
+            }
+            if (kind == "frame") {
+                val frame = url?.trim().orEmpty()
+                if (frame.length > MAX_URL_LENGTH || !isWeb(frame)) return
+                // A frame whose address is itself a media file is that file, not a player.
+                val asFile = fromAddress(frame, allowFiles = false)
+                val uri = Uri.parse(frame)
+                val label = (uri.host.orEmpty() + uri.path.orEmpty()).ifEmpty { frame }
+                main.post { add(asFile ?: Detected(frame, Detected.Kind.FRAME, label.take(MAX_NAME_LENGTH), "")) }
                 return
             }
             val reported = when (kind) {
@@ -229,6 +245,8 @@ class MediaSniffer(
   if (!B) return;
   var FILE = /\.(zip|rar|7z|tar|gz|tgz|apk|xapk|apks|pdf|docx?|xlsx?|pptx?|epub|mobi|iso)$/i;
   var MEDIA = /\.(mp4|m4v|webm|mkv|mov|avi|flv|3gp|wmv|ogv|mp3|m4a|aac|ogg|oga|opus|wav|flac|wma|m3u8|mpd)$/i;
+  var NOT_PLAYER = /(doubleclick|googlesyndication|googleadservices|adservice|recaptcha|disqus\.com|facebook\.com\/plugins|platform\.twitter|twitter\.com\/widgets|addthis|sharethis|google\.com\/maps)/i;
+  var PLAYER = /(player|embed|video|stream|vid|play)/i;
   var seen = {};
   var anchors = -1;
   var timer = 0;
@@ -260,6 +278,22 @@ class MediaSniffer(
         if (/^https?:/i.test(a)) { direct = true; send(isVideo ? 'video' : 'audio', a, ''); }
       }
       if (isVideo && !direct && (blob || el.readyState > 0 || el.videoWidth > 0)) send('page', '', '');
+    }
+    // A player in an iframe (the site's own player page): its video cannot be reached from here, but the frame can be
+    // named. Only frames that look like a player count: a big enough box that allows full screen, or one shaped like a
+    // video whose address says player / embed / video. Ads, comment boxes and share widgets are skipped.
+    var frames = document.querySelectorAll('iframe');
+    for (var f = 0; f < frames.length && f < 12; f++) {
+      var fr = frames[f];
+      var fsrc = fr.getAttribute('src') || fr.getAttribute('data-src') || '';
+      if (!fsrc || /^(about|javascript|data|blob):/i.test(fsrc)) continue;
+      var fu = abs(fsrc);
+      if (!/^https?:/i.test(fu) || NOT_PLAYER.test(fu)) continue;
+      var fw = fr.offsetWidth, fh = fr.offsetHeight;
+      if (fw < 200 || fh < 110) continue;
+      var full = fr.hasAttribute('allowfullscreen') || /fullscreen/i.test(fr.getAttribute('allow') || '');
+      var ratio = fw / fh;
+      if (full || (ratio >= 1.2 && ratio <= 2.6 && fw >= 240 && PLAYER.test(fu))) send('frame', fu, '');
     }
     var metas = document.querySelectorAll('meta[property="og:video"],meta[property="og:video:url"],meta[property="og:video:secure_url"],meta[name="twitter:player:stream"]');
     for (var m = 0; m < metas.length && m < 6; m++) {

@@ -231,6 +231,7 @@
     <string name="browserDetectFound">Download from this page (%1$d found)</string>
     <string name="browserDetectTitle">Found on this page</string>
     <string name="browserKindPage">Video of this page</string>
+    <string name="browserKindFrame">Player in the page</string>
     <string name="browserKindVideo">Video</string>
     <string name="browserKindStream">Video stream</string>
     <string name="browserKindAudio">Audio</string>

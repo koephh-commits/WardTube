@@ -63,16 +63,19 @@ import com.mwmods.wardtube.util.CookieHelper
 import com.mwmods.wardtube.util.DownloadStore
 import com.mwmods.wardtube.util.Permissions
 import com.mwmods.wardtube.util.ShareLinks
+import com.mwmods.wardtube.util.UrlUtils
 import kotlin.math.hypot
+import org.json.JSONObject
 
 /**
  * The browser screen: paste (or type) the link of a video from any site and download it, or open the page in a small
  * browser and download from there.
  *
- * - Globe button in the field (or Go on the keyboard): a link is looked at for something to download first (see
- *   [onSearch]); a video link goes to the same "Download as" dialog and queue that sharing a link to the app uses
- *   (yt-dlp, which knows well over a thousand sites). The site is opened only from the "Open site" button of the
- *   "nothing found" message; text that is not a link is searched in a WebView.
+ * - Globe button in the field (or Go on the keyboard): a link is looked at first (see [onSearch]). A direct link to a
+ *   file goes to the file's confirmation window; a link of YouTube, TikTok or another video site goes to the same
+ *   "Download as" dialog and queue that sharing a link to the app uses (yt-dlp); any other link is an ordinary page and
+ *   is opened here, where the floating button finds its videos and files. Text that is not a link is searched in a
+ *   WebView.
  * - A file the page offers for download (zip, pdf, apk, a direct video link...) is saved by the system's download
  *   manager into Download/WardTube, so it shows in the Library too.
  * - The app's ad blocker (the same rules and the same on/off switch as the YouTube screen) filters every request of
@@ -131,6 +134,9 @@ class BrowserActivity : AppCompatActivity() {
 
     /** True between the start and the end of a page load. */
     private var pageLoading = false
+
+    /** True once the open WebView has shown a page (a link that was a file never does: see the download listener). */
+    private var pageShown = false
 
     /** A page waits to be written to the history (see [scheduleRecord]). */
     private var recordPending = false
@@ -325,10 +331,13 @@ class BrowserActivity : AppCompatActivity() {
     // ---- The page ----
 
     /**
-     * The globe button and Go on the keyboard. A link is looked at for something to download before any site is opened:
+     * The globe button and Go on the keyboard. What a link is decides what happens:
      *  - the address is itself a file, a video / audio file or a streamed video: the file's confirmation window;
-     *  - a video page (YouTube, TikTok, or any other site yt-dlp may know): the "Download as" window;
-     *  - anything else (a home page, a channel...): a "nothing found" message whose button opens the site.
+     *  - a link of YouTube, TikTok or another site known for its videos ([ShareLinks.isMediaSite]): the "Download as"
+     *    window (a page of those sites that is not a video says so and offers to open the site);
+     *  - any other link is an ordinary site: it is opened here. If it turns out to be a file (an address with no
+     *    extension that the server answers with a download), the WebView's download listener asks about it; if it is a
+     *    page, the floating button finds the videos and files inside it, frames included.
      * Text that is not a link is searched with Google in the browser.
      */
     private fun onSearch() {
@@ -349,10 +358,14 @@ class BrowserActivity : AppCompatActivity() {
             return
         }
         when (val result = ShareLinks.find(address)) {
-            is ShareLinks.Result.Found -> withPermissions {
-                Downloader.chooseAndStart(this, result.link.url, root, null)
-            }
-            else -> notFound(address)
+            is ShareLinks.Result.Found ->
+                if (ShareLinks.isMediaSite(result.link.url)) {
+                    withPermissions { Downloader.chooseAndStart(this, result.link.url, root, null) }
+                } else {
+                    openPage(address)
+                }
+            // A YouTube / TikTok page that is not a video says so; any other site's home page is simply opened.
+            else -> if (ShareLinks.isMediaSite(address)) notFound(address) else openPage(address)
         }
     }
 
@@ -422,6 +435,7 @@ class BrowserActivity : AppCompatActivity() {
 
             // The page is visible / loaded: its script looks for videos and files (a second run only looks again).
             override fun onPageCommitVisible(view: WebView?, url: String?) {
+                pageShown = true
                 view?.evaluateJavascript(MediaSniffer.SCRIPT, null)
             }
 
@@ -456,6 +470,8 @@ class BrowserActivity : AppCompatActivity() {
         }
         web.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             offerFileDownload(url, userAgent, contentDisposition, mimeType)
+            // The link that was just opened was itself a file: there is no page to look at behind the window.
+            if (!pageShown) handler.post { if (!pageShown) closePage() }
         }
 
         // Under the progress bar (index 0).
@@ -492,6 +508,7 @@ class BrowserActivity : AppCompatActivity() {
         web.destroy()
         sniffedPage = null
         pageLoading = false
+        pageShown = false
         sniffer.clear()
         detectButton.visibility = View.GONE
         prevButton.visibility = View.GONE
@@ -669,6 +686,7 @@ class BrowserActivity : AppCompatActivity() {
         val kind = getString(
             when (item.kind) {
                 Detected.Kind.PAGE -> R.string.browserKindPage
+                Detected.Kind.FRAME -> R.string.browserKindFrame
                 Detected.Kind.VIDEO -> R.string.browserKindVideo
                 Detected.Kind.STREAM -> R.string.browserKindStream
                 Detected.Kind.AUDIO -> R.string.browserKindAudio
@@ -687,6 +705,10 @@ class BrowserActivity : AppCompatActivity() {
         when (item.kind) {
             // A video that lives inside the page, and a streamed one (an m3u8 / mpd playlist): yt-dlp's job.
             Detected.Kind.PAGE -> downloadPageVideo()
+            // A player in an iframe: yt-dlp is given the frame's page, told that the open page embeds it.
+            Detected.Kind.FRAME -> withPermissions {
+                Downloader.chooseAndStart(this, withReferer(item.url, webView?.url), root, webView?.title)
+            }
             Detected.Kind.STREAM -> withPermissions {
                 Downloader.chooseAndStart(this, item.url, root, webView?.title)
             }
@@ -695,6 +717,21 @@ class BrowserActivity : AppCompatActivity() {
                 item.url, webView?.settings?.userAgentString, null, item.mimeType.ifEmpty { null }, item.name,
             )
         }
+    }
+
+    /**
+     * A player in a frame often answers only when the page that embeds it is the referer. yt-dlp reads a referer that
+     * is smuggled into the address (the part after `#__youtubedl_smuggle=`, which it removes before using the link).
+     * YouTube's own embeds and addresses without an open page are given as they are.
+     */
+    private fun withReferer(frameUrl: String, page: String?): String {
+        val referer = page?.substringBefore('#')
+            ?.takeIf { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
+            ?: return frameUrl
+        val host = Uri.parse(frameUrl).host?.lowercase().orEmpty()
+        if (host.isEmpty() || UrlUtils.isInternalHost(host)) return frameUrl
+        val data = JSONObject().put("referer", referer).toString()
+        return frameUrl.substringBefore('#') + "#__youtubedl_smuggle=" + Uri.encode(data)
     }
 
     private fun downloadPageVideo() {

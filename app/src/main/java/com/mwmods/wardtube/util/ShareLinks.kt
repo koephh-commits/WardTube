@@ -64,6 +64,27 @@ object ShareLinks {
         }
     }
 
+    /**
+     * Sites whose pages are videos (or audio) by nature, where yt-dlp is given the link as it is. Every other site is an
+     * ordinary page: the browser screen opens it and finds the video inside (see MediaSniffer). Add a host here to send
+     * its links straight to the download window.
+     */
+    private val MEDIA_SITES = setOf(
+        "facebook.com", "fb.watch", "instagram.com", "twitter.com", "x.com", "vimeo.com", "dailymotion.com", "dai.ly",
+        "soundcloud.com", "twitch.tv", "bilibili.com", "reddit.com", "streamable.com", "rumble.com", "pinterest.com",
+        "snapchat.com", "bandcamp.com", "ok.ru", "vk.com",
+    )
+
+    /** True for a link of YouTube, TikTok or one of [MEDIA_SITES]: a link there is taken for a video, not for a page to browse. */
+    fun isMediaSite(url: String): Boolean {
+        val host = try {
+            URI(url.substringBefore('#').substringBefore('?')).host?.lowercase(Locale.ROOT)
+        } catch (e: Exception) {
+            null
+        } ?: return false
+        return isTikTokHost(host) || isYouTubeHost(host) || MEDIA_SITES.any { host == it || host.endsWith(".$it") }
+    }
+
     /** The first http(s) address written in [text], as typed (trailing punctuation cut off), or null when there is none. */
     fun firstUrl(text: String?): String? =
         URL_PATTERN.find(text.orEmpty())?.value?.trimEnd { it in TRAILING_PUNCTUATION }?.takeIf { it.isNotEmpty() }

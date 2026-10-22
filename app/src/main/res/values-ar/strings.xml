@@ -234,6 +234,7 @@
     <string name="browserDetectFound">التنزيل من هذه الصفحة (تم اكتشاف %1$d)</string>
     <string name="browserDetectTitle">تم اكتشافه في هذه الصفحة</string>
     <string name="browserKindPage">فيديو الصفحة</string>
+    <string name="browserKindFrame">مشغّل داخل الصفحة</string>
     <string name="browserKindVideo">فيديو</string>
     <string name="browserKindStream">بث فيديو</string>
     <string name="browserKindAudio">صوت</string>
