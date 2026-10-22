@@ -63,4 +63,22 @@
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">16dp</item>
     </style>
+
+    <!-- The bottom sheets of the browser screen: dark green with rounded top corners, whatever the day / night mode. -->
+    <style name="BrowserSheetDialog" parent="ThemeOverlay.MaterialComponents.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/BrowserSheet</item>
+    </style>
+
+    <style name="BrowserSheet" parent="Widget.MaterialComponents.BottomSheet.Modal">
+        <item name="backgroundTint">@color/browserSheet</item>
+        <item name="shapeAppearanceOverlay">@style/BrowserSheetShape</item>
+    </style>
+
+    <style name="BrowserSheetShape">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">24dp</item>
+        <item name="cornerSizeTopRight">24dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+    </style>
 </resources>

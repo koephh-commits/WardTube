@@ -5,7 +5,6 @@ package com.mwmods.wardtube.browser
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.DownloadManager
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -16,7 +15,6 @@ import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
@@ -57,14 +55,16 @@ import com.google.android.material.textfield.TextInputLayout
 import com.mwmods.wardtube.Prefs
 import com.mwmods.wardtube.R
 import com.mwmods.wardtube.adblock.AdBlocker
+import com.mwmods.wardtube.download.DownloadService
 import com.mwmods.wardtube.download.Downloader
 import com.mwmods.wardtube.download.RequestHeaders
 import com.mwmods.wardtube.ui.LibraryActivity
 import com.mwmods.wardtube.util.CookieHelper
-import com.mwmods.wardtube.util.DownloadStore
 import com.mwmods.wardtube.util.Permissions
 import com.mwmods.wardtube.util.ShareLinks
 import com.mwmods.wardtube.util.UrlUtils
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.math.hypot
 import org.json.JSONObject
 
@@ -76,13 +76,17 @@ import org.json.JSONObject
  *   file goes to the file's confirmation window; a link of YouTube, TikTok or another video site goes to the same
  *   "Download as" dialog and queue that sharing a link to the app uses (yt-dlp); any other link is an ordinary page and
  *   is opened here, where the floating button finds its videos and files. Text that is not a link is searched in a
- *   WebView.
- * - A file the page offers for download (zip, pdf, apk, a direct video link...) is saved by the system's download
- *   manager into Download/WardTube, so it shows in the Library too.
+ *   WebView, with the search engine chosen at the end of the link field (see [SearchEngines]).
+ * - A file the page offers for download (zip, pdf, apk, an audio link...) is downloaded by the app itself (see
+ *   [FileDownloader]), through the same queue as the videos, into Download/WardTube, so its progress and Retry show in
+ *   the Library too. The phone's download manager is not used.
  * - The app's ad blocker (the same rules and the same on/off switch as the YouTube screen) filters every request of
  *   the page.
  * - A floating download button, there only while a page is open, is dimmed until the page offers a video or a file (see
- *   [MediaSniffer]); then it lists what was found and downloads the choice. It can be dragged anywhere on the screen.
+ *   [MediaSniffer]); then it lists what was found (see [DetectedSheet]) and downloads the choice. It can be dragged
+ *   anywhere on the screen.
+ * - The button beside the link field shows the search engine in use and opens the picker ([SearchEngineSheet]); the
+ *   choice is remembered ([Prefs.searchEngine]).
  * - The Paste button is on the main screen only: it is hidden while a page is open.
  * - The arrow at the top leaves the browser screen; going back through the pages is the phone's back button.
  * - The title sits in the top row, next to the back, Library and History buttons, and the link field right under it.
@@ -104,6 +108,8 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var title: TextView
     private lateinit var fieldLayout: TextInputLayout
     private lateinit var linkField: TextInputEditText
+    private lateinit var engineButton: View
+    private lateinit var engineBadge: TextView
     private lateinit var webContainer: FrameLayout
     private lateinit var progress: ProgressBar
     private var webView: WebView? = null
@@ -188,6 +194,8 @@ class BrowserActivity : AppCompatActivity() {
         title = findViewById(R.id.browserTitle)
         fieldLayout = findViewById(R.id.browserFieldLayout)
         linkField = findViewById(R.id.browserField)
+        engineButton = findViewById(R.id.browserEngineButton)
+        engineBadge = findViewById(R.id.browserEngineBadge)
         webContainer = findViewById(R.id.browserWebContainer)
         progress = findViewById(R.id.browserProgress)
         detectButton = findViewById(R.id.browserDetect)
@@ -236,6 +244,8 @@ class BrowserActivity : AppCompatActivity() {
         }
         findViewById<FloatingActionButton>(R.id.browserPaste).setOnClickListener { pasteFromClipboard() }
         fieldLayout.setStartIconOnClickListener { onSearch() }
+        showEngine()
+        engineButton.setOnClickListener { chooseEngine() }
         // The x: there while the field has text; it empties the field and brings the keyboard up for the next text.
         fieldLayout.isEndIconVisible = !linkField.text.isNullOrEmpty()
         linkField.doAfterTextChanged { fieldLayout.isEndIconVisible = !it.isNullOrEmpty() }
@@ -329,6 +339,26 @@ class BrowserActivity : AppCompatActivity() {
             PackageManager.PERMISSION_GRANTED
     }
 
+    // ---- The search engine ----
+
+    private fun currentEngine(): SearchEngine = SearchEngines.byId(prefs.searchEngine)
+
+    /** The button beside the field shows the engine a search will use. */
+    private fun showEngine() {
+        val engine = currentEngine()
+        engine.paintBadge(engineBadge)
+        engineButton.contentDescription = getString(R.string.browserEngineButton, engine.name)
+    }
+
+    private fun chooseEngine() {
+        hideKeyboard()
+        SearchEngineSheet.show(this, currentEngine()) { engine ->
+            prefs.searchEngine = engine.id
+            showEngine()
+            snack(getString(R.string.browserEngineButton, engine.name), Snackbar.LENGTH_SHORT)
+        }
+    }
+
     // ---- The page ----
 
     /**
@@ -339,7 +369,7 @@ class BrowserActivity : AppCompatActivity() {
      *  - any other link is an ordinary site: it is opened here. If it turns out to be a file (an address with no
      *    extension that the server answers with a download), the WebView's download listener asks about it; if it is a
      *    page, the floating button finds the videos and files inside it, frames included.
-     * Text that is not a link is searched with Google in the browser.
+     * Text that is not a link is searched in the browser with the chosen search engine ([currentEngine]).
      */
     private fun onSearch() {
         val text = linkField.text?.toString().orEmpty().trim()
@@ -350,7 +380,7 @@ class BrowserActivity : AppCompatActivity() {
         hideKeyboard()
         val address = asUrl(text) ?: ShareLinks.firstUrl(text)
         if (address == null) {
-            openPage(SEARCH_URL + Uri.encode(text))
+            openPage(currentEngine().urlFor(text))
             return
         }
         val file = sniffer.directFile(address)
@@ -585,7 +615,7 @@ class BrowserActivity : AppCompatActivity() {
     ) {
         val scheme = Uri.parse(url).scheme?.lowercase()
         if (scheme != "http" && scheme != "https") {
-            // blob: and data: links only exist inside the page; the download manager cannot fetch them.
+            // blob: and data: links only exist inside the page; nothing outside it can fetch them.
             snack(R.string.browserFileUnsupported)
             return
         }
@@ -595,32 +625,94 @@ class BrowserActivity : AppCompatActivity() {
             .setTitle(R.string.browserFileTitle)
             .setMessage(name)
             .setPositiveButton(R.string.download) { _, _ ->
-                withPermissions { enqueueFile(url, userAgent, mimeType, name, referer) }
+                withPermissions { startFileDownload(url, userAgent, name, referer) }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
-    /** Hands the file to the system's download manager, which saves it in a sub-folder of Download/WardTube. */
-    @Suppress("DEPRECATION")
-    private fun enqueueFile(url: String, userAgent: String?, mimeType: String?, name: String, referer: String?) {
+    /**
+     * An https address goes straight to the queue. A plain http one is first tried over https (checked in the
+     * background): if the site answers there, the file is downloaded from the https address; if not, the person is
+     * warned that the link is not secure and decides whether to go on.
+     */
+    private fun startFileDownload(url: String, userAgent: String?, name: String, referer: String?) {
+        if (!url.startsWith("http://", ignoreCase = true)) {
+            enqueueFile(url, userAgent, name, referer)
+            return
+        }
+        val secureUrl = try {
+            val plain = URL(url)
+            URL("https", plain.host, if (plain.port == 80) -1 else plain.port, plain.file)
+        } catch (e: Exception) {
+            snack(R.string.browserFileFailed)
+            return
+        }
+        snack(R.string.browserFileChecking)
+        Thread {
+            val httpsWorks = httpsAnswers(secureUrl, userAgent)
+            handler.post {
+                if (isFinishing || isDestroyed) return@post
+                if (httpsWorks) {
+                    enqueueFile(secureUrl.toString(), userAgent, name, referer)
+                } else {
+                    confirmInsecure(url, userAgent, name, referer)
+                }
+            }
+        }.start()
+    }
+
+    /** True when the site answers over https at all (any HTTP answer counts; the download itself reports its errors). */
+    private fun httpsAnswers(secureUrl: URL, userAgent: String?): Boolean {
+        return try {
+            val conn = secureUrl.openConnection() as HttpURLConnection
+            try {
+                conn.instanceFollowRedirects = false
+                conn.connectTimeout = HTTPS_CHECK_TIMEOUT_MS
+                conn.readTimeout = HTTPS_CHECK_TIMEOUT_MS
+                conn.requestMethod = "HEAD"
+                userAgent?.takeIf { it.isNotBlank() }?.let { conn.setRequestProperty("User-Agent", it) }
+                conn.responseCode > 0
+            } finally {
+                conn.disconnect()
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** The site has no https version of the link: the person is told it is not secure and chooses to go on or cancel. */
+    private fun confirmInsecure(url: String, userAgent: String?, name: String, referer: String?) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.browserInsecureTitle)
+            .setMessage(getString(R.string.browserInsecureMessage, name))
+            .setPositiveButton(R.string.browserInsecureProceed) { _, _ ->
+                enqueueFile(url, userAgent, name, referer, allowInsecure = true)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /**
+     * Hands the file to the app's own download queue ([FileDownloader] inside [DownloadService]), which saves it in a
+     * sub-folder of Download/WardTube. It is sent what the page sent (the page as referer, the WebView's user agent and
+     * the cookies of the file's host: see [RequestHeaders]), so a download that needs the visit still works. Its
+     * progress, waiting list and Retry show in the Library, like the videos'.
+     */
+    private fun enqueueFile(
+        url: String,
+        userAgent: String?,
+        name: String,
+        referer: String?,
+        allowInsecure: Boolean = false,
+    ) {
         val safeName = name.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().ifEmpty { "download" }
-        val folder = DownloadStore.subFolderFor(safeName, mimeType.orEmpty()) ?: DownloadStore.FOLDER_FILES
         try {
-            val request = DownloadManager.Request(Uri.parse(url))
-                .setTitle(safeName)
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(
-                    Environment.DIRECTORY_DOWNLOADS,
-                    "${DownloadStore.FOLDER}/$folder/$safeName",
-                )
-            request.allowScanningByMediaScanner()
-            if (!mimeType.isNullOrBlank()) request.setMimeType(mimeType)
-            // The page's own identity, so a download that needs the visit (logged in, a hot-link check) still works.
-            if (!userAgent.isNullOrBlank()) request.addRequestHeader("User-Agent", userAgent)
-            CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
-            if (!referer.isNullOrBlank()) request.addRequestHeader("Referer", referer)
-            (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+            val address = RequestHeaders.attach(
+                url, referer = referer, userAgent = userAgent, cookie = CookieManager.getInstance().getCookie(url), name = null,
+                allowInsecure = allowInsecure,
+            )
+            DownloadService.startFile(this, address, safeName)
             Snackbar.make(root, getString(R.string.browserFileStarted, safeName), Snackbar.LENGTH_LONG)
                 .setAction(R.string.library) { startActivity(Intent(this, LibraryActivity::class.java)) }
                 .show()
@@ -674,32 +766,31 @@ class BrowserActivity : AppCompatActivity() {
         val items = sniffer.snapshot()
         when {
             items.isEmpty() -> snack(R.string.browserDetectNone)
+            // Only a player's frame so far: the video file it loads is caught once the video plays. Opening the
+            // "Download as" window now would let the person choose a format and wait, only for yt-dlp to fail.
+            items.all { it.kind == Detected.Kind.FRAME } -> askToPlayFirst(items)
             items.size == 1 -> startDetected(items[0])
-            else -> MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.browserDetectTitle)
-                .setItems(items.map { labelFor(it) }.toTypedArray()) { _, which -> startDetected(items[which]) }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
+            else -> chooseDetected(items)
         }
     }
 
-    private fun labelFor(item: Detected): String {
-        val kind = getString(
-            when (item.kind) {
-                Detected.Kind.PAGE -> R.string.browserKindPage
-                Detected.Kind.FRAME -> R.string.browserKindFrame
-                Detected.Kind.VIDEO -> R.string.browserKindVideo
-                Detected.Kind.STREAM -> R.string.browserKindStream
-                Detected.Kind.AUDIO -> R.string.browserKindAudio
-                Detected.Kind.FILE -> R.string.browserKindFile
+    private fun chooseDetected(items: List<Detected>) {
+        DetectedSheet.show(this, webView?.title, webView?.url, items) { startDetected(it) }
+    }
+
+    /**
+     * Tells the person to play the video first. The player itself is still there for them to try: some players
+     * (YouTube's embed, for one) are exactly what yt-dlp understands, and only yt-dlp can tell.
+     */
+    private fun askToPlayFirst(frames: List<Detected>) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.browserPlayFirstTitle)
+            .setMessage(R.string.browserPlayFirstMessage)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNeutralButton(R.string.browserPlayFirstTry) { _, _ ->
+                if (frames.size == 1) startDetected(frames[0]) else chooseDetected(frames)
             }
-        )
-        val name = if (item.kind == Detected.Kind.PAGE) {
-            webView?.title?.takeIf { it.isNotBlank() } ?: item.name
-        } else {
-            item.name
-        }
-        return "$kind — ${name.take(LABEL_NAME_LENGTH)}"
+            .show()
     }
 
     private fun startDetected(item: Detected) {
@@ -711,7 +802,7 @@ class BrowserActivity : AppCompatActivity() {
                 Downloader.chooseAndStart(this, withReferer(item.url, webView?.url), root, webView?.title)
             }
             // A video file or a stream (m3u8 / mpd) the page loaded: the app's own queue (yt-dlp), so its progress shows
-            // in the Library. It is sent what the page sent (see [withIdentity]), as the system's download manager was.
+            // in the Library. It is sent what the page sent (see [withIdentity]), as plain files are.
             Detected.Kind.VIDEO, Detected.Kind.STREAM -> {
                 val scheme = Uri.parse(item.url).scheme?.lowercase()
                 if (scheme != "http" && scheme != "https") {
@@ -723,7 +814,7 @@ class BrowserActivity : AppCompatActivity() {
                     }
                 }
             }
-            // Audio and other files: the system's download manager, after a confirmation that shows the name.
+            // Audio and other files: the app's own file downloader, after a confirmation that shows the name.
             else -> offerFileDownload(
                 item.url, webView?.settings?.userAgentString, null, item.mimeType.ifEmpty { null }, item.name,
             )
@@ -864,10 +955,9 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun snack(message: Int) = Snackbar.make(root, message, Snackbar.LENGTH_LONG).show()
 
-    private companion object {
-        /** What a text that is not a link is searched with. */
-        const val SEARCH_URL = "https://www.google.com/search?q="
+    private fun snack(message: String, duration: Int) = Snackbar.make(root, message, duration).show()
 
+    private companion object {
         /** How long the "nothing found" message stays, so there is time to press its button. */
         const val NOT_FOUND_MS = 8000
 
@@ -884,6 +974,8 @@ class BrowserActivity : AppCompatActivity() {
         const val DISABLED_ALPHA = 0.4f
         const val PULSE_SCALE = 1.25f
         const val PULSE_MS = 150L
-        const val LABEL_NAME_LENGTH = 60
+
+        /** How long to wait for a site to answer over https before it is taken to have no https version. */
+        const val HTTPS_CHECK_TIMEOUT_MS = 8000
     }
 }

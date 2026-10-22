@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A row (card) of a browser bottom sheet: soft rounded fill; the row in use (activated) is tinted and outlined. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_activated="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/browserSheetRowSelected" />
+            <stroke
+                android:width="1.5dp"
+                android:color="@color/browserFabIcon" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/browserSheetRow" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+</selector>

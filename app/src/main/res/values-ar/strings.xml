@@ -152,6 +152,9 @@
     <string name="downloadQueued">أُضيف إلى التنزيلات. تابع التقدّم من المكتبة.</string>
     <string name="downloadSaved">تم الحفظ في المكتبة: %1$s</string>
     <string name="downloadFailed">فشل التنزيل</string>
+    <string name="browserPlayFirstTitle">لم يظهر ملف الفيديو بعد</string>
+    <string name="browserPlayFirstMessage">في الصفحة مشغّل، لكن ملف الفيديو لم يُلتقط بعد. شغّل الفيديو بضع ثوانٍ ثم اضغط الزر مرة أخرى.\n\nالتنزيل من المشغّل نفسه يعمل مع بعض المواقع فقط.</string>
+    <string name="browserPlayFirstTry">جرّب المشغّل</string>
     <string name="downloadFailedTap">فشل التنزيل — اضغط لعرض الخطأ كاملاً</string>
     <string name="downloadErrorTitle">الخطأ كاملاً</string>
     <string name="downloadErrorCopied">تم النسخ</string>
@@ -171,6 +174,14 @@
     <string name="downloadWaitingCount">%1$d في الانتظار</string>
     <string name="downloadEta">متبقي %1$s</string>
     <string name="downloadProgressParts">جارٍ التنزيل… %1$d%% • الجزء %2$d من %3$d</string>
+    <string name="downloadRunning">جارٍ التنزيل…</string>
+    <string name="fileErrHttp">رفض الخادم التنزيل (الخطأ %1$d).</string>
+    <string name="fileErrCleartext">هذا الرابط غير مشفّر (http) ويمنع أندرويد اتصالات http العادية التي يجريها التطبيق، والموقع لا يوفّر له نسخة https.</string>
+    <string name="fileErrNoResume">انقطع الاتصال والخادم لا يستطيع إكمال تنزيل جزئي. أعد المحاولة.</string>
+    <string name="fileErrPage">أرسل الخادم صفحة ويب بدل الملف (قد يكون الرابط منتهي الصلاحية أو يحتاج إلى تسجيل دخول).</string>
+    <string name="fileErrStorage">تعذّرت كتابة الملف: %1$s</string>
+    <string name="fileErrNetwork">انقطع الاتصال: %1$s</string>
+    <string name="fileErrCut">أغلق الخادم الاتصال قبل نهاية الملف</string>
 
     <!-- المكتبة: التنزيلات الجارية -->
     <string name="libraryDownloads">التنزيلات</string>
@@ -218,7 +229,7 @@
 
     <!-- شاشة المتصفح -->
     <string name="browser">المتصفح</string>
-    <string name="browserLinkHint">رابط الفيديو أو الملف</string>
+    <string name="browserLinkHint">ابحث أو الصق رابطًا</string>
     <string name="browserPaste">لصق</string>
     <string name="browserOpen">فتح في المتصفح</string>
     <string name="browserBack">رجوع</string>
@@ -234,6 +245,10 @@
     <string name="browserFileStarted">جارٍ تنزيل %1$s</string>
     <string name="browserFileFailed">تعذّر بدء التنزيل</string>
     <string name="browserFileUnsupported">لا يمكن تنزيل هذا النوع من الروابط مباشرة</string>
+    <string name="browserFileChecking">جارٍ التحقق من وجود نسخة آمنة (https) للرابط…</string>
+    <string name="browserInsecureTitle">رابط غير آمن</string>
+    <string name="browserInsecureMessage">هذا الرابط يبدأ بـ http فهو غير مشفّر، والموقع لا يوفّر له نسخة https.\n\nقد يتمكّن غيرك على الشبكة من رؤية الملف أو تعديله أثناء التنزيل، وقد يكون الملف نفسه غير موثوق.\n\n%1$s\n\nهل تريد التنزيل على أي حال؟</string>
+    <string name="browserInsecureProceed">تنزيل على أي حال</string>
     <string name="browserDetectNone">لم يُكتشف فيديو أو ملف في هذه الصفحة بعد</string>
     <string name="browserDetectFound">التنزيل من هذه الصفحة (تم اكتشاف %1$d)</string>
     <string name="browserDetectTitle">تم اكتشافه في هذه الصفحة</string>
@@ -246,6 +261,16 @@
     <string name="browserPrevious">الصفحة السابقة</string>
     <string name="browserNext">الصفحة التالية</string>
     <string name="browserHistory">سجل التصفح</string>
+    <string name="browserEngineTitle">محرك البحث</string>
+    <string name="browserEngineSubtitle">يُستخدم عند كتابة كلمات بدلًا من رابط</string>
+    <string name="browserEngineButton">محرك البحث: %1$s</string>
+    <string name="browserEngineGroupWeb">البحث في الويب</string>
+    <string name="browserEngineGroupVideo">مواقع الفيديو</string>
+    <string name="browserSectionVideos">الفيديوهات</string>
+    <string name="browserSectionAudio">الصوتيات</string>
+    <string name="browserSectionFiles">الملفات</string>
+    <string name="browserBadgePage">الصفحة</string>
+    <string name="browserBadgePlayer">مشغّل</string>
     <string name="historyTitle">سجل التصفح</string>
     <string name="historySelectItems">حدد الصفحات</string>
     <string name="historySelectAll">تحديد الكل</string>

@@ -5,7 +5,11 @@ package com.mwmods.wardtube.download
 
 import org.json.JSONObject
 
-enum class MediaKind { VIDEO, AUDIO, SUBS }
+/**
+ * [FILE] is not a choice in the "Download as" window: it is a plain file (zip, pdf, apk...) found in the browser, which
+ * the app downloads by itself over HTTP (see [FileDownloader]) instead of handing it to yt-dlp or to the system.
+ */
+enum class MediaKind { VIDEO, AUDIO, SUBS, FILE }
 
 enum class VideoContainer(val ext: String, val label: String) {
     MP4("mp4", "MP4"),
@@ -50,6 +54,7 @@ data class DownloadOptions(
 ) {
     val isAudio: Boolean get() = kind == MediaKind.AUDIO
     val isSubsOnly: Boolean get() = kind == MediaKind.SUBS
+    val isFile: Boolean get() = kind == MediaKind.FILE
     val wantsSubs: Boolean get() = kind == MediaKind.SUBS || withSubs
 
     /** Value for yt-dlp's `-f`. */
@@ -62,6 +67,7 @@ data class DownloadOptions(
             }
             MediaKind.VIDEO -> videoFormat()
             MediaKind.SUBS -> "best" // never used: subtitle jobs skip the media download
+            MediaKind.FILE -> "best" // never used: a plain file does not go through yt-dlp
         }
 
     private fun videoFormat(): String {
@@ -97,6 +103,7 @@ data class DownloadOptions(
                 if (withSubs) "$base + ${subFormat.uppercase()}" else base
             }
             MediaKind.SUBS -> subFormat.uppercase()
+            MediaKind.FILE -> "" // the Library card shows the file's own extension instead
         }
 
     fun toJson(): String = JSONObject()

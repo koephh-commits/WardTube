@@ -16,6 +16,7 @@ import android.provider.MediaStore
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.io.OutputStream
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -59,6 +60,20 @@ data class DownloadItem(
             }
         }
 }
+
+/**
+ * A file that is still being written (see [DownloadStore.begin]): the bytes go to [output], and the file only joins the
+ * Library once [DownloadStore.commit] is called; [DownloadStore.discard] throws a half-written file away.
+ */
+class PendingFile internal constructor(
+    /** Android 10+: the MediaStore row, hidden from every other app and from the Library until it is committed. */
+    internal val uri: Uri?,
+    /** Android 9 and older: where the file will be, and the hidden file that is written meanwhile. */
+    internal val target: File?,
+    internal val work: File?,
+    internal val mimeType: String,
+    val output: OutputStream,
+)
 
 /**
  * Saves downloaded files into Download/WardTube and lists them again for the Library.
@@ -217,7 +232,11 @@ object DownloadStore {
             target.delete()
             throw e
         }
-        // Register with MediaStore so the file shows up in the Library (and in other apps).
+        return scan(context, target, mimeType)
+    }
+
+    /** Registers a file with MediaStore so that it shows up in the Library (and in other apps). */
+    private fun scan(context: Context, target: File, mimeType: String): Uri {
         var scanned: Uri? = null
         val latch = CountDownLatch(1)
         MediaScannerConnection.scanFile(context, arrayOf(target.absolutePath), arrayOf(mimeType)) { _, uri ->
@@ -226,6 +245,83 @@ object DownloadStore {
         }
         latch.await(5, TimeUnit.SECONDS)
         return scanned ?: Uri.fromFile(target)
+    }
+
+    // ---- Saving while the bytes still arrive (the app's own file downloads) ----
+
+    /**
+     * Starts a file whose bytes are not all there yet (a download in progress): write to [PendingFile.output], then
+     * call [commit]. Nothing is copied twice and no temporary copy fills the phone's internal storage, which matters
+     * for big files. Throws on failure; nothing is left behind then.
+     */
+    fun begin(context: Context, fileName: String, mimeType: String, subFolder: String?): PendingFile {
+        val safeName = sanitize(fileName)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            beginWithMediaStore(context, safeName, mimeType, subFolder)
+        } else {
+            beginLegacy(safeName, mimeType, subFolder)
+        }
+    }
+
+    /** The file is complete: it becomes visible and the Library finds it. Returns its Uri. Throws on failure. */
+    fun commit(context: Context, pending: PendingFile): Uri {
+        pending.output.close()
+        val uri = pending.uri
+        if (uri != null) {
+            val done = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+            context.contentResolver.update(uri, done, null, null)
+            remember(context, uri)
+            return uri
+        }
+        val target = pending.target ?: throw IOException("Could not save the file")
+        val work = pending.work ?: throw IOException("Could not save the file")
+        if (!work.renameTo(target)) {
+            work.delete()
+            throw IOException("Could not save the file")
+        }
+        val scanned = scan(context, target, pending.mimeType)
+        remember(context, scanned)
+        return scanned
+    }
+
+    /** The download failed or was cancelled: whatever was written is deleted. */
+    fun discard(context: Context, pending: PendingFile) {
+        runCatching { pending.output.close() }
+        pending.uri?.let { runCatching { context.contentResolver.delete(it, null, null) } }
+        pending.work?.let { runCatching { it.delete() } }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun beginWithMediaStore(context: Context, name: String, mimeType: String, subFolder: String?): PendingFile {
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            val relative = "${Environment.DIRECTORY_DOWNLOADS}/$FOLDER" + (subFolder?.let { "/$it" } ?: "")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relative)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw IOException("Could not create the file")
+        val out = try {
+            resolver.openOutputStream(uri) ?: throw IOException("Could not open the file")
+        } catch (e: Exception) {
+            runCatching { resolver.delete(uri, null, null) } // never leave an empty row behind
+            throw e
+        }
+        return PendingFile(uri, null, null, mimeType, out)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun beginLegacy(name: String, mimeType: String, subFolder: String?): PendingFile {
+        val main = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), FOLDER)
+        val dir = if (subFolder != null) File(main, subFolder) else main
+        if (!dir.exists() && !dir.mkdirs()) throw IOException("Could not create the folder")
+        val target = uniqueFile(dir, name)
+        // Written under a hidden name (the Library skips names that start with a dot) and renamed when complete, so
+        // that a download cut short by the system never leaves a broken file in the folder.
+        val work = File(dir, ".${target.name}.part")
+        return PendingFile(null, target, work, mimeType, work.outputStream())
     }
 
     private fun uniqueFile(dir: File, name: String): File {

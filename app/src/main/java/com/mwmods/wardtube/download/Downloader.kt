@@ -329,7 +329,8 @@ object Downloader {
         private val lossless = root.findViewById<android.view.View>(R.id.tvLossless)
         private val sectionSubFormat = root.findViewById<android.view.View>(R.id.sectionSubFormat)
 
-        private val kinds = MediaKind.entries
+        // A plain file is not something to choose in this window.
+        private val kinds = MediaKind.entries.filter { it != MediaKind.FILE }
         private val containers = VideoContainer.entries
         private val audioCodecs = AudioCodec.entries
         private val subFormats = listOf("srt", "lrc")
@@ -349,6 +350,7 @@ object Downloader {
                     MediaKind.VIDEO -> R.string.optKindVideo
                     MediaKind.AUDIO -> R.string.optKindAudio
                     MediaKind.SUBS -> R.string.optKindSubs
+                    MediaKind.FILE -> R.string.optKindVideo // not in the list
                 })
             }, kinds.indexOf(initial.kind))
             fill(chipContainer, containers.map { it.label }, containers.indexOf(initial.container))

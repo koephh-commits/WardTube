@@ -510,6 +510,7 @@ class LibraryActivity : AppCompatActivity() {
         MediaKind.VIDEO -> MediaCategory.VIDEO
         MediaKind.AUDIO -> MediaCategory.AUDIO
         MediaKind.SUBS -> MediaCategory.LYRICS
+        MediaKind.FILE -> MediaCategory.OTHER // shown under "All" only
     }
 
     private fun showsJob(job: DownloadJob): Boolean = filter == null || categoryOf(job) == filter
@@ -602,7 +603,7 @@ class LibraryActivity : AppCompatActivity() {
         val report = buildString {
             if (job.title.isNotBlank()) appendLine(job.title)
             appendLine(RequestHeaders.display(job.url))
-            appendLine(job.options.shortLabel)
+            if (job.options.shortLabel.isNotEmpty()) appendLine(job.options.shortLabel)
             appendLine()
             append(job.error)
         }

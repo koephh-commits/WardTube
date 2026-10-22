@@ -149,6 +149,9 @@
     <string name="downloadQueued">Added to downloads. Follow the progress in the Library.</string>
     <string name="downloadSaved">Saved to Library: %1$s</string>
     <string name="downloadFailed">Download failed</string>
+    <string name="browserPlayFirstTitle">The video file has not appeared yet</string>
+    <string name="browserPlayFirstMessage">The page has a player, but its video file has not been caught yet. Play the video for a few seconds, then tap the button again.\n\nDownloading from the player itself works only for some sites.</string>
+    <string name="browserPlayFirstTry">Try the player</string>
     <string name="downloadFailedTap">Download failed — tap for the full error</string>
     <string name="downloadErrorTitle">Full error</string>
     <string name="downloadErrorCopied">Copied</string>
@@ -168,6 +171,14 @@
     <string name="downloadWaitingCount">%1$d waiting</string>
     <string name="downloadEta">%1$s left</string>
     <string name="downloadProgressParts">Downloading… %1$d%% • part %2$d of %3$d</string>
+    <string name="downloadRunning">Downloading…</string>
+    <string name="fileErrHttp">The server refused the download (error %1$d).</string>
+    <string name="fileErrCleartext">This link is not encrypted (http) and Android blocks plain http connections made by the app. The site has no https version of it.</string>
+    <string name="fileErrNoResume">The connection dropped and the server cannot continue a partial download. Try again.</string>
+    <string name="fileErrPage">The server sent a web page instead of the file (the link may have expired or need a login).</string>
+    <string name="fileErrStorage">The file could not be written: %1$s</string>
+    <string name="fileErrNetwork">The connection was lost: %1$s</string>
+    <string name="fileErrCut">The server closed the connection before the end of the file</string>
 
     <!-- Library: downloads in progress -->
     <string name="libraryDownloads">Downloads</string>
@@ -215,7 +226,7 @@
 
     <!-- Browser screen -->
     <string name="browser">Browser</string>
-    <string name="browserLinkHint">Video or file link</string>
+    <string name="browserLinkHint">Search or paste a link</string>
     <string name="browserPaste">Paste</string>
     <string name="browserOpen">Open in the browser</string>
     <string name="browserBack">Back</string>
@@ -231,6 +242,10 @@
     <string name="browserFileStarted">Downloading %1$s</string>
     <string name="browserFileFailed">The download could not be started</string>
     <string name="browserFileUnsupported">This kind of link cannot be downloaded directly</string>
+    <string name="browserFileChecking">Checking whether the link has a secure (https) version…</string>
+    <string name="browserInsecureTitle">This link is not secure</string>
+    <string name="browserInsecureMessage">This link starts with http, so it is not encrypted, and the site does not offer an https version of it.\n\nAnyone on the network could see or change the file while it downloads, and the file itself may not be trustworthy.\n\n%1$s\n\nDo you want to download it anyway?</string>
+    <string name="browserInsecureProceed">Download anyway</string>
     <string name="browserDetectNone">No video or file detected on this page yet</string>
     <string name="browserDetectFound">Download from this page (%1$d found)</string>
     <string name="browserDetectTitle">Found on this page</string>
@@ -243,6 +258,16 @@
     <string name="browserPrevious">Previous page</string>
     <string name="browserNext">Next page</string>
     <string name="browserHistory">Browsing history</string>
+    <string name="browserEngineTitle">Search engine</string>
+    <string name="browserEngineSubtitle">Used when you type words instead of a link</string>
+    <string name="browserEngineButton">Search engine: %1$s</string>
+    <string name="browserEngineGroupWeb">Web search</string>
+    <string name="browserEngineGroupVideo">Video sites</string>
+    <string name="browserSectionVideos">Videos</string>
+    <string name="browserSectionAudio">Audio</string>
+    <string name="browserSectionFiles">Files</string>
+    <string name="browserBadgePage">Page</string>
+    <string name="browserBadgePlayer">Player</string>
     <string name="historyTitle">Browsing history</string>
     <string name="historySelectItems">Select pages</string>
     <string name="historySelectAll">Select all</string>

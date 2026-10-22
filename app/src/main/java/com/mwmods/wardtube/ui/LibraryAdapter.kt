@@ -271,6 +271,7 @@ class LibraryAdapter(
                     waiting -> R.drawable.ic_hourglass_24dp
                     job.options.isSubsOnly -> R.drawable.ic_subtitles_24dp
                     job.options.isAudio -> R.drawable.ic_music_note_24dp
+                    job.options.isFile -> R.drawable.ic_file_24dp
                     else -> R.drawable.ic_videocam_24dp
                 }
             )
@@ -295,7 +296,9 @@ class LibraryAdapter(
             }
 
             val details = ArrayList<String>(4)
-            details.add(job.options.shortLabel)
+            // A plain file shows its own extension (PDF, ZIP...); the others the format that was chosen.
+            val label = if (job.options.isFile) job.title.substringAfterLast('.', "").uppercase().take(5) else job.options.shortLabel
+            if (label.isNotEmpty()) details.add(label)
 
             when (job.status) {
                 JobStatus.QUEUED -> {
@@ -327,7 +330,8 @@ class LibraryAdapter(
                         }
                         showProgress(job.percent)
                     } else {
-                        status.setText(R.string.downloadPreparing)
+                        // A file whose size the server did not tell has no percentage, but it is moving.
+                        status.setText(if (job.size.isNotEmpty()) R.string.downloadRunning else R.string.downloadPreparing)
                         showUnknownProgress()
                     }
                     if (job.speed.isNotEmpty()) details.add(job.speed)

@@ -82,6 +82,14 @@ class Prefs(context: Context) {
         get() = sp.getFloat(DETECT_Y, -1f)
         set(value) = sp.edit { putFloat(DETECT_Y, value) }
 
+    /**
+     * The id of the search engine the browser screen searches with (see
+     * [com.mwmods.wardtube.browser.SearchEngines]); empty until the person chooses one, which means the default.
+     */
+    var searchEngine: String
+        get() = sp.getString(SEARCH_ENGINE, "") ?: ""
+        set(value) = sp.edit { putString(SEARCH_ENGINE, value) }
+
     companion object {
         const val DEFAULT_HOMEPAGE = "https://m.youtube.com/"
 
@@ -104,5 +112,6 @@ class Prefs(context: Context) {
         private const val DOWNLOAD_OPTIONS = "downloadOptions"
         private const val DETECT_X = "browserDetectX"
         private const val DETECT_Y = "browserDetectY"
+        private const val SEARCH_ENGINE = "browserSearchEngine"
     }
 }

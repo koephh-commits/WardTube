@@ -107,31 +107,75 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/browserFieldLayout"
-            style="@style/BrowserField"
+        <!-- The link field and, beside it, the button that opens the search engine picker (it shows the engine in use).
+             The bottom edges line up: the field's outline box is its lower part, the label floats above it. -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
             android:layout_marginTop="8dp"
             android:layout_marginEnd="16dp"
-            android:hint="@string/browserLinkHint"
-            app:endIconContentDescription="@string/browserClear"
-            app:endIconDrawable="@drawable/ic_close_24dp"
-            app:endIconMode="custom"
-            app:startIconContentDescription="@string/browserOpen"
-            app:startIconDrawable="@drawable/ic_globe_white_24dp">
+            android:gravity="bottom"
+            android:orientation="horizontal">
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/browserField"
-                android:layout_width="match_parent"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/browserFieldLayout"
+                style="@style/BrowserField"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:imeOptions="actionGo"
-                android:inputType="textUri"
-                android:maxLines="1"
-                android:singleLine="true"
-                android:textColor="@color/browserText" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_weight="1"
+                android:hint="@string/browserLinkHint"
+                app:endIconContentDescription="@string/browserClear"
+                app:endIconDrawable="@drawable/ic_close_24dp"
+                app:endIconMode="custom"
+                app:startIconContentDescription="@string/browserOpen"
+                app:startIconDrawable="@drawable/ic_globe_white_24dp">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/browserField"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionGo"
+                    android:inputType="textUri"
+                    android:maxLines="1"
+                    android:singleLine="true"
+                    android:textColor="@color/browserText" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <LinearLayout
+                android:id="@+id/browserEngineButton"
+                android:layout_width="wrap_content"
+                android:layout_height="56dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_engine_button"
+                android:clickable="true"
+                android:contentDescription="@string/browserEngineTitle"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minWidth="64dp"
+                android:orientation="horizontal"
+                android:paddingStart="10dp"
+                android:paddingEnd="6dp">
+
+                <TextView
+                    android:id="@+id/browserEngineBadge"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:gravity="center"
+                    android:importantForAccessibility="no"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_expand_more_white_24dp"
+                    app:tint="@color/browserHint" />
+            </LinearLayout>
+        </LinearLayout>
 
         <!-- The page being browsed. Its WebView is created only when a page is opened (see BrowserActivity). -->
         <FrameLayout

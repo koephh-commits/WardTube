@@ -59,6 +59,8 @@ class DownloadService : Service() {
 
     @Volatile private var currentJobId: String? = null
     @Volatile private var currentProcessId: String? = null
+    /** The plain file being downloaded by the app itself (not by yt-dlp), when the current job is one. */
+    @Volatile private var currentFile: FileDownloader? = null
     @Volatile private var cancelRequested = false
     @Volatile private var engineUpdatedThisRun = false
     @Volatile private var lastStartId = 0
@@ -192,6 +194,7 @@ class DownloadService : Service() {
         handler.removeCallbacksAndMessages(null)
         runCatching { unregisterReceiver(stateRequests) }
         currentProcessId?.let { runCatching { YoutubeDL.getInstance().destroyProcessById(it) } }
+        currentFile?.cancel()
         worker.shutdownNow()
         synchronized(lock) { jobs.clear() }
         broadcast(emptyList()) // the Library must not keep showing jobs that are gone
@@ -236,6 +239,7 @@ class DownloadService : Service() {
         if (target == currentJobId) {
             cancelRequested = true
             currentProcessId?.let { runCatching { YoutubeDL.getInstance().destroyProcessById(it) } }
+            currentFile?.cancel()
             return
         }
         // Still waiting: just take it out of the queue; its task will find nothing to do.
@@ -287,6 +291,11 @@ class DownloadService : Service() {
     private fun process(job: DownloadJob) {
         val id = job.id
         update(id, force = true) { it.copy(status = JobStatus.STARTING) }
+        // A plain file (zip, pdf, apk...) is downloaded by the app itself: yt-dlp is not needed for it.
+        if (job.options.isFile) {
+            processFile(job)
+            return
+        }
         if (!YtDlpEngine.ensureReady(this)) {
             val message = getString(R.string.downloadEngineFailed)
             fail(id, message, notification = message)
@@ -386,6 +395,41 @@ class DownloadService : Service() {
         }
     }
 
+    /**
+     * A plain file found in the browser, downloaded over HTTP by [FileDownloader] (not by yt-dlp and not by the system's
+     * download manager). The job's title is the file's name. Progress, cancel and retry work as for any other job.
+     */
+    private fun processFile(job: DownloadJob) {
+        val id = job.id
+        val downloader = FileDownloader(this, job.url, job.title, object : FileDownloader.Listener {
+            override fun onName(name: String) {
+                if (job.title.isBlank()) update(id, force = true) { it.copy(title = name) }
+            }
+
+            override fun onProgress(progress: FileDownloader.Progress) {
+                update(id) {
+                    it.copy(
+                        status = JobStatus.DOWNLOADING, percent = progress.percent, speed = progress.speed,
+                        eta = progress.eta, size = progress.size, part = 1, parts = 1,
+                    )
+                }
+            }
+        })
+        currentFile = downloader
+        try {
+            // Cancelled between being picked up and now.
+            if (cancelRequested) downloader.cancel()
+            val saved = downloader.run()
+            reportSaved(getString(R.string.downloadSaved, saved.name), 1)
+        } catch (e: FileDownloader.Cancelled) {
+            notifyResult(getString(R.string.downloadCancelled), null)
+        } catch (e: Throwable) {
+            fail(id, e.message ?: e.javaClass.simpleName)
+        } finally {
+            currentFile = null
+        }
+    }
+
     /** Files saved while more jobs were still waiting; they are announced together when the queue is empty. */
     private var quietSaves = 0
 
@@ -428,6 +472,7 @@ class DownloadService : Service() {
             // A file found in the browser: the server is sent what the page sent (referer, user agent, cookies).
             for ((name, value) in RequestHeaders.headersOf(job.url)) addOption("--add-header", "$name:$value")
             when (options.kind) {
+                MediaKind.FILE -> Unit // never reached: a plain file is downloaded by FileDownloader
                 MediaKind.SUBS -> addOption("--skip-download")
                 MediaKind.AUDIO -> {
                     addOption("-f", options.format)
@@ -591,6 +636,9 @@ class DownloadService : Service() {
                 JobStatus.DOWNLOADING -> if (current.percent >= 0) {
                     percent = current.percent
                     text = getString(R.string.downloadProgress, percent)
+                } else if (current.size.isNotEmpty()) {
+                    // A file whose size the server did not tell: what has arrived so far.
+                    text = getString(R.string.downloadRunning) + " " + current.size
                 }
                 else -> Unit
             }
@@ -706,6 +754,14 @@ class DownloadService : Service() {
                 .putExtra(EXTRA_OPTIONS, options.toJson())
                 .putExtra(EXTRA_TITLE, title.orEmpty())
             ContextCompat.startForegroundService(context, intent)
+        }
+
+        /**
+         * Queues a plain file (zip, pdf, apk...) that the app downloads itself. [url] is the address with the page's
+         * identity attached (see [RequestHeaders.attach]); [fileName] is what the file is saved as and the job's title.
+         */
+        fun startFile(context: Context, url: String, fileName: String) {
+            start(context, url, DownloadOptions(kind = MediaKind.FILE), fileName)
         }
 
         /** Queues several videos (a playlist) with one request, so the Library and the notification are refreshed once. */

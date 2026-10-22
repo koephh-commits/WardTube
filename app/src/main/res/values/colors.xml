@@ -37,4 +37,17 @@
     <color name="browserFabIcon">#B7F397</color>
     <!-- Background of a ticked row in the browsing history. -->
     <color name="browserRowSelected">#33B7F397</color>
+
+    <!-- Bottom sheets of the browser screen (search engines, found videos and files): dark green like the screen. -->
+    <color name="browserSheet">#182017</color>
+    <color name="browserSheetRow">#222D20</color>
+    <color name="browserSheetRowSelected">#2E4328</color>
+    <color name="browserSheetDivider">#26C4C8BB</color>
+    <color name="browserSheetHandle">#66C4C8BB</color>
+    <!-- What a found item is, by color: video, stream, player in a frame, audio, file. -->
+    <color name="detectVideo">#B7F397</color>
+    <color name="detectStream">#80DEEA</color>
+    <color name="detectPlayer">#FFAB91</color>
+    <color name="detectAudio">#FFE082</color>
+    <color name="detectFile">#90CAF9</color>
 </resources>

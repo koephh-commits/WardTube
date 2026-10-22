@@ -73,7 +73,19 @@ class MediaSniffer(
     val bridge = Bridge()
 
     /** What was found, in the order shown to the person: the page's video first, files last. */
-    fun snapshot(): List<Detected> = items.values.sortedBy { it.kind.ordinal }
+    fun snapshot(): List<Detected> = offered().sortedBy { it.kind.ordinal }
+
+    /**
+     * What is offered to the person. When the page has loaded a video file or a stream, its player's frame is left
+     * out: yt-dlp cannot read most players (it answers "Unsupported URL"), and the file the player loaded is already
+     * in the list. The frame stays when nothing else was found, because for some players (YouTube's embed, for one)
+     * the frame is exactly what yt-dlp understands.
+     */
+    private fun offered(): List<Detected> {
+        val all = items.values.toList()
+        val hasFile = all.any { it.kind == Detected.Kind.VIDEO || it.kind == Detected.Kind.STREAM }
+        return if (hasFile) all.filter { it.kind != Detected.Kind.FRAME } else all
+    }
 
     /** Main thread. A new page started: what the old one offered is gone. */
     fun clear() {
@@ -105,7 +117,7 @@ class MediaSniffer(
     private fun add(item: Detected) {
         if (items.size >= MAX_ITEMS || items.containsKey(item.url)) return
         items[item.url] = item
-        onChanged(items.values.toList())
+        onChanged(offered())
     }
 
     // ---- Reading an address ----

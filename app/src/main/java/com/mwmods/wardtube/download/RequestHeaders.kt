@@ -26,6 +26,7 @@ object RequestHeaders {
     private const val KEY_REFERER = "referer"
     private const val KEY_HEADERS = "wt_headers"
     private const val KEY_NAME = "wt_name"
+    private const val KEY_INSECURE = "wt_insecure"
 
     private const val MAX_NAME_LENGTH = 80
 
@@ -39,9 +40,17 @@ object RequestHeaders {
      * [url] with the page's identity attached. [referer] is the open page, [userAgent] the WebView's, [cookie] the
      * cookie line of [url]'s host, [name] the page's title (the file is named after it instead of after the server's
      * file name, which is often just "480p.mp4" for every episode). Anything blank is left out; an address with
-     * nothing to attach is returned as it is.
+     * nothing to attach is returned as it is. [allowInsecure] records that the person accepted the warning about a plain
+     * http link whose site has no https version: only then does [FileDownloader] connect over http.
      */
-    fun attach(url: String, referer: String?, userAgent: String?, cookie: String?, name: String?): String {
+    fun attach(
+        url: String,
+        referer: String?,
+        userAgent: String?,
+        cookie: String?,
+        name: String?,
+        allowInsecure: Boolean = false,
+    ): String {
         val base = url.substringBefore('#')
         val data = JSONObject()
         val headers = JSONObject()
@@ -60,6 +69,8 @@ object RequestHeaders {
             ?.takeIf { it.isNotEmpty() }
             ?.let { data.put(KEY_NAME, it) }
 
+        if (allowInsecure) data.put(KEY_INSECURE, true)
+
         if (data.length() == 0) return base
         return base + MARK + Uri.encode(data.toString())
     }
@@ -76,6 +87,9 @@ object RequestHeaders {
 
     /** The file name (without extension) [attach] asked for, or null. */
     fun nameOf(url: String): String? = read(url)?.optString(KEY_NAME)?.takeIf { it.isNotBlank() }
+
+    /** True when the person accepted the warning and allowed this link to be downloaded over plain http. */
+    fun allowsInsecure(url: String): Boolean = read(url)?.optBoolean(KEY_INSECURE, false) == true
 
     /** [url] as a person should see it: without the part that only carries headers. */
     fun display(url: String): String = url.substringBefore(MARK)

@@ -1,5 +1,62 @@
 # Changelog
 
+## 2.6.39
+- Files with a plain `http` address: the app now tries the same address over `https` first (a short check before the
+  download is queued). If the site answers there, the file is downloaded over `https`. If the site has no `https` version,
+  a warning says the link is not secure and the person chooses "Download anyway" or Cancel; nothing is downloaded over
+  `http` without that choice, and it is remembered for the job's Retry (`wt_insecure` in `RequestHeaders`).
+- The manifest now allows cleartext traffic (needed for the approved `http` downloads); `FileDownloader` decides per link.
+
+## 2.6.38
+- Files found in the browser (zip, pdf, apk, audio links...) are now downloaded by the app itself instead of the phone's
+  download manager. `FileDownloader` runs as a job of the same `DownloadService`, so these files share the queue, the
+  waiting list, the notification (with its Cancel button), the progress card and the Retry of the Library with the videos.
+  Their cards show the file's icon, its extension, the size done and the size in all, the speed and the time left.
+  Nothing is handed to the system any more: `DownloadManager` is no longer used anywhere in the app.
+- The file is sent what the page sent (the open page as referer, the WebView's user agent and the cookies of the file's
+  host, carried by `RequestHeaders` as for the videos). A redirect to another host (or from https to http) does not
+  receive the cookie.
+- The file is written straight into Download/WardTube (`DownloadStore.begin` / `commit` / `discard`), in the sub-folder of
+  its kind (videos, audio, lyrics, or `ملفات` for the rest), with no temporary copy in the app's storage: big files need no
+  room twice. On Android 10+ it stays hidden (pending) until complete; on Android 9 and older it is written under a
+  hidden name and renamed at the end. A cancelled or failed download leaves nothing behind.
+- A dropped connection continues from the last byte received (HTTP Range) up to four times in a row before the job fails;
+  when the server cannot continue, the job fails with a clear message instead of saving a broken file. A web page sent in
+  place of the file (an expired or protected link) is refused for the same reason.
+- Android refuses plain `http` connections made by the app itself (the system's download manager had no such limit): an
+  `http` address is tried over `https`, and when the site has none the job fails saying so.
+- The Library's "Cancel" works at once on these downloads, also while the server is slow to answer. A new file kind
+  (`MediaKind.FILE`) is not offered in the "Download as" window and shows under "All" in the Library's filter.
+
+## 2.6.37
+- Browser screen: search engines. A button at the end of the link field shows the engine in use (its colored badge) and
+  opens a bottom sheet to choose another one: Google, Bing, DuckDuckGo, Brave Search, Yahoo, Yandex, Ecosia, Startpage
+  and Qwant (web search), YouTube and Dailymotion (video sites). The engine in use is highlighted and ticked, the choice
+  is remembered (`Prefs.searchEngine`) and a text that is not a link is searched with it (before: always Google). The
+  engines are listed in `SearchEngines`; the first one is the default.
+- Browser screen: the list of videos and files found on the page is now a bottom sheet (`DetectedSheet`) instead of a
+  plain dialog of one-line texts. The header names the page and counts what was found; the items come in sections
+  (Videos, Audio, Files) with their own counts; each row has an icon tile colored by kind, the name (up to two lines),
+  a badge with the format (MP4, M3U8, PDF...), the kind with the site it comes from, and a download button. Nothing is
+  requested from a server to fill it in, so there is no file size. A single found item is still downloaded at once, and
+  the "play the video first" window is unchanged.
+- Both sheets share one dark-green style (`BrowserSheetDialog`) that follows the browser screen in day and night mode.
+- The link field's hint now reads "Search or paste a link".
+
+## 2.6.36
+- Browser screen: when the floating button is tapped and the page offers only a player's frame (the video file it loads
+  has not been caught yet), the "Download as" window no longer opens. A window says that the video file has not
+  appeared yet and asks the person to play the video for a few seconds and tap again. A "Try the player" button
+  remains for the sites whose players yt-dlp does understand (YouTube's embed, for one), so nothing is taken away.
+  Before, a player yt-dlp cannot read led through the format choice and a wait to end in "Unsupported URL".
+
+## 2.6.35
+- Browser screen: when a page has loaded a video file or a stream, the list no longer offers the "Player in the page"
+  (frame) entry next to it. For a player yt-dlp has no extractor for (Anime3rb's, for one) that entry always failed
+  with "Unsupported URL", while the file the player loaded worked, and the two were easy to mix up. The frame is
+  still listed when it is the only thing found, since for some players (YouTube's embed, for one) it is exactly what
+  yt-dlp understands. The count on the floating button follows the shorter list.
+
 ## 2.6.34
 - Browser screen: a video file or a stream found on a page is now downloaded by the app's own queue (yt-dlp) instead of
   the system's download manager, so its progress, waiting list and retry show in the Library. Some sites (Anime3rb's
