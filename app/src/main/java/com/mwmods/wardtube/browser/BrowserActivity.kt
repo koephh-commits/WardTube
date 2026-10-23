@@ -51,7 +51,6 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
 import com.mwmods.wardtube.Prefs
 import com.mwmods.wardtube.R
 import com.mwmods.wardtube.adblock.AdBlocker
@@ -88,6 +87,9 @@ import org.json.JSONObject
  * - The button beside the link field shows the search engine in use and opens the picker ([SearchEngineSheet]); the
  *   choice is remembered ([Prefs.searchEngine]).
  * - The Paste button is on the main screen only: it is hidden while a page is open.
+ * - The main screen also shows, under the link field, the quick sites, the last pages opened and a hint about the floating
+ *   button (see [BrowserHome]); they are hidden while a page is open.
+ * - The link field is a single pill: the globe at its start, then the text, the x and, at its end, the search engine button.
  * - The arrow at the top leaves the browser screen; going back through the pages is the phone's back button.
  * - The title sits in the top row, next to the back, Library and History buttons, and the link field right under it.
  *   While a page is open the title gives way to four buttons at the end of the row: previous page, next page, Reload
@@ -106,8 +108,12 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private lateinit var root: View
     private lateinit var title: TextView
-    private lateinit var fieldLayout: TextInputLayout
+    private lateinit var fieldPill: View
+    private lateinit var clearButton: ImageButton
     private lateinit var linkField: TextInputEditText
+
+    /** The main screen's content under the field: quick sites, recent pages, the hint (see [BrowserHome]). */
+    private lateinit var home: BrowserHome
     private lateinit var engineButton: View
     private lateinit var engineBadge: TextView
     private lateinit var webContainer: FrameLayout
@@ -192,7 +198,8 @@ class BrowserActivity : AppCompatActivity() {
 
         root = findViewById(R.id.browserRoot)
         title = findViewById(R.id.browserTitle)
-        fieldLayout = findViewById(R.id.browserFieldLayout)
+        fieldPill = findViewById(R.id.browserFieldPill)
+        clearButton = findViewById(R.id.browserClear)
         linkField = findViewById(R.id.browserField)
         engineButton = findViewById(R.id.browserEngineButton)
         engineBadge = findViewById(R.id.browserEngineBadge)
@@ -208,11 +215,8 @@ class BrowserActivity : AppCompatActivity() {
         homeButton.setOnClickListener { goHome() }
         prevButton.setOnClickListener { webView?.takeIf { it.canGoBack() }?.goBack() }
         nextButton.setOnClickListener { webView?.takeIf { it.canGoForward() }?.goForward() }
-        findViewById<ImageButton>(R.id.browserHistory).setOnClickListener {
-            hideKeyboard()
-            recordPage(force = true)
-            historyScreen.launch(Intent(this, HistoryActivity::class.java))
-        }
+        findViewById<ImageButton>(R.id.browserHistory).setOnClickListener { openHistory() }
+        home = BrowserHome(this, prefs, history, openPage = { openPage(it) }, openHistory = { openHistory() })
         detectButton.setOnClickListener { onDetectClicked() }
         detectX = prefs.detectButtonX
         detectY = prefs.detectButtonY
@@ -243,13 +247,15 @@ class BrowserActivity : AppCompatActivity() {
             startActivity(Intent(this, LibraryActivity::class.java))
         }
         findViewById<FloatingActionButton>(R.id.browserPaste).setOnClickListener { pasteFromClipboard() }
-        fieldLayout.setStartIconOnClickListener { onSearch() }
+        findViewById<ImageButton>(R.id.browserGo).setOnClickListener { onSearch() }
         showEngine()
         engineButton.setOnClickListener { chooseEngine() }
+        // The pill is outlined in light green while the text has the focus.
+        linkField.setOnFocusChangeListener { _, focused -> fieldPill.isActivated = focused }
         // The x: there while the field has text; it empties the field and brings the keyboard up for the next text.
-        fieldLayout.isEndIconVisible = !linkField.text.isNullOrEmpty()
-        linkField.doAfterTextChanged { fieldLayout.isEndIconVisible = !it.isNullOrEmpty() }
-        fieldLayout.setEndIconOnClickListener {
+        clearButton.visibility = if (linkField.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        linkField.doAfterTextChanged { clearButton.visibility = if (it.isNullOrEmpty()) View.GONE else View.VISIBLE }
+        clearButton.setOnClickListener {
             linkField.setText("")
             linkField.requestFocus()
             (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(linkField, 0)
@@ -280,6 +286,8 @@ class BrowserActivity : AppCompatActivity() {
         super.onResume()
         webView?.onResume()
         adBlocker.refreshIfStale()
+        // A page opened meanwhile (or deleted in the history screen) shows in the recent pages.
+        if (webView == null) home.refresh()
     }
 
     override fun onPause() {
@@ -419,6 +427,13 @@ class BrowserActivity : AppCompatActivity() {
             .hideSoftInputFromWindow(linkField.windowToken, 0)
     }
 
+    /** The History button (and "See all" on the main screen): the page being browsed is written to it first. */
+    private fun openHistory() {
+        hideKeyboard()
+        recordPage(force = true)
+        historyScreen.launch(Intent(this, HistoryActivity::class.java))
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(): WebView {
         val web = WebView(this)
@@ -514,8 +529,9 @@ class BrowserActivity : AppCompatActivity() {
         nextButton.visibility = View.VISIBLE
         reloadButton.visibility = View.VISIBLE
         homeButton.visibility = View.VISIBLE
-        // Paste belongs to the main screen only.
+        // Paste and the main screen's content (quick sites, recent pages, the hint) belong to the main screen only.
         homeButtons.visibility = View.GONE
+        home.setVisible(false)
         // Dimmed until the page offers something (see showDetected).
         detectButton.visibility = View.VISIBLE
         webView = web
@@ -547,6 +563,7 @@ class BrowserActivity : AppCompatActivity() {
         reloadButton.visibility = View.GONE
         homeButton.visibility = View.GONE
         homeButtons.visibility = View.VISIBLE
+        if (!isFinishing) home.setVisible(true)
         webContainer.visibility = View.GONE
         progress.visibility = View.GONE
         if (!isFinishing) title.visibility = View.VISIBLE

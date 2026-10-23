@@ -43,19 +43,16 @@
         <item name="android:windowBackground">@color/browserBg</item>
     </style>
 
-    <!-- The link field of the browser screen: thin light outline, like the Seal app. -->
-    <style name="BrowserField" parent="Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-        <item name="boxStrokeColor">@color/browserHint</item>
-        <item name="boxStrokeWidth">1dp</item>
-        <item name="boxStrokeWidthFocused">2dp</item>
-        <item name="hintTextColor">@color/browserHint</item>
-        <item name="android:textColorHint">@color/browserHint</item>
-        <item name="startIconTint">@color/browserFabIcon</item>
-        <item name="endIconTint">@color/browserHint</item>
-        <item name="boxCornerRadiusTopStart">4dp</item>
-        <item name="boxCornerRadiusTopEnd">4dp</item>
-        <item name="boxCornerRadiusBottomStart">4dp</item>
-        <item name="boxCornerRadiusBottomEnd">4dp</item>
+    <!-- A section title on the browser's main screen ("Quick sites", "Recently opened"). -->
+    <style name="BrowserSectionLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">28dp</item>
+        <item name="android:layout_marginBottom">10dp</item>
+        <item name="android:textAlignment">viewStart</item>
+        <item name="android:textColor">@color/browserHint</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
     </style>
 
     <!-- The round-cornered square buttons (paste / download) of the browser screen. -->

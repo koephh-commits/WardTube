@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.6.40
+- Browser screen, main screen redesigned. The link field is now one filled pill (the globe at its start, the x when
+  there is text, and the search engine button inside it at its end; light green outline while it has the focus).
+- Under the field: "Quick sites" (rows of four tiles: YouTube, TikTok, Facebook, Instagram, SoundCloud, Dailymotion and
+  Vimeo, then an Add tile; sites the person adds are kept in `Prefs.quickSites` and removed with a long press), "Recently
+  opened" (the last three pages of the browsing history, with "See all" opening the history screen) and a hint card
+  that shows the floating download button and advises playing the video for 2 to 5 seconds before tapping it.
+  All of it is in the new `BrowserHome`; it is hidden while a page is open. The Paste button stays where it was.
+
 ## 2.6.39
 - Files with a plain `http` address: the app now tries the same address over `https` first (a short check before the
   download is queued). If the site answers there, the file is downloaded over `https`. If the site has no `https` version,

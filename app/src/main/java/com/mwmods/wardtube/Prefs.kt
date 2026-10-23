@@ -90,6 +90,14 @@ class Prefs(context: Context) {
         get() = sp.getString(SEARCH_ENGINE, "") ?: ""
         set(value) = sp.edit { putString(SEARCH_ENGINE, value) }
 
+    /**
+     * The sites the person added to the browser screen's quick sites, as a JSON list of {"n": name, "u": address};
+     * empty until one is added. The built-in sites are not stored (see [com.mwmods.wardtube.browser.BrowserHome]).
+     */
+    var quickSites: String
+        get() = sp.getString(QUICK_SITES, "") ?: ""
+        set(value) = sp.edit { putString(QUICK_SITES, value) }
+
     companion object {
         const val DEFAULT_HOMEPAGE = "https://m.youtube.com/"
 
@@ -113,5 +121,6 @@ class Prefs(context: Context) {
         private const val DETECT_X = "browserDetectX"
         private const val DETECT_Y = "browserDetectY"
         private const val SEARCH_ENGINE = "browserSearchEngine"
+        private const val QUICK_SITES = "browserQuickSites"
     }
 }
