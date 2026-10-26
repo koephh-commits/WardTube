@@ -47,6 +47,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.core.widget.doAfterTextChanged
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.snackbar.Snackbar
@@ -144,6 +146,12 @@ class BrowserActivity : AppCompatActivity() {
     private val sniffer = MediaSniffer(pageUrl = { webView?.url }, onChanged = { showDetected(it) })
 
     private val handler = Handler(Looper.getMainLooper())
+
+    /** Sites whose plain-http pages the person agreed to open during this visit: they are not asked about again. */
+    private val insecureHosts = HashSet<String>()
+
+    /** The "site is not secure" window is open: another one is not stacked on it (a page can redirect several times). */
+    private var insecureWarningOpen = false
 
     /** True between the start and the end of a page load. */
     private var pageLoading = false
@@ -417,9 +425,45 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun openPage(url: String) {
         hideKeyboard()
+        if (needsInsecureWarning(url)) {
+            confirmInsecureSite(url)
+            return
+        }
+        loadPage(url)
+    }
+
+    private fun loadPage(url: String) {
         val web = webView ?: createWebView()
         web.loadUrl(url)
         web.requestFocus()
+    }
+
+    /** True for a plain http page of a site the person has not yet agreed to open (see [confirmInsecureSite]). */
+    private fun needsInsecureWarning(url: String): Boolean {
+        if (!UrlUtils.isInsecureWeb(url)) return false
+        return Uri.parse(url).host?.lowercase().orEmpty() !in insecureHosts
+    }
+
+    /**
+     * The address starts with http: nothing on the page is encrypted. The person opens it anyway (the site is then not
+     * asked about again while this screen lives), tries the https version, or cancels, and nothing is loaded.
+     */
+    private fun confirmInsecureSite(url: String) {
+        if (insecureWarningOpen) return
+        insecureWarningOpen = true
+        val host = Uri.parse(url).host?.lowercase().orEmpty()
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.insecureSiteTitle)
+            .setMessage(getString(R.string.insecureSiteMessage, url.take(300)))
+            .setPositiveButton(R.string.insecureSiteProceed) { _, _ ->
+                insecureHosts.add(host)
+                loadPage(url)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setOnDismissListener { insecureWarningOpen = false }
+        val secure = UrlUtils.toHttps(url)
+        if (secure != null) builder.setNeutralButton(R.string.insecureSiteTryHttps) { _, _ -> loadPage(secure) }
+        builder.show()
     }
 
     private fun hideKeyboard() {
@@ -457,6 +501,11 @@ class BrowserActivity : AppCompatActivity() {
         CookieHelper.setAccepting(web, prefs.cookies)
         // The page's script tells what it offers through this (see MediaSniffer: every call is checked there).
         web.addJavascriptInterface(sniffer.bridge, MediaSniffer.BRIDGE_NAME)
+        // Runs before the page's own scripts, in every frame: tells the sniffer what the server's answers to the page's
+        // own downloads are (a stream playlist whose address has no .m3u8 in it, say). Older WebViews simply skip it.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            runCatching { WebViewCompat.addDocumentStartJavaScript(web, MediaSniffer.NET_SCRIPT, setOf("*")) }
+        }
 
         web.webViewClient = object : WebViewClient() {
             // Blocked requests get an empty answer; what is let through is looked at for videos and files.
@@ -467,10 +516,18 @@ class BrowserActivity : AppCompatActivity() {
                 return null
             }
 
-            // http(s) pages stay here; anything else (intent:, market:, tel:...) is dropped.
+            // http(s) pages stay here; anything else (intent:, market:, tel:...) is dropped. A link or a redirect that
+            // leads this page to a plain http address is held back until the person has been warned.
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val scheme = request?.url?.scheme?.lowercase() ?: return false
-                return scheme != "http" && scheme != "https"
+                if (request == null) return false
+                val uri = request.url
+                val scheme = uri.scheme?.lowercase() ?: return false
+                if (scheme != "http" && scheme != "https") return true
+                if (request.isForMainFrame && needsInsecureWarning(uri.toString())) {
+                    confirmInsecureSite(uri.toString())
+                    return true
+                }
+                return false
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -671,7 +728,7 @@ class BrowserActivity : AppCompatActivity() {
             handler.post {
                 if (isFinishing || isDestroyed) return@post
                 if (httpsWorks) {
-                    enqueueFile(secureUrl.toString(), userAgent, name, referer)
+                    enqueueFile(secureUrl.toString(), userAgent, name, referer, upgradedToHttps = true)
                 } else {
                     confirmInsecure(url, userAgent, name, referer)
                 }
@@ -722,6 +779,8 @@ class BrowserActivity : AppCompatActivity() {
         name: String,
         referer: String?,
         allowInsecure: Boolean = false,
+        /** The link was plain http and its https version answered: the message says so, with no window to confirm. */
+        upgradedToHttps: Boolean = false,
     ) {
         val safeName = name.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().ifEmpty { "download" }
         try {
@@ -730,7 +789,8 @@ class BrowserActivity : AppCompatActivity() {
                 allowInsecure = allowInsecure,
             )
             DownloadService.startFile(this, address, safeName)
-            Snackbar.make(root, getString(R.string.browserFileStarted, safeName), Snackbar.LENGTH_LONG)
+            val started = if (upgradedToHttps) R.string.browserFileStartedHttps else R.string.browserFileStarted
+            Snackbar.make(root, getString(started, safeName), Snackbar.LENGTH_LONG)
                 .setAction(R.string.library) { startActivity(Intent(this, LibraryActivity::class.java)) }
                 .show()
         } catch (e: Exception) {

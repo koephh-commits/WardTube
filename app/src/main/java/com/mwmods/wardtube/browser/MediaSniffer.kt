@@ -131,16 +131,30 @@ class MediaSniffer(
         val withoutQuery = url.substringBefore('?').substringBefore('#')
         val segment = withoutQuery.substringAfterLast('/')
         val extension = segment.substringAfterLast('.', "").lowercase(Locale.ROOT)
-        if (extension.isEmpty() || extension.length > 5) return null
         val kind = when {
+            extension.isEmpty() || extension.length > 5 -> return embeddedStream(url, withoutQuery)
             extension in VIDEO_EXTENSIONS -> Detected.Kind.VIDEO
             extension in AUDIO_EXTENSIONS -> Detected.Kind.AUDIO
             extension in STREAM_EXTENSIONS -> Detected.Kind.STREAM
             allowFiles && extension in FILE_EXTENSIONS -> Detected.Kind.FILE
-            else -> return null
+            else -> return embeddedStream(url, withoutQuery)
         }
         if (looksLikePiece(withoutQuery)) return null
         return build(url, kind, "", extension)
+    }
+
+    /**
+     * A streaming playlist named inside the address's query, where the address itself has no usable extension: a proxy
+     * or a player's own endpoint (`/play?src=https%3A%2F%2Fcdn.site%2Fmaster.m3u8`). Only playlists are taken this way:
+     * the query of an ordinary request can mention any file, but `.m3u8` / `.mpd` in it is a stream almost every time.
+     */
+    private fun embeddedStream(url: String, withoutQuery: String): Detected? {
+        val query = url.substringBefore('#').substringAfter('?', "")
+        // Most requests carry a query and none of them names a playlist: a cheap look first, the decoding only if needed.
+        if (!query.contains("m3u8", ignoreCase = true) && !query.contains("mpd", ignoreCase = true)) return null
+        if (looksLikePiece(withoutQuery)) return null
+        val found = EMBEDDED_STREAM.find(Uri.decode(query)) ?: return null
+        return build(url, Detected.Kind.STREAM, "", found.groupValues[1].lowercase(Locale.ROOT))
     }
 
     /** One small piece of a longer stream (not a file the person wants on its own). */
@@ -219,6 +233,34 @@ class MediaSniffer(
             }
             main.post { add(item) }
         }
+
+        /**
+         * From the network watcher ([NET_SCRIPT]): what the server answered for [url] says it is a stream playlist
+         * ("stream"), a video or an audio file, whatever the address looks like. This is how a player whose playlist has
+         * no `.m3u8` in its address (a `/play?id=12`, say) is found. Pieces of a stream and the video servers of sites
+         * the app already handles in its own way are left out.
+         */
+        @JavascriptInterface
+        fun reportNet(kind: String?, url: String?) {
+            val link = url?.trim().orEmpty()
+            if (link.length > MAX_URL_LENGTH || !isWeb(link)) return
+            val reported = when (kind) {
+                "stream" -> Detected.Kind.STREAM
+                "video" -> Detected.Kind.VIDEO
+                "audio" -> Detected.Kind.AUDIO
+                else -> return
+            }
+            val path = link.substringBefore('?').substringBefore('#')
+            if (looksLikePiece(path) || extensionOf(link) in PIECE_EXTENSIONS || isEngineHost(link)) return
+            val item = fromAddress(link, allowFiles = false) ?: build(link, reported, "", extensionOf(link))
+            main.post { add(item) }
+        }
+    }
+
+    /** The video servers of YouTube: their addresses are ranges of one stream, only yt-dlp can use them. */
+    private fun isEngineHost(url: String): Boolean {
+        val host = Uri.parse(url).host?.lowercase(Locale.ROOT).orEmpty()
+        return host.endsWith("googlevideo.com")
     }
 
     private fun extensionOf(url: String): String =
@@ -230,7 +272,7 @@ class MediaSniffer(
         const val BRIDGE_NAME = "WardTubeSniff"
 
         /** Runs again for the same page: the script ignores a second run, apart from a fresh look at the page. */
-        const val RESET_CALL = "window.__wtSniffReset&&window.__wtSniffReset()"
+        const val RESET_CALL = "window.__wtSniffReset&&window.__wtSniffReset();window.__wtNetReset&&window.__wtNetReset()"
 
         private const val MAX_ITEMS = 40
         private const val MAX_URL_LENGTH = 4096
@@ -244,6 +286,12 @@ class MediaSniffer(
             "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "epub", "mobi", "iso",
         )
         private val PIECE_MARKERS = listOf("segment", "/seg-", "/seg_", "chunk", "fragment", "/frag", "/init.")
+
+        /** Extensions of the small pieces a stream is cut into (never a download of their own). */
+        private val PIECE_EXTENSIONS = setOf("m4s", "ts", "m4f", "mts", "cmfv", "cmfa")
+
+        /** `.m3u8` / `.mpd` inside an address's (decoded) query: the playlist a proxy or player endpoint points to. */
+        private val EMBEDDED_STREAM = Regex("""\.(m3u8|mpd)(?=$|[?&#/])""", RegexOption.IGNORE_CASE)
 
         /**
          * Injected when a page has loaded. Looks at the page now, then again (a moment after) whenever the page changes
@@ -338,6 +386,167 @@ class MediaSniffer(
   } catch (e) {}
   ['play', 'playing', 'loadedmetadata'].forEach(function (t) { document.addEventListener(t, later, true); });
   scan();
+})();
+"""
+
+        /**
+         * Injected before the page's own scripts, in every frame (document-start script). Watches what the page's code
+         * downloads with fetch / XMLHttpRequest and reads what the SERVER says about each answer: a playlist type
+         * (`mpegurl`, `dash+xml`), or a generic type whose first bytes are `#EXTM3U` / `<MPD`. So a stream is found
+         * even when its address has no `.m3u8` in it, without any request of its own: only what the page already
+         * downloads is looked at, and the page always gets its answer whole. Reports through [Bridge.reportNet].
+         */
+        val NET_SCRIPT = """
+(function () {
+  if (window.__wtNet) return;
+  window.__wtNet = 1;
+  var B_NAME = '$BRIDGE_NAME';
+  var seen = {};
+  var tested = {};
+  var testedCount = 0;
+  var queue = [];
+  var sent = 0;
+  var media = 0;
+  var tries = 0;
+  var waiting = false;
+  var manifestSeen = false;
+  // A type that says nothing about the content: only the first bytes of the answer can tell a playlist from the rest.
+  var AMBIGUOUS = /^$|octet-stream|text\/plain|xml|binary/;
+
+  function abs(u) { try { return new URL(u, document.baseURI).href; } catch (e) { return ''; } }
+
+  // The app's bridge may not exist yet when the first answers arrive: what was found waits for it, a few seconds at most.
+  function flush() {
+    var B = window[B_NAME];
+    if (B && B.reportNet) {
+      while (queue.length) {
+        var q = queue.shift();
+        try { B.reportNet(q[0], q[1]); } catch (e) {}
+      }
+      return;
+    }
+    if (!waiting && tries < 20) {
+      waiting = true;
+      tries++;
+      setTimeout(function () { waiting = false; flush(); }, 500);
+    }
+  }
+
+  function send(kind, url) {
+    if (!url || !/^https?:/i.test(url) || seen[url] || sent >= 20) return;
+    seen[url] = 1;
+    sent++;
+    queue.push([kind, url]);
+    flush();
+  }
+
+  // Looks at what the server said about [url]. Returns true when only the first bytes of the body can tell.
+  function inspect(url, type, length, range) {
+    if (!url || seen[url]) return false;
+    var t = (type || '').toLowerCase();
+    if (/mpegurl|dash\+xml/.test(t)) {
+      manifestSeen = true;
+      send('stream', url);
+      return false;
+    }
+    var m = /^(video|audio)\//.exec(t);
+    if (m) {
+      if (/mp2t|iso\.segment/.test(t)) return false;
+      var total = /\/(\d+)\s*$/.exec(range || '');
+      var size = total ? +total[1] : length;
+      // A file of its own: big, and not part of a stream whose playlist this page already loaded.
+      if (!manifestSeen && size >= 1048576 && media < 3) {
+        media++;
+        send(m[1], url);
+      }
+      return false;
+    }
+    if (!AMBIGUOUS.test(t) || tested[url] || ++testedCount > 200) return false;
+    tested[url] = 1;
+    return true;
+  }
+
+  function body(url, head) {
+    if (!head || seen[url]) return;
+    if (/^\s*#EXTM3U/.test(head) || /<MPD[\s>]/.test(head)) {
+      manifestSeen = true;
+      send('stream', url);
+    }
+  }
+
+  // The first chunk of a copy of the answer, then the copy is dropped: the page still gets its own answer whole.
+  function peek(res, url) {
+    try {
+      var reader = res.clone().body.getReader();
+      reader.read().then(function (r) {
+        try { reader.cancel().catch(function () {}); } catch (e) {}
+        if (r && r.value) {
+          var bytes = r.value.length > 2000 ? r.value.subarray(0, 2000) : r.value;
+          body(url, new TextDecoder().decode(bytes));
+        }
+      }, function () {});
+    } catch (e) {}
+  }
+
+  function lengthOf(text) {
+    var n = parseInt(text, 10);
+    return isNaN(n) ? -1 : n;
+  }
+
+  // A page that changes without loading again (a single-page site): what was found for the old one is forgotten here too.
+  window.__wtNetReset = function () {
+    seen = {};
+    sent = 0;
+    media = 0;
+    manifestSeen = false;
+  };
+
+  var nativeFetch = window.fetch;
+  if (typeof nativeFetch === 'function') {
+    window.fetch = function (input) {
+      var promise = nativeFetch.apply(this, arguments);
+      try {
+        var asked = typeof input === 'string' ? input : ((input && input.url) || String(input || ''));
+        promise.then(function (res) {
+          try {
+            var h = res.headers;
+            var url = abs(res.url || asked);
+            if (inspect(url, h.get('content-type'), lengthOf(h.get('content-length')), h.get('content-range'))) peek(res, url);
+          } catch (e) {}
+        }, function () {});
+      } catch (e) {}
+      return promise;
+    };
+  }
+
+  var XHR = window.XMLHttpRequest;
+  if (XHR && XHR.prototype && XHR.prototype.send) {
+    var nativeSend = XHR.prototype.send;
+    XHR.prototype.send = function () {
+      try {
+        var x = this;
+        var sniff = false;
+        var url = '';
+        x.addEventListener('readystatechange', function () {
+          if (x.readyState !== 2) return;
+          try {
+            url = abs(x.responseURL);
+            var length = lengthOf(x.getResponseHeader('content-length'));
+            // Cross-site answers hide their length: unknown is allowed, a big known size is not.
+            sniff = inspect(url, x.getResponseHeader('content-type'), length, x.getResponseHeader('content-range')) &&
+              (length < 0 || length <= 1000000);
+          } catch (e) {}
+        });
+        x.addEventListener('load', function () {
+          if (!sniff) return;
+          try {
+            if (x.responseType === '' || x.responseType === 'text') body(url, (x.responseText || '').slice(0, 2000));
+          } catch (e) {}
+        });
+      } catch (e) {}
+      return nativeSend.apply(this, arguments);
+    };
+  }
 })();
 """
     }

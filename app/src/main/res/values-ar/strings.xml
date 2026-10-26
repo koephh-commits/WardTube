@@ -38,6 +38,11 @@
     <string name="librarySearchHint">ابحث باسم الملف</string>
     <string name="libraryCount">%1$d ملف</string>
     <string name="delete">حذف</string>
+    <string name="rename">إعادة التسمية</string>
+    <string name="renameTitle">إعادة تسمية الملف</string>
+    <string name="renameHint">اسم الملف</string>
+    <string name="renamed">تمت إعادة التسمية</string>
+    <string name="renameFailed">تعذّرت إعادة تسمية الملف</string>
     <string name="deleteConfirmTitle">حذف الملف؟</string>
     <string name="deleteConfirmMessage">سيتم حذف الملف نهائياً من الهاتف ولا يمكن التراجع</string>
     <string name="deleteConfirmManyTitle">حذف الملفات المحددة؟</string>
@@ -165,6 +170,10 @@
     <string name="engineUpdating">جارٍ تحديث محرك التنزيل…</string>
     <string name="engineUpdated">تم تحديث محرك التنزيل</string>
     <string name="engineUpdateFailed">تعذّر تحديث محرك التنزيل</string>
+    <string name="updateEngineShort">تحديث المحرك</string>
+    <string name="autoUpdateEngine">تحديث المحرك تلقائيًا</string>
+    <string name="autoUpdateEngineOn">عند فشل تنزيل سيُحدَّث المحرك مرة واحدة ثم يُعاد التنزيل</string>
+    <string name="autoUpdateEngineOff">لن يُحدَّث المحرك إلا عند اختيار «تحديث محرك التنزيل»</string>
     <string name="downloadAlreadyQueued">هذا التنزيل موجود بالفعل في القائمة</string>
 
     <!-- التنزيل بمشاركة رابط إلى التطبيق -->
@@ -216,6 +225,10 @@
 
     <!-- المشغّل المصغّر -->
     <string name="minimizePlayer">تصغير الفيديو</string>
+    <string name="downloadChoiceTitle">ماذا تريد أن تنزّل؟</string>
+    <string name="downloadChoicePlaying">الفيديو الذي يعمل</string>
+    <string name="downloadChoiceList">القائمة أو القناة المفتوحة</string>
+    <string name="downloadChoiceListHint">اختر الفيديوهات التي تريدها من القائمة</string>
     <string name="miniPlayerPlayPause">تشغيل أو إيقاف مؤقت</string>
     <string name="miniPlayerClose">إغلاق الفيديو</string>
     <string name="miniPlayerShow">إظهار المشغل المصغر</string>
@@ -243,12 +256,18 @@
     <string name="browserLoadError">تعذّر تحميل الصفحة</string>
     <string name="browserFileTitle">تنزيل هذا الملف؟</string>
     <string name="browserFileStarted">جارٍ تنزيل %1$s</string>
+    <string name="browserFileStartedHttps">الرابط كان http: جارٍ تنزيل %1$s عبر https الآمن بدلاً منه</string>
     <string name="browserFileFailed">تعذّر بدء التنزيل</string>
     <string name="browserFileUnsupported">لا يمكن تنزيل هذا النوع من الروابط مباشرة</string>
     <string name="browserFileChecking">جارٍ التحقق من وجود نسخة آمنة (https) للرابط…</string>
     <string name="browserInsecureTitle">رابط غير آمن</string>
     <string name="browserInsecureMessage">هذا الرابط يبدأ بـ http فهو غير مشفّر، والموقع لا يوفّر له نسخة https.\n\nقد يتمكّن غيرك على الشبكة من رؤية الملف أو تعديله أثناء التنزيل، وقد يكون الملف نفسه غير موثوق.\n\n%1$s\n\nهل تريد التنزيل على أي حال؟</string>
     <string name="browserInsecureProceed">تنزيل على أي حال</string>
+    <string name="insecureDownloadMessage">هذا الرابط يبدأ بـ http فهو غير مشفّر.\n\nقد يتمكّن غيرك على الشبكة من رؤية ما تنزّله أو تعديله، وقد يكون الملف نفسه غير موثوق.\n\n%1$s\n\nهل تريد التنزيل على أي حال؟</string>
+    <string name="insecureSiteTitle">موقع غير آمن</string>
+    <string name="insecureSiteMessage">هذا العنوان يبدأ بـ http فالاتصال غير مشفّر. قد يتمكّن غيرك على الشبكة من رؤية ما تفتحه أو تعديل الصفحة، وقد يُقرأ أي شيء تكتبه فيها (مثل كلمة المرور).\n\n%1$s</string>
+    <string name="insecureSiteProceed">فتح على أي حال</string>
+    <string name="insecureSiteTryHttps">جرّب https</string>
     <string name="browserQuickSites">مواقع سريعة</string>
     <string name="browserRecent">آخر ما فتحته</string>
     <string name="browserRecentAll">عرض الكل</string>
@@ -288,6 +307,7 @@
     <string name="browserSectionFiles">الملفات</string>
     <string name="browserBadgePage">الصفحة</string>
     <string name="browserBadgePlayer">مشغّل</string>
+    <string name="browserRecommended">موصى به</string>
     <string name="historyTitle">سجل التصفح</string>
     <string name="historySelectItems">حدد الصفحات</string>
     <string name="historySelectAll">تحديد الكل</string>
@@ -310,4 +330,13 @@
         <item quantity="many">ستُحذف %1$d صفحةً من السجل.</item>
         <item quantity="other">ستُحذف %1$d صفحة من السجل.</item>
     </plurals>
+
+    <!-- The three-dots menu: its button and its groups of settings. -->
+    <string name="menuMore">المزيد</string>
+    <string name="menuSectionDownloads">التنزيلات</string>
+    <string name="menuSectionPlayback">التشغيل</string>
+    <string name="menuSectionDisplay">العرض</string>
+    <string name="menuSectionBrowsing">التصفح</string>
+    <string name="menuSectionAds">الإعلانات</string>
+    <string name="adsBlockedCount">تم حظر %1$d</string>
 </resources>

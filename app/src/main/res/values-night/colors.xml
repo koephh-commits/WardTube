@@ -12,4 +12,14 @@
     <color name="rowSelected">#33FF6B61</color>
     <color name="jobCard">#2B2120</color>
     <color name="jobError">#FF8A80</color>
+
+    <!-- The three-dots menu (see values/colors.xml). -->
+    <color name="menuAccentBlue">#64B5F6</color>
+    <color name="menuAccentPurple">#B39DDB</color>
+    <color name="menuAccentAmber">#FFB74D</color>
+    <color name="menuAccentTeal">#4DB6AC</color>
+    <color name="menuAccentRed">#FF6B61</color>
+    <color name="menuAccentGray">#90A4AE</color>
+    <color name="menuCard">#262626</color>
+    <color name="menuHandle">#55FFFFFF</color>
 </resources>

@@ -41,6 +41,11 @@
     <string name="librarySearchHint">Search by file name</string>
     <string name="libraryCount">%1$d files</string>
     <string name="delete">Delete</string>
+    <string name="rename">Rename</string>
+    <string name="renameTitle">Rename file</string>
+    <string name="renameHint">File name</string>
+    <string name="renamed">File renamed</string>
+    <string name="renameFailed">Could not rename the file</string>
     <string name="deleteConfirmTitle">Delete file?</string>
     <string name="deleteConfirmMessage">The file will be permanently deleted from the phone and cannot be restored.</string>
     <string name="deleteConfirmManyTitle">Delete the selected files?</string>
@@ -162,6 +167,10 @@
     <string name="engineUpdating">Updating the download engine…</string>
     <string name="engineUpdated">Download engine updated</string>
     <string name="engineUpdateFailed">Could not update the download engine</string>
+    <string name="updateEngineShort">Update engine</string>
+    <string name="autoUpdateEngine">Update the engine automatically</string>
+    <string name="autoUpdateEngineOn">When a download fails, the engine will be updated once and the download tried again</string>
+    <string name="autoUpdateEngineOff">The engine is only updated when you choose \"Update download engine\"</string>
     <string name="downloadAlreadyQueued">This download is already in the list</string>
 
     <!-- Download by sharing a link to the app -->
@@ -213,6 +222,10 @@
 
     <!-- Mini player -->
     <string name="minimizePlayer">Minimize video</string>
+    <string name="downloadChoiceTitle">What do you want to download?</string>
+    <string name="downloadChoicePlaying">The video that is playing</string>
+    <string name="downloadChoiceList">The open playlist or channel</string>
+    <string name="downloadChoiceListHint">Pick the videos you want from the list</string>
     <string name="miniPlayerPlayPause">Play or pause</string>
     <string name="miniPlayerClose">Close video</string>
     <string name="miniPlayerShow">Show mini player</string>
@@ -240,12 +253,18 @@
     <string name="browserLoadError">The page could not be loaded</string>
     <string name="browserFileTitle">Download this file?</string>
     <string name="browserFileStarted">Downloading %1$s</string>
+    <string name="browserFileStartedHttps">The link was http: downloading %1$s over secure https instead</string>
     <string name="browserFileFailed">The download could not be started</string>
     <string name="browserFileUnsupported">This kind of link cannot be downloaded directly</string>
     <string name="browserFileChecking">Checking whether the link has a secure (https) version…</string>
     <string name="browserInsecureTitle">This link is not secure</string>
     <string name="browserInsecureMessage">This link starts with http, so it is not encrypted, and the site does not offer an https version of it.\n\nAnyone on the network could see or change the file while it downloads, and the file itself may not be trustworthy.\n\n%1$s\n\nDo you want to download it anyway?</string>
     <string name="browserInsecureProceed">Download anyway</string>
+    <string name="insecureDownloadMessage">This link starts with http, so it is not encrypted.\n\nAnyone on the network could see or change what you download, and the file itself may not be trustworthy.\n\n%1$s\n\nDo you want to download it anyway?</string>
+    <string name="insecureSiteTitle">This site is not secure</string>
+    <string name="insecureSiteMessage">This address starts with http, so the connection is not encrypted. Anyone on the network could see what you open or change the page, and anything you type in it (a password, for one) could be read.\n\n%1$s</string>
+    <string name="insecureSiteProceed">Open anyway</string>
+    <string name="insecureSiteTryHttps">Try https</string>
     <string name="browserQuickSites">Quick sites</string>
     <string name="browserRecent">Recently opened</string>
     <string name="browserRecentAll">See all</string>
@@ -285,6 +304,7 @@
     <string name="browserSectionFiles">Files</string>
     <string name="browserBadgePage">Page</string>
     <string name="browserBadgePlayer">Player</string>
+    <string name="browserRecommended">Recommended</string>
     <string name="historyTitle">Browsing history</string>
     <string name="historySelectItems">Select pages</string>
     <string name="historySelectAll">Select all</string>
@@ -301,4 +321,13 @@
         <item quantity="one">This page will be removed from the history.</item>
         <item quantity="other">%1$d pages will be removed from the history.</item>
     </plurals>
+
+    <!-- The three-dots menu: its button and its groups of settings. -->
+    <string name="menuMore">More</string>
+    <string name="menuSectionDownloads">Downloads</string>
+    <string name="menuSectionPlayback">Playback</string>
+    <string name="menuSectionDisplay">Display</string>
+    <string name="menuSectionBrowsing">Browsing</string>
+    <string name="menuSectionAds">Ads</string>
+    <string name="adsBlockedCount">%1$d blocked</string>
 </resources>

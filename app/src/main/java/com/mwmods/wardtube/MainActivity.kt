@@ -379,8 +379,23 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (mode == PlayerHost.Mode.EXPANDED) setBarHidden(false)
         updateBarColors()
         updateBackgroundPlayback()
-        if (::menuController.isInitialized) menuController.setMinimizeVisible(mode == PlayerHost.Mode.EXPANDED)
+        if (::menuController.isInitialized) menuController.setVideoFullScreen(mode == PlayerHost.Mode.EXPANDED)
+        updateDownloadButton()
         if (mode != PlayerHost.Mode.NONE && prefs.backgroundPlay) askForNotificationPermission()
+    }
+
+    /**
+     * [إصلاح] The download button of the bottom bar is only at full strength (otherwise dimmed, never hidden, so the
+     * other buttons do not move) while there is something to download: a video open
+     * in the player (full screen or in the mini player), a Short on the browsing page, or a playlist / channel page
+     * (downloaded as a list). [browseUrl] is the page of the browsing WebView.
+     */
+    private fun updateDownloadButton(browseUrl: String? = webView.url) {
+        if (!::menuController.isInitialized || !::playerHost.isInitialized) return
+        val somethingToDownload = playerHost.isActive ||
+            UrlUtils.isShortsPage(browseUrl) ||
+            (browseUrl != null && isListPage(browseUrl))
+        menuController.setDownloadVisible(somethingToDownload)
     }
 
     /** The bars are dark while a video is full screen, in the app's colour while browsing. */
@@ -746,6 +761,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
     override fun onPageChanged(url: String?) {
         if (::menuController.isInitialized) menuController.updateAdBlockTitle()
+        updateDownloadButton(url ?: webView.url)
         val video = url?.takeIf { UrlUtils.isVideoUrl(it) }
         if (video != null) {
             // YouTube went to a video page without a load (a tap its page script could not catch). Videos play in

@@ -24,6 +24,7 @@ import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.mwmods.wardtube.Prefs
 import com.mwmods.wardtube.R
 import com.mwmods.wardtube.ui.LibraryActivity
 import com.mwmods.wardtube.util.CrashLog
@@ -63,6 +64,11 @@ class DownloadService : Service() {
     @Volatile private var currentFile: FileDownloader? = null
     @Volatile private var cancelRequested = false
     @Volatile private var engineUpdatedThisRun = false
+    /**
+     * Whether a failed download may update the engine and try again. It comes with each start request (the newest one
+     * wins) because this service runs in its own process and cannot read the app's settings as they change.
+     */
+    @Volatile private var autoUpdateEngine = false
     @Volatile private var lastStartId = 0
 
     /** A Library that just opened asks for the queue; silence from this process means nothing is downloading. */
@@ -104,6 +110,7 @@ class DownloadService : Service() {
             return START_NOT_STICKY
         }
         val options = DownloadOptions.fromJson(request.getStringExtra(EXTRA_OPTIONS))
+        autoUpdateEngine = request.getBooleanExtra(EXTRA_AUTO_UPDATE, false)
 
         createChannel()
 
@@ -323,8 +330,10 @@ class DownloadService : Service() {
                         toast(R.string.coverSkipped)
                         continue
                     }
-                    // Most failures are an outdated yt-dlp: update it once and retry.
-                    if (attempt++ == 0 && !engineUpdatedThisRun) {
+                    // Most failures are an outdated yt-dlp. Only when the person turned on automatic updating: update it
+                    // once and retry. Otherwise the job fails as it is, and the person can update the engine from the menu
+                    // (or from the failed download's message) and use Retry.
+                    if (autoUpdateEngine && attempt++ == 0 && !engineUpdatedThisRun) {
                         engineUpdatedThisRun = true
                         update(id, force = true) {
                             it.copy(status = JobStatus.UPDATING, percent = -1, speed = "", eta = "", size = "")
@@ -468,6 +477,9 @@ class DownloadService : Service() {
                 addOption("--no-playlist")
             }
             addOption("--no-mtime")
+            // A stream (HLS / DASH) arrives as hundreds of small fragments: asking for several at once is much faster
+            // than one after the other. A video that is a single file is one piece, so this changes nothing for it.
+            addOption("--concurrent-fragments", CONCURRENT_FRAGMENTS.toString())
             addOption("-o", "${workDir.absolutePath}/%(title).80s.%(ext)s")
             // A file found in the browser: the server is sent what the page sent (referer, user agent, cookies).
             for ((name, value) in RequestHeaders.headersOf(job.url)) addOption("--add-header", "$name:$value")
@@ -724,12 +736,16 @@ class DownloadService : Service() {
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_ITEM = "item"
         private const val EXTRA_ITEMS = "items"
+        private const val EXTRA_AUTO_UPDATE = "autoUpdateEngine"
         private const val EXTRA_JOB_ID = "jobId"
         private const val ACTION_CANCEL = "com.mwmods.wardtube.CANCEL_DOWNLOAD"
 
         /** Progress is broadcast at most this often (status changes always go out at once). */
         private const val PUBLISH_INTERVAL_MS = 400L
         private const val HEARTBEAT_MS = 2000L
+
+        /** Fragments of a stream fetched at the same time (yt-dlp's -N): enough to be fast, light for a 2 GB phone. */
+        private const val CONCURRENT_FRAGMENTS = 4
 
         // yt-dlp output, e.g. "[download]  45.3% of   10.50MiB at    1.20MiB/s ETA 00:05"
         private val PROGRESS_RE =
@@ -753,6 +769,7 @@ class DownloadService : Service() {
                 .putExtra(EXTRA_ITEM, item)
                 .putExtra(EXTRA_OPTIONS, options.toJson())
                 .putExtra(EXTRA_TITLE, title.orEmpty())
+                .putExtra(EXTRA_AUTO_UPDATE, Prefs(context).autoUpdateEngine)
             ContextCompat.startForegroundService(context, intent)
         }
 
@@ -775,6 +792,7 @@ class DownloadService : Service() {
             val intent = Intent(context, DownloadService::class.java)
                 .putExtra(EXTRA_ITEMS, array.toString())
                 .putExtra(EXTRA_OPTIONS, options.toJson())
+                .putExtra(EXTRA_AUTO_UPDATE, Prefs(context).autoUpdateEngine)
             ContextCompat.startForegroundService(context, intent)
         }
 

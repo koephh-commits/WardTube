@@ -1,5 +1,122 @@
 # Changelog
 
+## 2.6.51
+- The first slot of the bottom bar is no longer an empty gap. It used to be a transparent, disabled minimize arrow
+  whenever no video was full screen, so the bar looked as if the minimize button had vanished (with the mini player
+  open, for example). It now shows the minimize arrow while a video is full screen and the voice search microphone
+  the rest of the time. Voice search is therefore one tap away in the bar (it is still in the three-dots sheet too).
+  The slot is always in the bar and always enabled, so the other five buttons still never move
+  (`MenuController.setVideoFullScreen` replaces `setMinimizeVisible`; the click handler picks minimize or voice
+  search; `menu_main.xml` comment updated; the unused `HIDDEN_ALPHA` is gone).
+
+## 2.6.50
+- The "What do you want to download?" dialog is tidied up (`MenuController.askWhatToDownload`, `fillChoiceRow`,
+  `dialog_download_choice.xml`). It used to be a plain list with the video title run into the same line as its label.
+  It is now one soft rounded card in the style of the three-dots menu, with two rows: the video that is playing (red
+  badge, its title on the line under it, up to two lines) and the open playlist or channel (blue badge, "Pick the
+  videos you want from the list" under it). Each row ends with an arrow, and a tap on a row starts that download.
+  When it appears and how it closes are unchanged: only with the mini player running on a playlist / channel page,
+  and only through its Cancel button. New: `ic_list_24dp`, the string `downloadChoiceListHint` (English and Arabic).
+
+## 2.6.49
+- The bottom bar no longer jumps. The download and minimize buttons used to be added to and removed from the bar, and
+  every time that happened `ActionMenuView` spread the remaining buttons over the width again, so home, browser, library
+  and the three-dots button moved sideways (a wrong tap when the page changed). All six slots now stay in the bar:
+  the download button is dimmed while there is nothing to download (tapping it still explains that a video has to be
+  chosen), and the minimize button is transparent and disabled unless a video is full screen
+  (`MenuController.setUp`, `setMinimizeVisible`, `setDownloadVisible`; `menu_main.xml` no longer hides them).
+- Download button with the mini player running and a playlist / channel page open: it used to download the list without
+  asking. It now asks "What do you want to download?" with the playing video (and its title) or the open list. With no
+  video playing, or on any other page, nothing changes (`MenuController.withDownloadUrl`, `askWhatToDownload`). The
+  dialog closes only through its Cancel button, like the other download dialogs.
+
+## 2.6.45
+- The three-dots menu is redesigned (`MenuController.showMenuSheet`); nothing was added or removed, every entry does what
+  it did and the order of the groups is the same. What changed is how it looks and reads:
+  - The sheet has big rounded top corners and starts with the app badge (the blue-to-cyan of the launcher icon), the app
+    name and its version.
+  - Refresh, share and voice search are three soft cards with a round colored badge each.
+  - Every group (Downloads, Playback, Display, Browsing, Ads, and About at the end) is one rounded card with a colored
+    title; the color is the group's (blue, purple, amber, teal, red, gray) and tints the icon of each of its rows, so a
+    row is found by color and icon before it is read. Rows in a card are separated by a thin line that starts under
+    the text, not under the icon.
+  - A row that opens a choice shows its current value at the end, in the group's color (the chosen theme, the sleep time
+    left), before the arrow. The switches keep their second line (what the state does, how many ads were blocked).
+  - The parts of the sheet slide in one after the other when it opens (a fraction of a second), and a switch row gives a
+    light tick when it is flipped.
+  - Light and dark mode both have their own colors (`menuAccent*`, `menuCard`, `menuHandle` in `values/` and
+    `values-night/`). Ten new icons (`ic_menu_*`) were added; no new string: the texts are the ones that were there.
+
+## 2.6.44
+- The three-dots menu is tidied up. It was one long flat list of twelve plain rows (and on most phones refresh, share and
+  voice search sat in it too, because the bottom bar has no room for them). It is now a sheet (`MenuController.showMenuSheet`)
+  with a row of quick actions on top (refresh, share, voice search) and the settings in titled groups:
+  - Downloads: download, update download engine, update the engine automatically.
+  - Playback: play in background, sleep timer.
+  - Display: theme, hide bar while scrolling.
+  - Browsing: set as home, accept cookies.
+  - Ads: block ads, update ad filters.
+  - and "About" at the end.
+- Each setting shows its state where it helps: the switches show on / off, the theme row shows the chosen theme, the sleep
+  timer row shows the time left (refreshed every second while the sheet is open), the ad blocker row shows how many requests
+  were blocked, and the "update the engine automatically" row explains what its current state does (it used to be a message
+  at the bottom that the sheet would now cover). Tapping a switch row keeps the sheet open; any other row closes it first.
+- The bottom bar keeps its four buttons (home, browser, library, three dots). `menu_main.xml` now only holds those; the
+  rest of the menu is built in code, so `MenuController` no longer needs the overflow menu.
+- Nothing was removed: every old menu entry is in the sheet and does what it did.
+
+## 2.6.43
+- The download engine (yt-dlp) is now updated by hand only. Until now a failed download, or a list that could not be read,
+  updated it by itself once and tried again. Now nothing updates it unless the person taps "Update download engine" in the
+  menu.
+- New menu option "Update the engine automatically" (`Prefs.autoUpdateEngine`, off by default). When it is on, the old
+  behaviour comes back: a failed download or an unreadable list updates the engine once and tries again. The download
+  service runs in its own process and cannot read the app's settings as they change, so the choice travels with each start
+  request (`DownloadService.EXTRA_AUTO_UPDATE`, filled in by `start` / `startMany`) instead of being read there.
+- The full message of a failed video / stream download (tap its card in the Library) has an "Update engine" button, so the
+  update is one tap away; "Try again" on the card then uses the new engine. Plain files do not get it (yt-dlp is not used).
+- Browser screen: the item of the "Found on this page" list that is best to download is marked "Recommended" (a badge and an
+  outlined row). `BestOption` chooses it from what each kind of item is, because no server is asked about sizes: the page's
+  own video on a site yt-dlp handles with its own extractor (YouTube, TikTok, Facebook... see `ShareLinks.isMediaSite`),
+  then a video file, then a stream (m3u8 / mpd), then the page's video on any other site, then a player frame, then audio.
+  Plain files (zip, pdf...) are never marked. Between items of the same kind the one with the highest resolution in its
+  address or name (`1080p`, `_720.mp4`) wins, and then the one found first.
+
+## 2.6.42
+- A plain `http://` link now always warns the person, wherever it is used:
+  - Opening a site in the browser screen (a typed or pasted address, a quick site, a history entry, and also a link or a
+    redirect inside a page that leads to an http address): a window says the site is not secure and offers "Open
+    anyway", "Try https" (the same address over https) or Cancel, and nothing is loaded before the answer. A site the
+    person agreed to open is not asked about again while the screen lives (`BrowserActivity.insecureHosts`), and a
+    page that redirects several times shows one window, not a stack of them.
+  - Downloading a video or a stream (yt-dlp) from an http link, from any entry (the browser's floating button, a pasted
+    link, "Share to Ward Tube"): the window "This link is not secure" comes first, with "Download anyway" / Cancel
+    (`Downloader.chooseAndStart`). Nothing is requested from the server for it (the rule of 2.6.34 holds).
+  - Files and audio found in the browser keep the behaviour of 2.6.39 (the https address is tried first, the warning
+    appears when the site has none). When the https address answers, a short message that goes away by itself says the
+    http link was downloaded over https instead (`browserFileStartedHttps`); no window is shown.
+  - Addresses on the phone or on a home network (localhost, 127.x, 10.x, 192.168.x, 172.16-31.x, *.local) are left
+    alone: http is normal there (`UrlUtils.isInsecureWeb`).
+
+## 2.6.41
+- Streams (HLS / DASH) download faster: yt-dlp is now told to fetch 4 fragments at the same time
+  (`--concurrent-fragments`, `DownloadService.CONCURRENT_FRAGMENTS`). A video that is one file is not affected.
+- Browser screen: a stream is now found on far more sites. Until now the list only knew a playlist by `.m3u8` / `.mpd` at
+  the end of its address. A new script (`MediaSniffer.NET_SCRIPT`), registered as a document-start script for every
+  frame of every page, watches what the page's own code downloads (`fetch` and `XMLHttpRequest`) and reads what the
+  server SAYS about each answer: a playlist type (`mpegurl`, `dash+xml`), or a generic type (`octet-stream`,
+  `text/plain`, `xml`, none) whose first bytes are `#EXTM3U` or `<MPD`. It reports to the new `Bridge.reportNet`.
+  Nothing extra is requested from any server (the signed-address rule of 2.6.34 still holds): the first chunk of a copy
+  of an answer is read, and the page always gets its own answer whole. The same page-side watcher offers a big video /
+  audio file (1 MiB or more) the page fetches by itself, but only when no playlist was seen on the page, so the pieces
+  of a stream are never listed.
+- Browser screen: a playlist named inside an address's query (`/play?src=https%3A%2F%2Fcdn.site%2Fmaster.m3u8`) is found
+  by its address too (`MediaSniffer.embeddedStream`).
+- Library: a file's menu has "Rename". Only the name is edited, the extension stays, so the file keeps its type and its
+  folder. Android 10+ renames the MediaStore row (the system adds " (1)" if the name is taken); Android 9 and older
+  renames the real file and tells MediaStore. A file the app does not own (an earlier install) asks the system's
+  approval first (`DownloadStore.rename`, `RenameResult`).
+
 ## 2.6.40
 - Browser screen, main screen redesigned. The link field is now one filled pill (the globe at its start, the x when
   there is text, and the search engine button inside it at its end; light green outline while it has the focus).

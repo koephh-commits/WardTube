@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The three-dots menu: the app badge and version on top, a row of quick actions, then the settings in titled groups
+    (the groups and their rows are added in code, see MenuController.showMenuSheet).
+-->
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:clipToPadding="false">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="24dp">
+
+        <!-- Drag handle -->
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/bg_menu_handle" />
+
+        <!-- The app: its badge, its name and its version -->
+        <LinearLayout
+            android:id="@+id/menuHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="24dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="18dp">
+
+            <ImageView
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/bg_menu_logo"
+                android:importantForAccessibility="no"
+                android:padding="12dp"
+                android:src="@drawable/ic_menu_headphones" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_name"
+                    android:textAlignment="viewStart"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/menuHeaderVersion"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textAlignment="viewStart"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Quick actions -->
+        <LinearLayout
+            android:id="@+id/menuQuickRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
+
+            <LinearLayout
+                android:id="@+id/quickRefresh"
+                style="@style/MenuQuickAction">
+
+                <ImageView
+                    android:id="@+id/quickRefreshIcon"
+                    style="@style/MenuQuickIcon"
+                    android:src="@drawable/ic_refresh_24dp" />
+
+                <TextView
+                    style="@style/MenuQuickLabel"
+                    android:text="@string/refresh" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/quickShare"
+                style="@style/MenuQuickAction">
+
+                <ImageView
+                    android:id="@+id/quickShareIcon"
+                    style="@style/MenuQuickIcon"
+                    android:src="@drawable/ic_share_24dp" />
+
+                <TextView
+                    style="@style/MenuQuickLabel"
+                    android:text="@string/share" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/quickVoice"
+                style="@style/MenuQuickAction">
+
+                <ImageView
+                    android:id="@+id/quickVoiceIcon"
+                    style="@style/MenuQuickIcon"
+                    android:src="@drawable/ic_mic_white_24dp" />
+
+                <TextView
+                    style="@style/MenuQuickLabel"
+                    android:text="@string/voiceSearch" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- The groups of settings -->
+        <LinearLayout
+            android:id="@+id/menuList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

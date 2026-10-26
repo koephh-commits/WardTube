@@ -3,11 +3,21 @@
     xmlns:tools="http://schemas.android.com/tools"
     tools:context=".MainActivity">
 
+    <!--
+        The bottom bar: six slots that never move. Home, browser, library and the three-dots button are always
+        usable. The download button is dimmed while there is nothing to download. The first slot is never empty:
+        it is the minimize arrow while a video is full screen and the voice search microphone the rest of the time
+        (MenuController.setVideoFullScreen swaps its icon, title and action; its id stays action_minimize). Nothing
+        is ever hidden, because a hidden item makes ActionMenuView spread the other buttons again and they would
+        jump sideways (see MenuController.setUp).
+        Everything else (refresh, share and all the settings) is in the sheet that the last button opens, grouped
+        by what it is for (see MenuController.showMenuSheet); voice search is also there.
+    -->
+
     <item
         android:id="@+id/action_minimize"
-        android:icon="@drawable/ic_expand_more_white_24dp"
-        android:title="@string/minimizePlayer"
-        android:visible="false"
+        android:icon="@drawable/ic_mic_white_24dp"
+        android:title="@string/voiceSearch"
         app:showAsAction="always" />
 
     <item
@@ -17,27 +27,16 @@
         app:showAsAction="always" />
 
     <item
-        android:id="@+id/action_voice_search"
-        android:icon="@drawable/ic_mic_white_24dp"
-        android:title="@string/voiceSearch"
-        app:showAsAction="ifRoom" />
-
-    <item
-        android:id="@+id/action_refresh"
-        android:icon="@drawable/ic_refresh_white_24dp"
-        android:title="@string/refresh"
-        app:showAsAction="ifRoom" />
-
-    <item
-        android:id="@+id/action_share"
-        android:icon="@drawable/ic_share_variant_white_24dp"
-        android:title="@string/share"
-        app:showAsAction="ifRoom" />
-
-    <item
         android:id="@+id/action_browser"
         android:icon="@drawable/ic_globe_white_24dp"
         android:title="@string/browser"
+        app:showAsAction="always" />
+
+    <!-- [إصلاح] Quick download: dimmed until there is something to download (see MainActivity.updateDownloadButton). -->
+    <item
+        android:id="@+id/action_download"
+        android:icon="@drawable/ic_download_24dp"
+        android:title="@string/download"
         app:showAsAction="always" />
 
     <item
@@ -47,69 +46,9 @@
         app:showAsAction="always" />
 
     <item
-        android:id="@+id/action_sleep_timer"
-        android:title="@string/sleepTimer"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_set_as_home"
-        android:title="@string/set_as_home"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_theme"
-        android:title="@string/theme"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_backgroundPlay"
-        android:checkable="true"
-        android:checked="true"
-        android:title="@string/playInBackground"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_auto_hide_bar"
-        android:checkable="true"
-        android:checked="true"
-        android:title="@string/hideBarOnScroll"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_adblock"
-        android:checkable="true"
-        android:checked="true"
-        android:title="@string/blockAds"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_update_filters"
-        android:title="@string/updateFilters"
-        app:showAsAction="never" />
-
-
-    <item
-        android:id="@+id/action_download"
-        android:title="@string/download"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_update_engine"
-        android:title="@string/updateEngine"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_accept_cookies"
-        android:checkable="true"
-        android:checked="true"
-        android:title="@string/acceptCookies"
-        app:showAsAction="never" />
-
-
-
-    <item
-        android:id="@+id/action_about"
-        android:title="@string/about"
-        app:showAsAction="never" />
+        android:id="@+id/action_more"
+        android:icon="@drawable/ic_dots_vertical_white_24dp"
+        android:title="@string/menuMore"
+        app:showAsAction="always" />
 
 </menu>

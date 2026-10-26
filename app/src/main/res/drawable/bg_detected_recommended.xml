@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The "Recommended" badge of a found item: the sheet's accent green, with the same small corners as the format badge. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/browserFab" />
+    <corners android:radius="6dp" />
+</shape>

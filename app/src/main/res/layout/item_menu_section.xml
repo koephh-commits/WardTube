@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The title of a group of settings in the three-dots menu (its color is the group's accent, set in code). -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/menuSectionTitle"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="28dp"
+    android:paddingTop="20dp"
+    android:paddingEnd="28dp"
+    android:paddingBottom="8dp"
+    android:textAlignment="viewStart"
+    android:textSize="13sp"
+    android:textStyle="bold" />

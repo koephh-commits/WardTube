@@ -15,7 +15,7 @@ copyright on the parts that come from it.
 
 | Component | License | Notes |
 |---|---|---|
-| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Unlicense | Downloader engine, run inside the app. Updated from yt-dlp's own servers when needed. |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Unlicense | Downloader engine, run inside the app. Updated from yt-dlp's own servers when the person updates it (or, with automatic updating turned on, when a download fails). |
 | [youtubedl-android](https://github.com/yausername/youtubedl-android) (library + ffmpeg modules, 0.18.1, published on Maven Central as `io.github.junkfood02.youtubedl-android`) | GPL-3.0 | Packs yt-dlp together with a Python runtime and an FFmpeg build; the licenses of those bundled binaries apply too. Based on youtubedl-java by sapher. |
 | Jackson, Apache Commons Compress | Apache-2.0 | Pulled in by youtubedl-android. |
 | XZ for Java | Public domain | Pulled in by youtubedl-android. |

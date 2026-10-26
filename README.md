@@ -24,7 +24,7 @@ library that works offline. Free software under the [GPL-3.0](LICENSE).
 - **Playlists**: share or paste a playlist, Mix or channel link (YouTube, and any other site yt-dlp reads as a list),
   tick the videos you want and they join the queue one by one.
 - **Download by sharing**: share a video link from any app and pick Ward Tube.
-- **Library** of your downloads, available without internet. Select several files to share or delete them together.
+- **Library** of your downloads, available without internet. Rename a file from its menu, or select several files to share or delete them together.
 - **Browser** (globe button): paste a link of a video from any site and download it, or open the page and download
   files from it. Ads are blocked there too, and a floating download button turns on when the page offers a video or a
   file. It has previous / next page, reload and home buttons, and a browsing history (stored only on the device) that
@@ -47,7 +47,7 @@ No account and no analytics: WardTube itself collects no data and sends nothing 
 - YouTube (the page you browse, inside the WebView, and the video covers shown in the notification and in the list
   of videos of a playlist; for a playlist of another site the pictures come from that site),
 - `easylist-downloads.adblockplus.org` (ad filter lists),
-- the yt-dlp update servers (only when you update the download engine or a download needs it).
+- the yt-dlp update servers (only when you update the download engine, or when a download fails and you turned on automatic engine updates).
 
 The Browser screen opens whatever site you type or paste (a text that is not a link is searched on
 `google.com`).
@@ -99,7 +99,8 @@ app/src/main/java/com/mwmods/wardtube/
   adblock/                   AdBlocker (request blocking), FilterEngine/FilterParser/NetworkRule/RuleSet/ResourceType
                              (EasyList syntax), FilterListManager (download + cache)
   browser/                   BrowserActivity: paste a link / small browser, downloads of files from pages;
-                             MediaSniffer (finds the videos and files a page offers for the floating button);
+                             MediaSniffer (finds the videos and files a page offers for the floating button),
+                             DetectedSheet (the list of what was found) with BestOption (which item is "Recommended");
                              BrowserHistory (the stored list of visited pages), HistoryActivity (its screen)
   player/                    PlayerHost (mini player), PlayerController (JS remote), PlaybackService (media
                              notification), SleepTimer, BecomingNoisyReceiver (pause on unplug)
@@ -167,7 +168,7 @@ and applied by `ui/ThemeHelper.kt` (called from `WardTubeApp` before any activit
   YouTube and TikTok links are also rewritten to a plain form, and their pages that are neither a video nor a list are refused.
   Lists (a playlist, Mix or channel; any other site yt-dlp reads as a list) get a choice of videos after the format window;
   each chosen video is queued as a job of its own (`DownloadService` takes the whole batch in one request).
-- **Library** (bottom bar): lists every file downloaded from inside the app (`Download/WardTube`), with search, play, share and delete, one file at a time or several at once (long-press to select).
+- **Library** (bottom bar): lists every file downloaded from inside the app (`Download/WardTube`), with search, play, share, rename and delete, one file at a time or several at once (long-press to select).
   The *Download* menu item downloads on the device itself (bundled yt-dlp + ffmpeg via youtubedl-android, no external website):
   pick MP4 1080/720/480 or MP3/M4A, the finished file lands in the Library.
   Several downloads can be started in a row: they run one after another, and the Library shows the whole queue at the top.
@@ -175,7 +176,7 @@ and applied by `ui/ThemeHelper.kt` (called from `WardTubeApp` before any activit
   the ones behind it say *Waiting* with their place in line and move up as the earlier ones finish. Each card has a cancel button;
   a failed download stays on screen with *Try again* / *Dismiss*. The notification shows the same (current job + how many are waiting)
   and opens the Library when tapped.
-  If YouTube changes and a download fails, the engine updates itself once and retries; *Update download engine* in the menu does it manually.
+  If YouTube changes and a download fails, update the engine with *Update download engine* in the menu (or the *Update engine* button in the failed download's message) and use *Try again*. *Update the engine automatically* (menu, off by default) makes a failed download update the engine once and retry by itself.
 - **Voice search**: mic button in the bottom bar (system speech recognizer → YouTube search). YouTube's own mic button also works: the
   WebView asks for `RECORD_AUDIO`, which is only ever granted to youtube.com pages.
 - **Permissions**: `READ_MEDIA_AUDIO/VIDEO` (Android 13+), `READ_EXTERNAL_STORAGE` (≤ 12L), `WRITE_EXTERNAL_STORAGE` (≤ 9).

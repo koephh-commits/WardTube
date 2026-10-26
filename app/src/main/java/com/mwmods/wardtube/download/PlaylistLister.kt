@@ -6,6 +6,7 @@ package com.mwmods.wardtube.download
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.mwmods.wardtube.Prefs
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import org.json.JSONArray
@@ -240,7 +241,10 @@ class ListProbe(context: Context, private val url: String, private val mustBeLis
 
     private fun read(): ProbeResult {
         var detail = ""
-        // An outdated yt-dlp is the usual reason a list cannot be read: update it once and try again (known lists only).
+        val autoUpdate = Prefs(app).autoUpdateEngine
+        // An outdated yt-dlp is the usual reason a list cannot be read. With automatic updating on, it is updated once
+        // and the list is read again (known lists only); otherwise the failure is reported, and its message tells the
+        // person to update the engine from the menu.
         for (attempt in 0..1) {
             try {
                 return PlaylistLister.fetch(app, url, processId)
@@ -248,7 +252,7 @@ class ListProbe(context: Context, private val url: String, private val mustBeLis
                 if (cancelled) return ProbeResult.Failed("")
                 detail = (e.message ?: e.javaClass.simpleName).lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().take(160)
                 if (!mustBeList) return ProbeResult.Single
-                if (attempt == 0 && !YtDlpEngine.updateAttempted) {
+                if (autoUpdate && attempt == 0 && !YtDlpEngine.updateAttempted) {
                     if (YtDlpEngine.update(app)) continue
                 }
                 break

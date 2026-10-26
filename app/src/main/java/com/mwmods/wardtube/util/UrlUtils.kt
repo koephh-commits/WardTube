@@ -4,6 +4,7 @@
 package com.mwmods.wardtube.util
 
 import android.net.Uri
+import java.net.URL
 import java.util.Locale
 
 object UrlUtils {
@@ -71,6 +72,42 @@ object UrlUtils {
             for (value in uri.getQueryParameters(name)) builder.appendQueryParameter(name, value)
         }
         return builder.build().toString()
+    }
+
+    /**
+     * True for a plain `http://` address to a site on the internet: nothing in it is encrypted. Addresses on the phone
+     * itself or on a home network (localhost, 127.x, 10.x, 192.168.x, 172.16-31.x, *.local) are not counted: plain http
+     * is how those are normally served, and a warning there would only be noise.
+     */
+    fun isInsecureWeb(url: String?): Boolean {
+        if (url == null || !url.startsWith("http://", ignoreCase = true)) return false
+        val host = Uri.parse(url).host?.lowercase(Locale.ROOT) ?: return false
+        return !isLocalHost(host)
+    }
+
+    private fun isLocalHost(host: String): Boolean {
+        if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true
+        val parts = host.split('.')
+        if (parts.size != 4) return false
+        val n = parts.map { it.toIntOrNull() ?: return false }
+        return when {
+            n[0] == 10 || n[0] == 127 -> true
+            n[0] == 192 && n[1] == 168 -> true
+            n[0] == 172 && n[1] in 16..31 -> true
+            else -> false
+        }
+    }
+
+    /** The same address over https (port 80 becomes the default port); null when [url] is not a plain http address. */
+    fun toHttps(url: String): String? {
+        if (!url.startsWith("http://", ignoreCase = true)) return null
+        return try {
+            val plain = URL(url)
+            val secure = URL("https", plain.host, if (plain.port == 80) -1 else plain.port, plain.file).toString()
+            if (plain.ref.isNullOrEmpty()) secure else "$secure#${plain.ref}"
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun pathOf(url: String?): String? {

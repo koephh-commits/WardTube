@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    "What do you want to download?": two rows in one soft rounded card, in the style of the three-dots menu. Each row has
+    a tinted icon, a title, a line under it saying what it is, and an arrow. The texts are filled in by the code.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="16dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="4dp">
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:cardBackgroundColor="@color/menuCard"
+        app:cardCornerRadius="18dp"
+        app:cardElevation="0dp"
+        app:strokeWidth="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- The video that is playing in the mini player. -->
+            <include
+                android:id="@+id/choicePlaying"
+                layout="@layout/item_menu_row" />
+
+            <include layout="@layout/item_menu_divider" />
+
+            <!-- The playlist or channel that is open on the page. -->
+            <include
+                android:id="@+id/choiceList"
+                layout="@layout/item_menu_row" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+</FrameLayout>

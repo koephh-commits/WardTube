@@ -59,8 +59,25 @@ object Downloader {
         snackbarAnchor: android.view.View,
         title: String? = null,
         direct: Boolean = false,
+        /** True once the person has accepted the warning about a plain http link (the flow then goes on as usual). */
+        insecureAccepted: Boolean = false,
+        // Keep this one last: callers pass it as a trailing lambda.
         onClosed: () -> Unit = {},
     ) {
+        // A plain http link: nothing about it is encrypted. The person is told first and chooses to go on or cancel.
+        // (Nothing is requested from the server for this, since a signed address may answer only once.)
+        if (!insecureAccepted && UrlUtils.isInsecureWeb(videoUrl)) {
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.browserInsecureTitle)
+                .setMessage(activity.getString(R.string.insecureDownloadMessage, RequestHeaders.display(videoUrl).take(300)))
+                .setCancelable(false)
+                .setPositiveButton(R.string.browserInsecureProceed) { _, _ ->
+                    chooseAndStart(activity, videoUrl, snackbarAnchor, title, direct, insecureAccepted = true, onClosed = onClosed)
+                }
+                .setNegativeButton(android.R.string.cancel) { _, _ -> onClosed() }
+                .show()
+            return
+        }
         val prefs = Prefs(activity)
         // A file or stream the browser found is one video by definition: nothing is read from its server before the
         // person chooses (a signed address may answer only once), and it is never offered as a list.

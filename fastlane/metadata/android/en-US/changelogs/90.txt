@@ -1,0 +1,1 @@
+The three-dots menu is now organized: quick actions (refresh, share, voice search) on top, then the settings in groups - Downloads, Playback, Display, Browsing and Ads - with About at the end.

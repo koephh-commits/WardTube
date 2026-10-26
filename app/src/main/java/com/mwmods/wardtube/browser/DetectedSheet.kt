@@ -23,7 +23,8 @@ import java.util.Locale
  *  - the header names the page and counts what was found;
  *  - the items come in three sections (videos, audio, files), each with its own count;
  *  - a row has a colored icon by kind, the name (the page's title for its own video), a small badge (the format:
- *    MP4, M3U8, PDF...) and the kind with the site it comes from, and a download button at its end.
+ *    MP4, M3U8, PDF...) and the kind with the site it comes from, and a download button at its end;
+ *  - the best item to download (see [BestOption]) has a "Recommended" badge and an outlined row.
  * A tap on a row closes the sheet and hands the item to [show]'s callback.
  *
  * Only what the sniffer already knows is shown: nothing is requested from a server to fill the list in (a signed
@@ -75,6 +76,7 @@ object DetectedSheet {
         content.findViewById<MaxHeightScrollView>(R.id.sheetScroll).maxHeightPx = BrowserSheet.listMaxHeight(activity)
         val list = content.findViewById<LinearLayout>(R.id.sheetList)
         val dialog = BrowserSheet.create(activity, content)
+        val best = BestOption.of(items)
 
         for (section in Section.values()) {
             val inSection = items.filter { it.kind in section.kinds }
@@ -86,7 +88,7 @@ object DetectedSheet {
 
             for (item in inSection) {
                 val row = inflater.inflate(R.layout.item_detected, list, false)
-                bind(activity, row, item, pageTitle)
+                bind(activity, row, item, pageTitle, recommended = item === best)
                 row.setOnClickListener {
                     dialog.dismiss()
                     onChosen(item)
@@ -97,9 +99,13 @@ object DetectedSheet {
         dialog.show()
     }
 
-    private fun bind(activity: AppCompatActivity, row: View, item: Detected, pageTitle: String?) {
+    private fun bind(activity: AppCompatActivity, row: View, item: Detected, pageTitle: String?, recommended: Boolean) {
         val look = lookOf(activity, item.kind)
         val host = hostOf(item.url)
+
+        // The best item of the list: its row is outlined (the sheet's "activated" look) and carries the badge.
+        row.isActivated = recommended
+        row.findViewById<View>(R.id.detectedRecommended).visibility = if (recommended) View.VISIBLE else View.GONE
 
         // The icon: the kind's color on a soft tile of the same color.
         row.findViewById<View>(R.id.detectedTile).background =

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- One video / audio / file found on the page: a tinted icon tile (its color says what it is), the name, a small badge
-     (the format) with the kind and the site, and a download button at the end. DetectedSheet fills it in. -->
+     (the format) with the kind and the site, and a download button at the end. The best item of the list also gets the
+     "Recommended" badge (hidden otherwise) and the row is outlined (activated). DetectedSheet fills it in. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/detectedRow"
@@ -68,6 +69,23 @@
                 android:paddingBottom="2dp"
                 android:textSize="11sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/detectedRecommended"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_detected_recommended"
+                android:maxLines="1"
+                android:paddingStart="7dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="7dp"
+                android:paddingBottom="2dp"
+                android:text="@string/browserRecommended"
+                android:textColor="@color/browserFabIcon"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/detectedMeta"

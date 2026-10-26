@@ -3,9 +3,12 @@
 
 package com.mwmods.wardtube.util
 
+import android.app.RecoverableSecurityException
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.content.IntentSender
 import android.database.Cursor
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -59,6 +62,17 @@ data class DownloadItem(
                 else -> MediaCategory.OTHER
             }
         }
+}
+
+/** How [DownloadStore.rename] ended. */
+sealed interface RenameResult {
+    /** The file has its new name (the Library should be read again: the system may have added " (1)" to it). */
+    object Done : RenameResult
+
+    object Failed : RenameResult
+
+    /** The app does not own the file (it came from an earlier install): [sender] asks the person; null = cannot ask. */
+    class NeedsUser(val sender: IntentSender?) : RenameResult
 }
 
 /**
@@ -337,6 +351,59 @@ object DownloadStore {
     private fun sanitize(name: String): String {
         val cleaned = name.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().trim('.')
         return cleaned.ifEmpty { "download" }.take(120)
+    }
+
+    // ---- Renaming ----
+
+    /**
+     * Gives [item] the name [baseName] (without the extension: the file keeps the one it has, so its type and its place
+     * in the Library never change). Blocking: call it from a worker thread.
+     *
+     * Android 10+ renames the MediaStore row (the system renames the file with it, and adds " (1)" when the name is
+     * taken); Android 9 and older renames the real file and tells MediaStore. A file the app does not own asks the
+     * person first ([RenameResult.NeedsUser]); once approved, call this again.
+     */
+    fun rename(context: Context, item: DownloadItem, baseName: String): RenameResult {
+        val extension = item.name.substringAfterLast('.', "")
+        val clean = sanitize(baseName)
+        val newName = if (extension.isEmpty()) clean else "$clean.$extension"
+        if (newName == item.name) return RenameResult.Done
+        val resolver = context.contentResolver
+        return try {
+            val path = item.path
+            if (path != null) renameLegacy(context, item, File(path), newName) else renameInMediaStore(resolver, item, newName)
+        } catch (e: SecurityException) {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                    RenameResult.NeedsUser(MediaStore.createWriteRequest(resolver, listOf(item.uri)).intentSender)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException ->
+                    RenameResult.NeedsUser(e.userAction.actionIntent.intentSender)
+                else -> RenameResult.Failed
+            }
+        } catch (e: RuntimeException) {
+            RenameResult.Failed
+        }
+    }
+
+    private fun renameInMediaStore(resolver: ContentResolver, item: DownloadItem, newName: String): RenameResult {
+        val values = ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, newName) }
+        return if (resolver.update(item.uri, values, null, null) > 0) RenameResult.Done else RenameResult.Failed
+    }
+
+    @Suppress("DEPRECATION")
+    private fun renameLegacy(context: Context, item: DownloadItem, from: File, newName: String): RenameResult {
+        val dir = from.parentFile ?: return RenameResult.Failed
+        val target = uniqueFile(dir, newName)
+        if (!from.renameTo(target)) return RenameResult.Failed
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, target.name)
+            put(MediaStore.MediaColumns.DATA, target.absolutePath)
+        }
+        val updated = runCatching { context.contentResolver.update(item.uri, values, null, null) }.getOrDefault(0)
+        // The row could not follow the file: drop it, the scan below registers the file under its new name.
+        if (updated == 0) runCatching { context.contentResolver.delete(item.uri, null, null) }
+        MediaScannerConnection.scanFile(context, arrayOf(target.absolutePath), null, null)
+        return RenameResult.Done
     }
 
     // ---- Listing ----

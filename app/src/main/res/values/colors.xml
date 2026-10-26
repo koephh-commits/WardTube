@@ -50,4 +50,16 @@
     <color name="detectPlayer">#FFAB91</color>
     <color name="detectAudio">#FFE082</color>
     <color name="detectFile">#90CAF9</color>
+
+    <!-- The three-dots menu: one accent per group of settings (tile tint, group title, value), cards and the logo. -->
+    <color name="menuAccentBlue">#1E88E5</color>
+    <color name="menuAccentPurple">#7E57C2</color>
+    <color name="menuAccentAmber">#E08A00</color>
+    <color name="menuAccentTeal">#00897B</color>
+    <color name="menuAccentRed">#E62118</color>
+    <color name="menuAccentGray">#607D8B</color>
+    <color name="menuCard">#F4F4F6</color>
+    <color name="menuHandle">#33000000</color>
+    <color name="menuLogoStart">#4F46E5</color>
+    <color name="menuLogoEnd">#0EA5D6</color>
 </resources>

@@ -64,6 +64,7 @@ class LibraryAdapter(
     private val onFileClick: (DownloadItem) -> Unit,
     private val onFileLongClick: (DownloadItem) -> Unit,
     private val onShare: (DownloadItem) -> Unit,
+    private val onRename: (DownloadItem) -> Unit,
     private val onDelete: (DownloadItem) -> Unit,
     private val onCancelJob: (DownloadJob) -> Unit,
     private val onRetryJob: (DownloadJob) -> Unit,
@@ -210,10 +211,12 @@ class LibraryAdapter(
             more.setOnClickListener { anchor ->
                 PopupMenu(anchor.context, anchor).apply {
                     menu.add(0, MENU_SHARE, 0, R.string.share)
-                    menu.add(0, MENU_DELETE, 1, R.string.delete)
+                    menu.add(0, MENU_RENAME, 1, R.string.rename)
+                    menu.add(0, MENU_DELETE, 2, R.string.delete)
                     setOnMenuItemClickListener { entry ->
                         when (entry.itemId) {
                             MENU_SHARE -> onShare(item)
+                            MENU_RENAME -> onRename(item)
                             MENU_DELETE -> onDelete(item)
                         }
                         true
@@ -380,6 +383,7 @@ class LibraryAdapter(
 
         const val MENU_SHARE = 1
         const val MENU_DELETE = 2
+        const val MENU_RENAME = 3
 
         /** Payload of a redraw that only changes the ticks of the file rows. */
         const val PAYLOAD_SELECTION = "selection"

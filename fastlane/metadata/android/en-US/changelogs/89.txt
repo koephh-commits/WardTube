@@ -1,0 +1,1 @@
+The download engine is now updated by hand: menu → "Update download engine" (also offered in a failed download's message). New option "Update the engine automatically" (off by default) brings back the old update-and-retry after a failure. Browser: the best item in "Found on this page" is marked "Recommended".

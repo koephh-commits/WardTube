@@ -28,8 +28,10 @@ import android.transition.AutoTransition
 import android.transition.TransitionManager
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -53,6 +55,7 @@ import com.mwmods.wardtube.R
 import com.mwmods.wardtube.download.DownloadEvents
 import com.mwmods.wardtube.download.DownloadJob
 import com.mwmods.wardtube.download.DownloadService
+import com.mwmods.wardtube.download.Downloader
 import com.mwmods.wardtube.download.JobStatus
 import com.mwmods.wardtube.download.MediaKind
 import com.mwmods.wardtube.download.RequestHeaders
@@ -60,6 +63,7 @@ import com.mwmods.wardtube.util.DownloadItem
 import com.mwmods.wardtube.util.DownloadStore
 import com.mwmods.wardtube.util.MediaCategory
 import com.mwmods.wardtube.util.Permissions
+import com.mwmods.wardtube.util.RenameResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -242,6 +246,7 @@ class LibraryActivity : AppCompatActivity() {
             onFileClick = ::onFileClicked,
             onFileLongClick = ::onFileLongClicked,
             onShare = ::shareItem,
+            onRename = ::renameItem,
             onDelete = { item -> confirmDelete(listOf(item)) },
             onCancelJob = ::cancelJob,
             onRetryJob = ::retryJob,
@@ -618,7 +623,7 @@ class LibraryActivity : AppCompatActivity() {
             textAlignment = View.TEXT_ALIGNMENT_VIEW_START
             setPadding(padding, padding / 2, padding, padding / 2)
         }
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.downloadErrorTitle)
             .setView(ScrollView(this).apply { addView(text) })
             .setPositiveButton(android.R.string.copy) { _, _ ->
@@ -627,7 +632,14 @@ class LibraryActivity : AppCompatActivity() {
                 toast(getString(R.string.downloadErrorCopied))
             }
             .setNegativeButton(R.string.close, null)
-            .show()
+        // The engine is only updated when the person asks (unless automatic updating is on), and an outdated engine is
+        // the usual reason a video fails: offer the update right here, then Retry on the card. Not for plain files.
+        if (!job.options.isFile) {
+            dialog.setNeutralButton(R.string.updateEngineShort) { _, _ ->
+                Downloader.updateEngine(this, findViewById(android.R.id.content))
+            }
+        }
+        dialog.show()
     }
 
     // ---- Play / share ----
@@ -672,6 +684,81 @@ class LibraryActivity : AppCompatActivity() {
             .putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(items.map { it.uri }))
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         startActivity(Intent.createChooser(send, getString(R.string.share_with)))
+    }
+
+    // ---- Rename ----
+
+    /** The file and the name waiting for the system's approval (a file this install does not own), then tried again. */
+    private var pendingRename: Pair<DownloadItem, String>? = null
+
+    private val systemRename =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            val pending = pendingRename
+            pendingRename = null
+            if (pending != null && result.resultCode == Activity.RESULT_OK) {
+                applyRename(pending.first, pending.second, mayAsk = false)
+            }
+        }
+
+    /** Asks for the new name. Only the name is edited: the extension stays what it is, so the file's type never changes. */
+    private fun renameItem(item: DownloadItem) {
+        val extension = item.name.substringAfterLast('.', "")
+        val base = if (extension.isEmpty()) item.name else item.name.dropLast(extension.length + 1)
+        val field = TextInputEditText(this).apply {
+            setSingleLine()
+            setText(base)
+            setSelection(0, base.length)
+            hint = getString(R.string.renameHint)
+            imeOptions = EditorInfo.IME_ACTION_DONE
+        }
+        val margin = (20 * resources.displayMetrics.density).toInt()
+        val box = FrameLayout(this).apply {
+            setPadding(margin, margin / 2, margin, 0)
+            addView(field, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.renameTitle)
+            .setView(box)
+            .setPositiveButton(R.string.rename) { _, _ ->
+                applyRename(item, field.text?.toString().orEmpty(), mayAsk = true)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.show()
+        field.requestFocus()
+    }
+
+    /** [mayAsk]: a file the app does not own may ask the person once; after that answer it only reports a failure. */
+    private fun applyRename(item: DownloadItem, wanted: String, mayAsk: Boolean) {
+        val name = wanted.trim()
+        if (name.isEmpty()) {
+            toast(getString(R.string.renameFailed))
+            return
+        }
+        if (!Permissions.hasLegacyWrite(this)) {
+            toast(getString(R.string.storagePermissionDenied))
+            return
+        }
+        lifecycleScope.launch {
+            val outcome = withContext(Dispatchers.IO) { DownloadStore.rename(applicationContext, item, name) }
+            when (outcome) {
+                is RenameResult.Done -> {
+                    toast(getString(R.string.renamed))
+                    loadFiles(showSpinner = false)
+                }
+                is RenameResult.NeedsUser -> {
+                    val sender = outcome.sender
+                    if (mayAsk && sender != null) {
+                        pendingRename = item to name
+                        systemRename.launch(IntentSenderRequest.Builder(sender).build())
+                    } else {
+                        toast(getString(R.string.renameFailed))
+                    }
+                }
+                is RenameResult.Failed -> toast(getString(R.string.renameFailed))
+            }
+        }
     }
 
     // ---- Delete ----

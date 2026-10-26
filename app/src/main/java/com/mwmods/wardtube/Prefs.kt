@@ -65,6 +65,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(ALL_FILES_ASKED, false)
         set(value) = sp.edit { putBoolean(ALL_FILES_ASKED, value) }
 
+    /**
+     * Off by default: the download engine (yt-dlp) is only updated when the person asks for it (menu: "Update download
+     * engine"). On: when a download or a list fails, the engine is updated once and the work is tried again.
+     * The download service runs in its own process, so it is not read there: [com.mwmods.wardtube.download.DownloadService]
+     * is given this value with each start request.
+     */
+    var autoUpdateEngine: Boolean
+        get() = sp.getBoolean(AUTO_UPDATE_ENGINE, false)
+        set(value) = sp.edit { putBoolean(AUTO_UPDATE_ENGINE, value) }
+
     /** The last choices made in the Download dialog, as [com.mwmods.wardtube.download.DownloadOptions] JSON. */
     var downloadOptionsJson: String
         get() = sp.getString(DOWNLOAD_OPTIONS, "") ?: ""
@@ -117,6 +127,7 @@ class Prefs(context: Context) {
         private const val LEGACY_BOOKMARKS = "bookmarks"
         private const val THEME = "theme"
         private const val ALL_FILES_ASKED = "allFilesAsked"
+        private const val AUTO_UPDATE_ENGINE = "autoUpdateEngine"
         private const val DOWNLOAD_OPTIONS = "downloadOptions"
         private const val DETECT_X = "browserDetectX"
         private const val DETECT_Y = "browserDetectY"
