@@ -505,6 +505,8 @@ class BrowserActivity : AppCompatActivity() {
         // own downloads are (a stream playlist whose address has no .m3u8 in it, say). Older WebViews simply skip it.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             runCatching { WebViewCompat.addDocumentStartJavaScript(web, MediaSniffer.NET_SCRIPT, setOf("*")) }
+            // Each iframe looks at its own <video> / <audio> (the page cannot reach into them) and reports them.
+            runCatching { WebViewCompat.addDocumentStartJavaScript(web, MediaSniffer.FRAME_SCRIPT, setOf("*")) }
         }
 
         web.webViewClient = object : WebViewClient() {

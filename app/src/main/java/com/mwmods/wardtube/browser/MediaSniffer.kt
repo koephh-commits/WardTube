@@ -115,7 +115,9 @@ class MediaSniffer(
     }
 
     private fun add(item: Detected) {
-        if (items.size >= MAX_ITEMS || items.containsKey(item.url)) return
+        if (items.containsKey(item.url)) return
+        // Full: the oldest goes. What plays now must never be turned away (a music site keeps adding songs).
+        if (items.size >= MAX_ITEMS) items.remove(items.keys.first())
         items[item.url] = item
         onChanged(offered())
     }
@@ -301,12 +303,15 @@ class MediaSniffer(
         val SCRIPT = """
 (function () {
   if (window.__wtSniffReset) { window.__wtSniffReset(); return; }
-  var B = window.$BRIDGE_NAME;
-  if (!B) return;
+  var B_NAME = '$BRIDGE_NAME';
+  // The same script also runs inside every iframe (see FRAME_SCRIPT), where it reports through the same bridge.
+  var TOP = true;
+  try { TOP = window === window.top; } catch (e) { TOP = false; }
   var FILE = /\.(zip|rar|7z|tar|gz|tgz|apk|xapk|apks|pdf|docx?|xlsx?|pptx?|epub|mobi|iso)$/i;
   var MEDIA = /\.(mp4|m4v|webm|mkv|mov|avi|flv|3gp|wmv|ogv|mp3|m4a|aac|ogg|oga|opus|wav|flac|wma|m3u8|mpd)$/i;
   var NOT_PLAYER = /(doubleclick|googlesyndication|googleadservices|adservice|recaptcha|disqus\.com|facebook\.com\/plugins|platform\.twitter|twitter\.com\/widgets|addthis|sharethis|google\.com\/maps)/i;
   var PLAYER = /(player|embed|video|stream|vid|play)/i;
+  var AUDIO_PLAYER = /(music|audio|song|track|sound|podcast|radio|mp3)/i;
   var seen = {};
   var anchors = -1;
   var timer = 0;
@@ -315,16 +320,26 @@ class MediaSniffer(
   function send(kind, url, name) {
     var key = kind + '|' + url;
     if (seen[key]) return;
+    // The bridge can be missing for a moment (a frame's first milliseconds): not marked as seen, so the next look tries again.
+    var B = window[B_NAME];
+    if (!B || !B.report) return;
     seen[key] = 1;
     try { B.report(kind, url, name || ''); } catch (e) {}
   }
-  function scan() {
+  function scanMedia() {
     var media = document.querySelectorAll('video,audio');
     for (var i = 0; i < media.length && i < 30; i++) {
       var el = media[i];
       var isVideo = el.tagName === 'VIDEO';
       // A silent looping clip without controls is decoration, not something to download.
       if (isVideo && el.loop && el.muted && !el.controls) continue;
+      var active = !el.paused || el.currentTime > 0;
+      // Inside a frame only what is playing (or has played) counts, and not a short clip: that keeps ad frames and
+      // interface sounds out. The page itself keeps reporting a video as soon as it is there.
+      if (!TOP) {
+        if (!active || NOT_PLAYER.test(location.href)) continue;
+        if (isFinite(el.duration) && el.duration < 20) continue;
+      }
       var srcs = [];
       if (el.currentSrc) srcs.push(el.currentSrc);
       if (el.getAttribute('src')) srcs.push(el.getAttribute('src'));
@@ -337,7 +352,11 @@ class MediaSniffer(
         var a = abs(s);
         if (/^https?:/i.test(a)) { direct = true; send(isVideo ? 'video' : 'audio', a, ''); }
       }
-      if (isVideo && !direct && (blob || el.readyState > 0 || el.videoWidth > 0)) send('page', '', '');
+      // No address to give (a stream built in memory): the page, or the frame it plays in, is what yt-dlp is given.
+      var hidden = !direct && (blob || el.readyState > 0 || el.videoWidth > 0);
+      if (hidden && (isVideo || (blob && active && (!isFinite(el.duration) || el.duration > 30)))) {
+        if (TOP) send('page', '', ''); else send('frame', location.href, '');
+      }
     }
     // A player in an iframe (the site's own player page): its video cannot be reached from here, but the frame can be
     // named. Only frames that look like a player count: a big enough box that allows full screen, or one shaped like a
@@ -350,11 +369,17 @@ class MediaSniffer(
       var fu = abs(fsrc);
       if (!/^https?:/i.test(fu) || NOT_PLAYER.test(fu)) continue;
       var fw = fr.offsetWidth, fh = fr.offsetHeight;
-      if (fw < 200 || fh < 110) continue;
+      // A music widget is a bar, not a box: it passes when its address says player + music.
+      var audioish = PLAYER.test(fu) && AUDIO_PLAYER.test(fu);
+      if (fw < 200 || fh < 110) {
+        if (!(audioish && fw >= 200 && fh >= 40)) continue;
+      }
       var full = fr.hasAttribute('allowfullscreen') || /fullscreen/i.test(fr.getAttribute('allow') || '');
       var ratio = fw / fh;
-      if (full || (ratio >= 1.2 && ratio <= 2.6 && fw >= 240 && PLAYER.test(fu))) send('frame', fu, '');
+      if (full || audioish || (ratio >= 1.2 && ratio <= 2.6 && fw >= 240 && PLAYER.test(fu))) send('frame', fu, '');
     }
+  }
+  function scanPage() {
     var metas = document.querySelectorAll('meta[property="og:video"],meta[property="og:video:url"],meta[property="og:video:secure_url"],meta[name="twitter:player:stream"]');
     for (var m = 0; m < metas.length && m < 6; m++) {
       var c = abs(metas[m].getAttribute('content') || '');
@@ -376,18 +401,43 @@ class MediaSniffer(
       }
     }
   }
+  function scan() { scanMedia(); if (TOP) scanPage(); }
   function later() {
     if (timer) return;
     timer = setTimeout(function () { timer = 0; scan(); }, 700);
   }
   window.__wtSniffReset = function () { seen = {}; anchors = -1; later(); };
-  try {
-    new MutationObserver(later).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
-  } catch (e) {}
+  function boot() {
+    try {
+      new MutationObserver(later).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'data-src'] });
+    } catch (e) {}
+    scan();
+  }
   ['play', 'playing', 'loadedmetadata'].forEach(function (t) { document.addEventListener(t, later, true); });
-  scan();
+  // Players start late (a click, a lazy frame, a box that opens) and a media event of a frame never reaches this
+  // document: a cheap look at the media and the frames every few seconds finds what nothing announced.
+  setInterval(function () {
+    if (document.visibilityState === 'hidden' || !document.documentElement) return;
+    try { scanMedia(); } catch (e) {}
+  }, 2500);
+  if (document.documentElement) boot();
+  else {
+    var wait = setInterval(function () {
+      if (document.documentElement) { clearInterval(wait); boot(); }
+    }, 50);
+  }
 })();
 """
+
+        /**
+         * [SCRIPT] for the frames of a page: injected before the page's own scripts, in every frame, and it does nothing
+         * in the page itself (that one is looked at by [SCRIPT] once it is shown). The `<video>` / `<audio>` of an iframe
+         * cannot be reached from the page, so each frame looks at its own and reports through the same bridge.
+         */
+        val FRAME_SCRIPT = SCRIPT.replaceFirst(
+            "(function () {",
+            "(function () {\n  var inFrame = true;\n  try { inFrame = window !== window.top; } catch (e) {}\n  if (!inFrame) return;",
+        )
 
         /**
          * Injected before the page's own scripts, in every frame (document-start script). Watches what the page's code
@@ -410,6 +460,7 @@ class MediaSniffer(
   var tries = 0;
   var waiting = false;
   var manifestSeen = false;
+  var recent = [];
   // A type that says nothing about the content: only the first bytes of the answer can tell a playlist from the rest.
   var AMBIGUOUS = /^$|octet-stream|text\/plain|xml|binary/;
 
@@ -433,10 +484,12 @@ class MediaSniffer(
   }
 
   function send(kind, url) {
-    if (!url || !/^https?:/i.test(url) || seen[url] || sent >= 20) return;
+    if (!url || !/^https?:/i.test(url) || seen[url] || sent >= 60) return;
     seen[url] = 1;
     sent++;
     queue.push([kind, url]);
+    recent.push([kind, url]);
+    if (recent.length > 2) recent.shift();
     flush();
   }
 
@@ -455,7 +508,8 @@ class MediaSniffer(
       var total = /\/(\d+)\s*$/.exec(range || '');
       var size = total ? +total[1] : length;
       // A file of its own: big, and not part of a stream whose playlist this page already loaded.
-      if (!manifestSeen && size >= 1048576 && media < 3) {
+      // An answer that hides its size is let through (a cross-site audio file often does).
+      if (!manifestSeen && (size < 0 || size >= 1048576) && media < 12) {
         media++;
         send(m[1], url);
       }
@@ -499,6 +553,17 @@ class MediaSniffer(
     sent = 0;
     media = 0;
     manifestSeen = false;
+    // The app drops its list when the address changes, but a player that keeps playing through that change has
+    // loaded its file or playlist already and will not ask again: the latest finds are given back while it plays.
+    var again = recent.slice();
+    recent = [];
+    var playing = false;
+    var all = document.querySelectorAll('video,audio');
+    for (var i = 0; i < all.length && i < 10; i++) {
+      if ((!all[i].paused || all[i].currentTime > 0) && !all[i].ended) playing = true;
+    }
+    if (!playing || !again.length) return;
+    setTimeout(function () { for (var k = 0; k < again.length; k++) send(again[k][0], again[k][1]); }, 400);
   };
 
   var nativeFetch = window.fetch;

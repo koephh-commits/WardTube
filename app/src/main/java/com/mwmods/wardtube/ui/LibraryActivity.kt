@@ -56,6 +56,7 @@ import com.mwmods.wardtube.download.DownloadEvents
 import com.mwmods.wardtube.download.DownloadJob
 import com.mwmods.wardtube.download.DownloadService
 import com.mwmods.wardtube.download.Downloader
+import com.mwmods.wardtube.download.FailedDownloads
 import com.mwmods.wardtube.download.JobStatus
 import com.mwmods.wardtube.download.MediaKind
 import com.mwmods.wardtube.download.RequestHeaders
@@ -120,7 +121,10 @@ class LibraryActivity : AppCompatActivity() {
     /** The live queue as last reported by the download service. */
     private var jobs: List<DownloadJob> = emptyList()
 
-    /** Failed downloads stay here (with Retry / Dismiss) after the service has dropped them. */
+    /**
+     * Failed downloads stay here (with Retry / Dismiss) after the service has dropped them. They are also kept on disk
+     * ([FailedDownloads]) and read back whenever the screen starts, so they survive closing and reopening the Library.
+     */
     private val failedJobs = LinkedHashMap<String, DownloadJob>()
 
     private val handler = Handler(Looper.getMainLooper())
@@ -133,11 +137,14 @@ class LibraryActivity : AppCompatActivity() {
 
     /** The service reports every couple of seconds; silence means its process died (it can on low-memory phones). */
     private val serviceSilent = Runnable {
+        // Whatever it was downloading was cut off: those downloads become failed ones (with Retry) instead of vanishing.
+        FailedDownloads.recoverInterrupted(this, getString(R.string.downloadInterrupted))
+        loadFailedJobs()
         if (jobs.isNotEmpty()) {
             jobs = emptyList()
-            refreshList()
             scheduleFileReload()
         }
+        refreshList()
     }
 
     // No permission check here: since Android 10 the files this app saved are always visible to it, so a user who
@@ -249,6 +256,8 @@ class LibraryActivity : AppCompatActivity() {
             onRename = ::renameItem,
             onDelete = { item -> confirmDelete(listOf(item)) },
             onCancelJob = ::cancelJob,
+            onPauseJob = ::pauseJob,
+            onResumeJob = ::resumeJob,
             onRetryJob = ::retryJob,
             onDismissJob = ::dismissJob,
             onShowJobError = ::showJobError,
@@ -309,9 +318,13 @@ class LibraryActivity : AppCompatActivity() {
         ContextCompat.registerReceiver(
             this, stateReceiver, IntentFilter(DownloadEvents.ACTION_STATE), ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        // Failures kept on disk: they were there before this screen existed, or came while it was closed.
+        loadFailedJobs()
+        refreshList()
         // Ask a running download service for its queue. No answer = nothing is downloading.
         sendBroadcast(Intent(DownloadEvents.ACTION_REQUEST_STATE).setPackage(packageName))
-        if (jobs.isNotEmpty()) armSilenceTimer()
+        // Downloads recorded as running with no service answering were cut off: the silence timer turns them into failures.
+        if (jobs.isNotEmpty() || FailedDownloads.hasActive(this)) armSilenceTimer()
     }
 
     override fun onStop() {
@@ -563,6 +576,12 @@ class LibraryActivity : AppCompatActivity() {
         // Failures stay on screen until the user retries or dismisses them.
         for (job in reported) if (job.status == JobStatus.FAILED) failedJobs[job.id] = job
         jobs = reported.filter { it.status != JobStatus.FAILED }
+        // A video that is being downloaded again no longer needs its old failure on screen.
+        if (failedJobs.isNotEmpty() && jobs.isNotEmpty()) {
+            failedJobs.values.removeAll { old ->
+                jobs.any { it.url == old.url && it.item == old.item && it.options == old.options }
+            }
+        }
 
         handler.removeCallbacks(serviceSilent)
         if (jobs.isNotEmpty()) armSilenceTimer()
@@ -571,6 +590,12 @@ class LibraryActivity : AppCompatActivity() {
         // A job that left the queue without failing has finished (or was cancelled): its file may be new.
         val currentIds = jobs.map { it.id }.toSet()
         if (previousIds.any { it !in currentIds && it !in failedJobs }) scheduleFileReload()
+    }
+
+    /** Replaces the failed downloads on screen with the ones kept on disk. */
+    private fun loadFailedJobs() {
+        failedJobs.clear()
+        for (job in FailedDownloads.loadFailed(this)) failedJobs[job.id] = job
     }
 
     private fun armSilenceTimer() {
@@ -585,18 +610,24 @@ class LibraryActivity : AppCompatActivity() {
 
     private fun cancelJob(job: DownloadJob) = DownloadService.cancel(this, job.id)
 
+    private fun pauseJob(job: DownloadJob) = DownloadService.pause(this, job.id)
+
+    private fun resumeJob(job: DownloadJob) = DownloadService.resume(this, job.id)
+
     private fun retryJob(job: DownloadJob) {
         if (!Permissions.hasLegacyWrite(this)) {
             toast(getString(R.string.storagePermissionDenied))
             return
         }
         failedJobs.remove(job.id)
+        FailedDownloads.removeFailed(this, job.id)
         DownloadService.start(this, job.url, job.options, job.title, job.item)
         refreshList()
     }
 
     private fun dismissJob(job: DownloadJob) {
         failedJobs.remove(job.id)
+        FailedDownloads.removeFailed(this, job.id)
         refreshList()
     }
 

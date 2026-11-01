@@ -1,0 +1,1 @@
+Added: pause and resume for a running download in the Library (and in the notification). A paused video or file continues from where it stopped.

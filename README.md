@@ -173,8 +173,10 @@ and applied by `ui/ThemeHelper.kt` (called from `WardTubeApp` before any activit
   pick MP4 1080/720/480 or MP3/M4A, the finished file lands in the Library.
   Several downloads can be started in a row: they run one after another, and the Library shows the whole queue at the top.
   The running one has a progress ring and bar (percent, speed, time left; a video is video + audio, so the percentage covers both),
-  the ones behind it say *Waiting* with their place in line and move up as the earlier ones finish. Each card has a cancel button;
-  a failed download stays on screen with *Try again* / *Dismiss*. The notification shows the same (current job + how many are waiting)
+  the ones behind it say *Waiting* with their place in line and move up as the earlier ones finish. Each card has a cancel button,
+  and the one that is moving also has a pause button (the notification has Pause / Resume too): the download stops but keeps what it
+  has (yt-dlp's `.part` files, or the half-written file of a plain download), the next one starts, and *Resume* puts it back at the
+  end of the line, where it continues from the same byte; a failed download stays on screen with *Try again* / *Dismiss*. The notification shows the same (current job + how many are waiting)
   and opens the Library when tapped.
   If YouTube changes and a download fails, update the engine with *Update download engine* in the menu (or the *Update engine* button in the failed download's message) and use *Try again*. *Update the engine automatically* (menu, off by default) makes a failed download update the engine once and retry by itself.
 - **Voice search**: mic button in the bottom bar (system speech recognizer → YouTube search). YouTube's own mic button also works: the

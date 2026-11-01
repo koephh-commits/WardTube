@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     A download that is running, waiting in line, or has failed.
-    Ring + bar show the progress; the buttons on the end cancel it (or retry / dismiss a failed one).
+    Ring + bar show the progress; the buttons on the end pause / resume it and cancel it (or retry / dismiss a failed one).
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -90,6 +90,18 @@
                 android:textSize="12sp"
                 tools:text="MP4 720p • 1.2MiB/s • 00:05 left" />
         </LinearLayout>
+
+        <!-- Pause while it downloads, Resume (the icon changes) while it is paused; hidden for the other states. -->
+        <ImageButton
+            android:id="@+id/btnJobPause"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/jobPause"
+            android:padding="11dp"
+            android:src="@drawable/ic_pause_24dp"
+            android:visibility="gone"
+            app:tint="@color/brandText" />
 
         <ImageButton
             android:id="@+id/btnJobAction"

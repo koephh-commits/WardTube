@@ -1,0 +1,1 @@
+A download that failed or was interrupted now stays in the Library, with Try again and Dismiss, even after you leave the screen and come back. Previously it vanished on refresh.

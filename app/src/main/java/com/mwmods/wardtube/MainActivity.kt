@@ -630,7 +630,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             if (!resumed) return
             PlayerController.queryState { state ->
                 setKeepScreenOn(isFullscreen || state?.playing == true)
-                if (state != null && playerHost.mode == PlayerHost.Mode.MINI) playerHost.setPlaying(state.playing)
+                if (state != null && playerHost.mode == PlayerHost.Mode.MINI) playerHost.onPlaybackState(state.playing)
             }
             keepAwakeHandler.postDelayed(this, if (playerHost.mode == PlayerHost.Mode.MINI) 1000L else 3000L)
         }

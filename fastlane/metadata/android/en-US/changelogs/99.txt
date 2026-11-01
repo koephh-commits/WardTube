@@ -1,0 +1,1 @@
+Fixed: when the mini player is tucked away at the screen edge, playing the video from the notification (or a headset) now brings the mini player back instead of playing the video out of sight.

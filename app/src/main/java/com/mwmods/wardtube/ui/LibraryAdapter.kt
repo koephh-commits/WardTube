@@ -53,7 +53,7 @@ sealed interface LibraryRow {
 /**
  * The Library list. Saved files: a picture (video frame / audio cover), tap a row to play, a menu to share / delete.
  * Downloads: a card with a live
- * progress ring and bar, speed and time left, and a cancel button (retry / dismiss once failed).
+ * progress ring and bar, speed and time left, a pause / resume button and a cancel button (retry / dismiss once failed).
  *
  * Multi-select: while [selecting], every saved file shows a check box in place of its menu, a tap
  * ticks the file instead of playing it, and a long press ticks the whole range up to it ([MultiSelection]). A ticked
@@ -67,6 +67,8 @@ class LibraryAdapter(
     private val onRename: (DownloadItem) -> Unit,
     private val onDelete: (DownloadItem) -> Unit,
     private val onCancelJob: (DownloadJob) -> Unit,
+    private val onPauseJob: (DownloadJob) -> Unit,
+    private val onResumeJob: (DownloadJob) -> Unit,
     private val onRetryJob: (DownloadJob) -> Unit,
     private val onDismissJob: (DownloadJob) -> Unit,
     private val onShowJobError: (DownloadJob) -> Unit,
@@ -253,6 +255,7 @@ class LibraryAdapter(
         private val title: TextView = view.findViewById(R.id.tvJobTitle)
         private val status: TextView = view.findViewById(R.id.tvJobStatus)
         private val meta: TextView = view.findViewById(R.id.tvJobMeta)
+        private val pause: ImageButton = view.findViewById(R.id.btnJobPause)
         private val cancel: ImageButton = view.findViewById(R.id.btnJobAction)
         private val retry: ImageButton = view.findViewById(R.id.btnJobRetry)
         private val dismiss: ImageButton = view.findViewById(R.id.btnJobDismiss)
@@ -263,15 +266,21 @@ class LibraryAdapter(
             val context = itemView.context
             val failed = job.status == JobStatus.FAILED
             val waiting = job.status == JobStatus.QUEUED
+            val paused = job.status == JobStatus.PAUSED
 
             title.text = job.title.ifBlank { RequestHeaders.display(job.url) }
-            itemView.alpha = if (waiting) 0.75f else 1f
+            itemView.alpha = when {
+                waiting -> 0.75f
+                paused -> 0.85f
+                else -> 1f
+            }
 
-            // Icon: what it is (audio / video), or why it is not moving (waiting / failed).
+            // Icon: what it is (audio / video), or why it is not moving (waiting / paused / failed).
             icon.setImageResource(
                 when {
                     failed -> R.drawable.ic_error_24dp
                     waiting -> R.drawable.ic_hourglass_24dp
+                    paused -> R.drawable.ic_pause_24dp
                     job.options.isSubsOnly -> R.drawable.ic_subtitles_24dp
                     job.options.isAudio -> R.drawable.ic_music_note_24dp
                     job.options.isFile -> R.drawable.ic_file_24dp
@@ -282,7 +291,14 @@ class LibraryAdapter(
             ImageViewCompat.setImageTintList(icon, ColorStateList.valueOf(accent))
             status.setTextColor(accent)
 
-            // Buttons: cancel while it is in the queue; retry + dismiss once it failed.
+            // Buttons: pause while it downloads, resume while it is paused; cancel while it is in the queue;
+            // retry + dismiss once it failed. (Only a download that is moving can be paused: waiting, preparing and
+            // merging are left alone.)
+            val canPause = job.status == JobStatus.DOWNLOADING
+            pause.visibility = if (canPause || paused) View.VISIBLE else View.GONE
+            pause.setImageResource(if (paused) R.drawable.ic_play_white_24dp else R.drawable.ic_pause_24dp)
+            pause.contentDescription = context.getString(if (paused) R.string.jobResume else R.string.jobPause)
+            pause.setOnClickListener { if (paused) onResumeJob(job) else onPauseJob(job) }
             cancel.visibility = if (failed) View.GONE else View.VISIBLE
             retry.visibility = if (failed) View.VISIBLE else View.GONE
             dismiss.visibility = if (failed) View.VISIBLE else View.GONE
@@ -310,7 +326,17 @@ class LibraryAdapter(
                     } else {
                         context.getString(R.string.jobWaitingPos, row.queuePosition)
                     }
-                    showProgress(0)
+                    // A resumed download that waits for its turn keeps the bar where it stopped.
+                    showProgress(job.percent.coerceAtLeast(0))
+                }
+                JobStatus.PAUSED -> {
+                    status.text = if (job.percent >= 0) {
+                        context.getString(R.string.jobPausedPercent, job.percent)
+                    } else {
+                        context.getString(R.string.jobPaused)
+                    }
+                    showProgress(job.percent.coerceAtLeast(0))
+                    if (job.size.isNotEmpty()) details.add(job.size)
                 }
                 JobStatus.STARTING -> {
                     status.setText(R.string.downloadPreparing)

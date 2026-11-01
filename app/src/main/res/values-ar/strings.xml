@@ -165,6 +165,7 @@
     <string name="downloadErrorCopied">تم النسخ</string>
     <string name="close">إغلاق</string>
     <string name="downloadCancelled">تم إلغاء التنزيل</string>
+    <string name="downloadInterrupted">انقطع التنزيل قبل أن يكتمل (أُغلق التطبيق أو أوقفه النظام). اضغط «إعادة المحاولة» لتنزيله من جديد.</string>
     <string name="downloadEngineFailed">تعذّر تشغيل محرك التنزيل على هذا الجهاز</string>
     <string name="updateEngine">تحديث محرك التنزيل</string>
     <string name="engineUpdating">جارٍ تحديث محرك التنزيل…</string>
@@ -200,6 +201,12 @@
     <string name="jobWaitingNext">في الانتظار • التالي</string>
     <string name="jobWaitingPos">في الانتظار • رقم %1$d في الدور</string>
     <string name="jobCancel">إلغاء التنزيل</string>
+    <string name="jobPause">إيقاف التنزيل مؤقتًا</string>
+    <string name="jobResume">استئناف التنزيل</string>
+    <string name="jobPaused">متوقف مؤقتًا</string>
+    <string name="jobPausedPercent">متوقف مؤقتًا • %1$d%%</string>
+    <string name="jobPauseAction">إيقاف مؤقت</string>
+    <string name="jobResumeAction">استئناف</string>
     <string name="jobRetry">إعادة المحاولة</string>
     <string name="jobDismiss">إخفاء</string>
     <string name="subsMissing">تم الحفظ بدون ملف الترجمة: لم يوفّره يوتيوب أو رفض الطلب. حاول مرة أخرى لاحقًا.</string>

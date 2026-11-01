@@ -1,5 +1,87 @@
 # Changelog
 
+## 2.6.56
+- Added: a running download can now be paused and resumed from the Library. The card of a download that is moving has a
+  pause button next to Cancel; while it is paused the same button resumes it, and the card shows "Paused" with the
+  percentage it had reached. The download notification got the same Pause / Resume button.
+  - A video / audio (yt-dlp): pausing stops the yt-dlp process but keeps its partial files. The job now has its own
+    temporary folder (named by the job, not by the attempt), so on Resume yt-dlp finds its `.part` files and continues
+    from the same byte. The progress tracker also counts a stream that is "already downloaded" and starts the bar at
+    the old percentage, so a resumed video does not jump back.
+  - A plain file (zip, pdf, apk... from the browser): `FileDownloader` keeps the half-written file open and how far it
+    got (`pause()` / `Paused`), and Resume continues with HTTP Range from the last byte. If the server cannot continue
+    (it answers 200 instead of 206), the file is started again from its first byte instead of failing.
+  - A paused job does not hold the queue back: the next waiting job starts at once. Resume puts it at the end of the
+    line (it is shown as waiting with its old percentage) and it continues when its turn comes.
+  - Only a download that is moving can be paused (not one that is waiting, preparing or merging). Cancel works on a
+    paused download too and throws its partial file away.
+  - The download service now stays alive (in the foreground) while a download is paused, because the half-downloaded
+    file belongs to that process. If the system stops it anyway, the paused download shows as an interrupted one with
+    Try again, like any other cut-off download. Leftover temporary folders from a stopped service are deleted when
+    the service starts and stops.
+  - New: `JobStatus.PAUSED`, `DownloadService.pause()` / `resume()`, `FileDownloader.pause()` / `discard()`,
+    `ic_pause_24dp`, and the strings `jobPause`, `jobResume`, `jobPaused`, `jobPausedPercent`, `jobPauseAction`,
+    `jobResumeAction` (English and Arabic).
+
+## 2.6.55
+- Fixed: the browser's download button was only sometimes found a video / song that was playing in an iframe or in a
+  web music player. Causes found and fixed in `MediaSniffer`:
+  - The page's script never looked inside iframes, so a `<video>` / `<audio>` that lives in one (a music widget, a
+    site's own player) was only seen when its address happened to end in `.mp3` / `.mp4`. The script now also runs in
+    every frame (`FRAME_SCRIPT`, a document-start script like `NET_SCRIPT`) and reports what plays there: the file's
+    address, or the frame's own address when the sound / picture is built in memory (blob). Only what is playing, and
+    not a short clip, is reported from a frame, which keeps ad frames and interface sounds out.
+  - A player in an iframe that was hidden or not laid out when the page loaded (tabs, "choose a server", lazy players)
+    was measured once, rejected for its size and never looked at again. The media and the frames are now looked at
+    again every few seconds (a cheap look, only while the page is visible), and a music widget (a bar, not a box) whose
+    address says player + music is accepted.
+  - A song / video built in memory on the page itself (a blob) was reported for video only; a long playing audio is
+    now reported too.
+  - The network watcher gave up after 3 files (and 20 finds) per page: in a single-page music site the 4th song was
+    never found. The limits are raised, and an answer that hides its size (common for another site's audio) is no
+    longer dropped.
+  - When the address of a single-page site changed, the list was emptied and what the player had already loaded was
+    never asked for again. If something is still playing, the two latest finds are given back.
+  - The list of 40 found items refused new ones when full; it now drops the oldest, so what plays now always gets in.
+- Checked in headless Chromium with a mock bridge: an extensionless song inside a cross-site iframe, a player shown
+  after load, a song played from a blob, and five songs fetched one after the other are all found now, and none was
+  before; a normal page (direct audio, a link to a zip, an ad frame) reports exactly what it did.
+
+## 2.6.54
+- Fixed: the lyrics / subtitles file is now saved with exactly the same name as the video / audio it belongs to, only the
+  extension differs ("Song.mp3" + "Song.srt" / "Song.lrc"). yt-dlp names its files "<title>.<lang>.<format>", so the
+  lyrics used to be saved as "Song.ar.srt", and players, which pair the two files by name, did not find them.
+  `DownloadService.process` now saves the media first, reads its real name back (`DownloadStore.displayNameOf`: the
+  system may have added " (1)" to a name that was taken, or the page's name was used) and names the lyrics after it,
+  so the pair stays matched in those cases too.
+- When several languages are ticked, only one file can have the plain name: the first language picked gets it, the
+  others keep their language code ("Song.en.srt") so that nothing is overwritten. A "subtitles only" download uses the
+  video's title the same way ("<title>.srt").
+
+## 2.6.53
+- Fixed: the video could be played out of sight. With the mini player dragged to the edge of the screen (docked: the
+  box slides away, the video pauses, only the arrow tab stays), pressing Play in the notification, on a headset or on a
+  Bluetooth device, or Next / Previous, started the video while the box stayed hidden. Now the box comes back at the
+  height it left from as soon as the video plays again (`PlayerHost.onPlaybackState` undocks when it is told "playing" while
+  docked; the state poll in `MainActivity.keepAwakePoll` already feeds it every second, and straight away when the app
+  is opened again). `dockedAt` / `DOCK_SETTLE_MS` ignore a "playing" report that was already on its way when the box was
+  docked, so the box does not bounce back at once. Tapping the arrow tab works as before.
+
+## 2.6.52
+- A download that failed or was cut off no longer disappears from the Library when the screen is closed and opened
+  again (or rotated, or recreated by the system). Failures used to live only in the Library's memory
+  (`LibraryActivity.failedJobs`), and the download service, which runs in its own process and stops itself when the
+  queue is empty, forgot them too. They are now kept on disk until the person taps Try again or Dismiss.
+  New `download/FailedDownloads.kt`: one small JSON file per job in the app's private, not-backed-up storage
+  (`noBackupFilesDir/downloads_state/`). The service writes (`fail()` stores the failure before the Library is told);
+  the Library only reads and deletes, so the two processes never rewrite the same file. Keeps at most 100 failures.
+- A download that was cut off without a word (the system killed the download process, the Android 15 six-hour limit
+  ended it, the app was swiped away) is now shown as a failed one with Try again, instead of vanishing. Every job leaves
+  an "active" record while it is queued or running and removes it when it ends; a record that outlives its service is
+  turned into a failure by the next service start or by the Library when no service answers.
+- Downloading the same video again clears its old failure; a download the person cancels leaves nothing behind, as before.
+- New string `downloadInterrupted` (English and Arabic).
+
 ## 2.6.51
 - The first slot of the bottom bar is no longer an empty gap. It used to be a transparent, disabled minimize arrow
   whenever no video was full screen, so the bar looked as if the minimize button had vanished (with the mini player

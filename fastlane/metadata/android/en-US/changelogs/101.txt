@@ -1,0 +1,1 @@
+Fixed: videos and songs playing inside an iframe or a web music player are now detected reliably by the browser's download button.

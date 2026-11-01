@@ -135,6 +135,17 @@ object DownloadStore {
         return uri
     }
 
+    /** The name a saved file really has: the system may have added " (1)" to the one asked for. Null when unknown. */
+    fun displayNameOf(context: Context, uri: Uri): String? {
+        if (uri.scheme != "content") return uri.lastPathSegment
+        return try {
+            context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        } catch (e: RuntimeException) {
+            null
+        }
+    }
+
     // ---- Own record of saved files ----
     // The Library normally finds files by their folder. Every Uri MediaStore hands back when a file is saved is also
     // kept here, so a file (a subtitle: .srt / .lrc) whose path or type the system recorded differently still shows up.

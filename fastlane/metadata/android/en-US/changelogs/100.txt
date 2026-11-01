@@ -1,0 +1,1 @@
+Fixed: the downloaded lyrics file (.srt / .lrc) now has exactly the same name as the video or audio, so players find it automatically.

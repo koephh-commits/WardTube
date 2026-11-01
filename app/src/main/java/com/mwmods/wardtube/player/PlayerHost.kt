@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
@@ -45,7 +46,9 @@ import kotlin.math.roundToInt
  *
  * Dragged past the left or right edge of the screen (by about a third of its width), the box slides out of sight, the
  * video pauses and only a small tab with an arrow stays at the edge. A tap on the tab brings the box back and the
- * video goes on (if it was playing).
+ * video goes on (if it was playing). If the video is started from outside the app while the box is tucked away (the
+ * notification's Play button, a headset or Bluetooth key, Next / Previous), the box comes back too, so the video never
+ * plays out of sight (see [onPlaybackState]).
  *
  * In the mini player the WebView keeps its full size (so the page does not reflow and the video does not
  * stutter) and is scaled down and shifted inside a small, clipping container so that only the video shows.
@@ -154,6 +157,7 @@ class PlayerHost(
     private var dockedOnRight = false
     private var dockCentre = 0.5f // the tab's vertical centre, as a share of the area's height
     private var resumeOnUndock = false
+    private var dockedAt = 0L // SystemClock.uptimeMillis() of the last [dock]
     private val tabWidthPx: Int get() = (TAB_WIDTH_DP * density).roundToInt()
     private val tabHeightPx: Int get() = (TAB_HEIGHT_DP * density).roundToInt()
     private val dockArrow = ImageView(area.context).apply {
@@ -368,6 +372,23 @@ class PlayerHost(
         container.translationY = 0f
         releaseWebView(view)
         onModeChanged(mode)
+    }
+
+    /**
+     * What the page's video is doing right now, as read by the state poll. Keeps the play/pause button in step with it.
+     *
+     * A video that plays while the box is docked was started from outside the app (the notification, a headset or
+     * Bluetooth key): the box would stay hidden while the video plays, so it comes back. The first moments after docking
+     * are skipped, because a state read that began before the video was paused can still arrive and say "playing".
+     */
+    fun onPlaybackState(playing: Boolean) {
+        if (playing && docked && SystemClock.uptimeMillis() - dockedAt > DOCK_SETTLE_MS) {
+            val resume = resumeOnUndock
+            resumeOnUndock = false // it plays already: undock() must not start it a second time
+            undock()
+            if (docked) resumeOnUndock = resume // the box could not come back yet (not laid out): leave the tab as it was
+        }
+        setPlaying(playing)
     }
 
     /** Keeps the mini player's play/pause button in step with the video. */
@@ -591,6 +612,7 @@ class PlayerHost(
         // A video that was already paused stays paused when the box comes back.
         resumeOnUndock = shownPlaying == true
         docked = true
+        dockedAt = SystemClock.uptimeMillis()
         area.removeCallbacks(fadeDiscs)
         PlayerController.pause()
         setPlaying(false)
@@ -734,6 +756,7 @@ class PlayerHost(
         const val RESIZE_MS = 500L
         const val DISC_SHOW_MS = 120L
         const val DOCK_FRACTION = 0.35f // how much of the box must be out of the screen to dock it
+        const val DOCK_SETTLE_MS = 1500L // after docking, "playing" reports are ignored for this long (see onPlaybackState)
         const val TAB_WIDTH_DP = 22f
         const val TAB_HEIGHT_DP = 92f
         const val DISC_HIDE_MS = 350L

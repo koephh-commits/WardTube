@@ -15,6 +15,11 @@ enum class JobStatus {
     /** The engine is being updated before a retry. */
     UPDATING,
     DOWNLOADING,
+    /**
+     * Stopped on purpose by the person and waiting for Resume. The job keeps its place in the list, its percentage and
+     * what was already downloaded; it does not hold the queue back (the jobs behind it carry on).
+     */
+    PAUSED,
     /** Merging / converting / saving. No percentage is known. */
     PROCESSING,
     FAILED,

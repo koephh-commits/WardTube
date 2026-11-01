@@ -162,6 +162,7 @@
     <string name="downloadErrorCopied">Copied</string>
     <string name="close">Close</string>
     <string name="downloadCancelled">Download cancelled</string>
+    <string name="downloadInterrupted">The download was interrupted before it finished (the app was closed or stopped by the system). Tap Try again to download it again.</string>
     <string name="downloadEngineFailed">The download engine could not start on this device</string>
     <string name="updateEngine">Update download engine</string>
     <string name="engineUpdating">Updating the download engine…</string>
@@ -197,6 +198,12 @@
     <string name="jobWaitingNext">Waiting • up next</string>
     <string name="jobWaitingPos">Waiting • #%1$d in line</string>
     <string name="jobCancel">Cancel download</string>
+    <string name="jobPause">Pause download</string>
+    <string name="jobResume">Resume download</string>
+    <string name="jobPaused">Paused</string>
+    <string name="jobPausedPercent">Paused • %1$d%%</string>
+    <string name="jobPauseAction">Pause</string>
+    <string name="jobResumeAction">Resume</string>
     <string name="jobRetry">Try again</string>
     <string name="jobDismiss">Dismiss</string>
     <string name="subsMissing">Saved without the subtitle file: YouTube did not provide it or refused the request. Try again later.</string>

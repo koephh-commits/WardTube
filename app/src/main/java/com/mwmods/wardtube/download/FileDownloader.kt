@@ -27,8 +27,11 @@ import java.util.Locale
  * - The file is written straight into Download/WardTube (see [DownloadStore.begin]): no temporary copy.
  * - A dropped connection continues from the last byte received (HTTP Range) a few times before the job fails.
  * - [cancel] stops it at once, also while it waits for the server.
+ * - [pause] stops it just as fast but keeps what was written: [run] throws [Paused], and calling [run] again on the
+ *   same instance continues from the last byte (HTTP Range). If the server cannot continue, the file is started again
+ *   from its first byte. [discard] throws a paused download's half-written file away.
  *
- * One instance is one download: create it, call [run] on a worker thread, and [cancel] from any other thread.
+ * One instance is one download: create it, call [run] on a worker thread, and [cancel] / [pause] from any other thread.
  */
 class FileDownloader(
     private val context: Context,
@@ -54,11 +57,24 @@ class FileDownloader(
     /** Stopped on purpose; not a failure. */
     class Cancelled : IOException("cancelled")
 
+    /** Paused on purpose; not a failure. What was written is kept, and [run] can be called again to continue. */
+    class Paused : IOException("paused")
+
     /** A failure with a message that is fit to show to the person as it is. */
     class Failure(message: String) : IOException(message)
 
     @Volatile private var cancelled = false
+    @Volatile private var paused = false
     @Volatile private var connection: HttpURLConnection? = null
+
+    // What a paused download keeps between two calls of run(): the file being written and how far it got.
+    private var pending: PendingFile? = null
+    private var written = 0L
+    private var total = -1L
+    private var name = ""
+
+    /** True when run() ended because of a pause: the half-written file must then stay where it is. */
+    private var keepPartial = false
 
     /** Set only when the person accepted the "not secure" warning for this link (see [RequestHeaders.attach]). */
     private val allowInsecure = RequestHeaders.allowsInsecure(jobUrl)
@@ -69,32 +85,56 @@ class FileDownloader(
         runCatching { connection?.disconnect() }
     }
 
-    /** Downloads and saves the file. Throws [Cancelled] or [Failure] (or another IOException for a lost connection). */
+    /** Pauses the download the same way; [run] throws [Paused] and keeps the bytes that were already written. */
+    fun pause() {
+        paused = true
+        runCatching { connection?.disconnect() }
+    }
+
+    /** Throws away the half-written file of a paused download (it was cancelled while paused, or the service stopped). */
+    fun discard() {
+        keepPartial = false
+        pending?.let { DownloadStore.discard(context, it) }
+        pending = null
+    }
+
+    /**
+     * Downloads and saves the file. Throws [Cancelled], [Paused] or [Failure] (or another IOException for a lost
+     * connection). After [Paused], calling it again continues the same file from the last byte written.
+     */
     fun run(): Saved {
-        var pending: PendingFile? = null
+        paused = false
+        keepPartial = false
         try {
             val headers = RequestHeaders.headersOf(jobUrl)
             val startUrl = parse(RequestHeaders.display(jobUrl))
 
-            var written = 0L
-            var total = -1L
-            var name = ""
+            // Continuing a paused download: if the server cannot continue, the file starts again instead of failing.
+            var mayRestart = written > 0
             var failures = 0
             var lastTick = SystemClock.elapsedRealtime()
-            var lastBytes = 0L
+            var lastBytes = written
             var speed = 0.0
 
             while (true) {
                 var opened: HttpURLConnection? = null
                 try {
-                    throwIfCancelled()
+                    throwIfStopped()
                     val conn = connect(startUrl, headers, written)
                     opened = conn
                     val code = conn.responseCode
                     if (written > 0 && code != HttpURLConnection.HTTP_PARTIAL) {
                         // The server started over (or cannot continue): the bytes already saved are of no use.
-                        throw Failure(context.getString(R.string.fileErrNoResume))
+                        if (!mayRestart || code != HttpURLConnection.HTTP_OK) {
+                            throw Failure(context.getString(R.string.fileErrNoResume))
+                        }
+                        // A paused download loses nothing by starting again: this answer is the whole file.
+                        pending?.let { DownloadStore.discard(context, it) }
+                        pending = null
+                        written = 0L
+                        lastBytes = 0L
                     }
+                    mayRestart = false
                     if (pending == null) {
                         total = totalOf(conn, code)
                         val contentType = conn.contentType?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT).orEmpty()
@@ -120,7 +160,7 @@ class FileDownloader(
                     val buffer = ByteArray(BUFFER_BYTES)
                     conn.inputStream.use { input ->
                         while (true) {
-                            throwIfCancelled()
+                            throwIfStopped()
                             val read = input.read(buffer)
                             if (read < 0) break
                             try {
@@ -147,6 +187,7 @@ class FileDownloader(
                     break
                 } catch (e: IOException) {
                     if (cancelled || e is Cancelled) throw Cancelled()
+                    if (paused || e is Paused) throw Paused()
                     if (e is Failure) throw e
                     // A lost connection: the same file continues from the last byte received, a few times. A link that
                     // never answered even once (no such site, a refused connection) fails at once, except a timeout.
@@ -154,7 +195,7 @@ class FileDownloader(
                     if (neverConnected || ++failures > MAX_RETRIES) {
                         throw Failure(context.getString(R.string.fileErrNetwork, e.message ?: e.javaClass.simpleName))
                     }
-                    pause(failures * RETRY_STEP_MS)
+                    sleepFor(failures * RETRY_STEP_MS)
                 } finally {
                     opened?.disconnect()
                 }
@@ -168,8 +209,16 @@ class FileDownloader(
             }
             pending = null // saved: nothing to throw away
             return Saved(name, uri)
+        } catch (e: Paused) {
+            // Kept on purpose: the next call of run() continues into the same file from the last byte written.
+            keepPartial = true
+            runCatching { pending?.output?.flush() }
+            throw e
         } finally {
-            pending?.let { DownloadStore.discard(context, it) }
+            if (!keepPartial) {
+                pending?.let { DownloadStore.discard(context, it) }
+                pending = null
+            }
         }
     }
 
@@ -184,7 +233,7 @@ class FileDownloader(
         var sendCookie = true
         var hops = 0
         while (true) {
-            throwIfCancelled()
+            throwIfStopped()
             val conn = try {
                 current.openConnection() as HttpURLConnection
             } catch (e: ClassCastException) {
@@ -203,10 +252,14 @@ class FileDownloader(
             }
             if (from > 0) conn.setRequestProperty("Range", "bytes=$from-")
             connection = conn
-            // cancel() may have run between the check above and now, before this connection was published.
+            // cancel() / pause() may have run between the check above and now, before this connection was published.
             if (cancelled) {
                 conn.disconnect()
                 throw Cancelled()
+            }
+            if (paused) {
+                conn.disconnect()
+                throw Paused()
             }
 
             val code = try {
@@ -214,6 +267,7 @@ class FileDownloader(
             } catch (e: IOException) {
                 conn.disconnect()
                 if (cancelled) throw Cancelled()
+                if (paused) throw Paused()
                 throw e
             }
             when {
@@ -338,15 +392,16 @@ class FileDownloader(
 
     // ---- Waiting and stopping ----
 
-    private fun throwIfCancelled() {
+    private fun throwIfStopped() {
         if (cancelled || Thread.currentThread().isInterrupted) throw Cancelled()
+        if (paused) throw Paused()
     }
 
-    /** A pause before the next attempt that a cancel cuts short. */
-    private fun pause(ms: Long) {
+    /** A wait before the next attempt that a cancel or a pause cuts short. */
+    private fun sleepFor(ms: Long) {
         var left = ms
         while (left > 0) {
-            throwIfCancelled()
+            throwIfStopped()
             try {
                 Thread.sleep(minOf(left, 250L))
             } catch (e: InterruptedException) {
