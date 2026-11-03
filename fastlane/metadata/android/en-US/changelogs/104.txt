@@ -1,0 +1,1 @@
+Fixed: the next video of a list no longer starts muted, and the mini player no longer shows the wrong part of the page after a video changes.

@@ -310,19 +310,40 @@
 
   // ---- Sound on in the player -----------------------------------------------
   // YouTube's mobile page starts a video muted ("tap to unmute") when the page was opened without a tap inside it,
-  // which is how the app's player opens every video. Turn the sound on once, right after the video starts. It is
-  // done once per page load, so a video you mute yourself stays muted.
+  // which is how the app's player opens every video. Turn the sound on once, right after each video starts. It is
+  // done once per video, so a video you mute yourself stays muted.
+  // YouTube moves on to the next video of a list (autoplay) without loading a new page, and starts it muted again, so
+  // the job begins again whenever the player loads a video ('loadstart' / 'emptied') or the address names another one.
 
   var unmuteDone = false;
   var unmuteTries = 0;
+  var unmuteFor = ''; // the video id the two values above belong to
+
+  function resetUnmute() {
+    unmuteDone = false;
+    unmuteTries = 0;
+  }
+
+  if (cfg.route === 'player') {
+    // media events do not bubble: listen on the way down
+    ['loadstart', 'emptied'].forEach(function (type) {
+      document.addEventListener(type, function (e) {
+        if (e.target === mainVideo()) resetUnmute();
+      }, true);
+    });
+  }
 
   function autoUnmute() {
-    if (cfg.route !== 'player' || unmuteDone) return;
+    if (cfg.route !== 'player') return;
+    var id = currentId();
+    if (id !== unmuteFor) { unmuteFor = id; resetUnmute(); }
+    if (unmuteDone) return;
     var video = mainVideo();
     var box = document.querySelector('.html5-video-player');
     if (!video || (box && box.classList.contains('ad-showing'))) return;
     if (!video.muted) {
-      if (video.currentTime > 0.5) unmuteDone = true; // playing with sound already
+      // playing with sound for a moment already (a little longer than a blink: YouTube may mute it again right after it starts)
+      if (video.currentTime > 2) unmuteDone = true;
       return;
     }
     if (++unmuteTries > 50) { unmuteDone = true; return; } // gave up after about 15 seconds
@@ -543,6 +564,19 @@
     }, true); // 'ended' does not bubble: listen on the way down
   }
 
+  // ---- Mini player --------------------------------------------------------------
+  // While the app shows the player as a small box, only the top of the page (the video) can be seen, so the page must
+  // stay scrolled to the top. YouTube scrolls it by itself at times (when it opens the next video of a list, for
+  // example) and the box would then show the suggestions or the comments instead of the video.
+
+  var mini = false;
+
+  function keepTop() {
+    if (!mini) return;
+    var root = document.scrollingElement || document.documentElement;
+    if ((window.pageYOffset || (root && root.scrollTop) || 0) > 0) window.scrollTo(0, 0);
+  }
+
   // ---- Timer --------------------------------------------------------------
 
   var ticks = 0;
@@ -550,6 +584,7 @@
     ticks++;
     skipAd();
     autoUnmute();
+    keepTop();
     skipShortsAd();
     if (ticks % 5 === 0) dropIframes();
   }, 300);
@@ -560,6 +595,11 @@
     /** Next (step > 0) or previous video, for the notification buttons. */
     skip: function (step) {
       return step > 0 ? skipNext() : skipPrevious();
+    },
+    /** The app shows the player as a small box (true) or full screen (false). */
+    setMini: function (on) {
+      mini = !!on;
+      keepTop();
     },
     configure: function (next) {
       if (!next) return;

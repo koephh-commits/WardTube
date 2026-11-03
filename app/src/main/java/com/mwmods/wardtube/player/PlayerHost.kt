@@ -51,7 +51,9 @@ import kotlin.math.roundToInt
  * plays out of sight (see [onPlaybackState]).
  *
  * In the mini player the WebView keeps its full size (so the page does not reflow and the video does not
- * stutter) and is scaled down and shifted inside a small, clipping container so that only the video shows.
+ * stutter) and is scaled down and shifted inside a small, clipping container so that only the video shows. The
+ * video's box is measured again every few seconds, because YouTube moves things around when it opens a new video, and
+ * the page script keeps the page scrolled to the top meanwhile (see [MEASURE_SCRIPT]).
  */
 class PlayerHost(
     private val area: FrameLayout,
@@ -103,7 +105,16 @@ class PlayerHost(
 
     private var shownPlaying: Boolean? = null
 
-    private val remeasure = Runnable { if (mode == Mode.MINI) measureVideoBox() }
+    // While the mini player shows, the video's box is measured again every few seconds. YouTube moves things around
+    // after a new video opens (the next video of a list, a page that finished loading late), and a box measured only
+    // once would then show the wrong part of the page (the suggestions below the video, for example).
+    private val remeasure = object : Runnable {
+        override fun run() {
+            if (mode != Mode.MINI) return
+            if (!docked && !miniHidden) measureVideoBox()
+            area.postDelayed(this, REMEASURE_PERIOD_MS)
+        }
+    }
 
     // Where the user dragged the mini player to, as a shift from its default corner, and the drag in progress.
     private var offsetX = 0f
@@ -328,6 +339,8 @@ class PlayerHost(
         view.translationX = 0f
         view.translationY = 0f
         area.removeCallbacks(fadeDiscs)
+        area.removeCallbacks(remeasure)
+        view.evaluateJavascript("window.__wardtube&&window.__wardtube.setMini(false)", null)
         stopMotion()
         container.layoutParams = FrameLayout.LayoutParams(MATCH, MATCH)
         container.translationX = 0f
@@ -346,6 +359,7 @@ class PlayerHost(
         miniRect = null
         applyMini()
         measureVideoBox()
+        remeasureSoon() // and again every few seconds from then on
         showControls()
         scheduleFade()
         onModeChanged(mode)
@@ -365,6 +379,7 @@ class PlayerHost(
         enlarged = false
         leaveDock(resume = false)
         area.removeCallbacks(fadeDiscs)
+        area.removeCallbacks(remeasure)
         stopMotion()
         offsetX = 0f
         offsetY = 0f
@@ -415,10 +430,21 @@ class PlayerHost(
             if (innerWidth <= 0f || w <= 0 || h <= 0) return@evaluateJavascript
             val k = w / innerWidth // CSS pixels to screen pixels
             val rect = RectF(n[0] * k, n[1] * k, (n[0] + n[2]) * k, (n[1] + n[3]) * k)
-            val plausible = rect.width() >= w * 0.4f && rect.height() > 0f && rect.top >= -1f && rect.bottom <= h * 1.05f
-            miniRect = if (plausible) rect else null
+            // The video sits at the top of the page: a box far down is something else (a suggestion's picture).
+            val plausible = rect.width() >= w * 0.4f && rect.height() > 0f && rect.top >= -1f &&
+                rect.top <= h * 0.35f && rect.bottom <= h * 1.05f
+            val next = if (plausible) rect else null
+            // Nothing moved (the usual case on the repeated look), or the box is in the middle of its resize animation.
+            if (sameBox(miniRect, next) || resizeAnimator != null) return@evaluateJavascript
+            miniRect = next
             applyMini()
         }
+    }
+
+    private fun sameBox(a: RectF?, b: RectF?): Boolean {
+        if (a == null || b == null) return a == null && b == null
+        return abs(a.left - b.left) < 1.5f && abs(a.top - b.top) < 1.5f &&
+            abs(a.width() - b.width()) < 1.5f && abs(a.height() - b.height()) < 1.5f
     }
 
     private fun applyMini() {
@@ -751,6 +777,7 @@ class PlayerHost(
     private companion object {
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val REMEASURE_DELAY_MS = 500L
+        const val REMEASURE_PERIOD_MS = 2000L // how often the mini player looks at the video's box again
         const val SNAP_MS = 180L
         const val FADE_DELAY_MS = 3000L
         const val RESIZE_MS = 500L
@@ -761,15 +788,28 @@ class PlayerHost(
         const val TAB_HEIGHT_DP = 92f
         const val DISC_HIDE_MS = 350L
 
-        // "<left>|<top>|<width>|<height>|<viewport width>|<viewport height>" of the video's box, in CSS pixels.
+        // "<left>|<top>|<width>|<height>|<viewport width>|<viewport height>" of the video's box, in CSS pixels, or ''.
+        // The page is put back at the top first (the box shows only the top of it). The player is the first box, in the
+        // order below, that is wide enough and sits near the top: a box further down (a suggestion's picture, a copy of
+        // the player left over while YouTube changes video) is not the player.
         val MEASURE_SCRIPT = """
             (function () {
               window.scrollTo(0, 0);
-              var el = document.querySelector('#player-container-id') || document.querySelector('#movie_player') ||
-                       document.querySelector('.html5-video-player') || document.querySelector('video');
-              if (!el) return '';
-              var r = el.getBoundingClientRect();
-              return [r.left, r.top, r.width, r.height, window.innerWidth, window.innerHeight].join('|');
+              var root = document.scrollingElement || document.documentElement;
+              if (root) root.scrollTop = 0;
+              try { if (window.__wardtube) window.__wardtube.setMini(true); } catch (e) {}
+              var vw = window.innerWidth, vh = window.innerHeight;
+              var picks = ['#player-container-id', '#movie_player', '.html5-video-player', 'video'];
+              for (var i = 0; i < picks.length; i++) {
+                var list = document.querySelectorAll(picks[i]);
+                for (var j = 0; j < list.length; j++) {
+                  var r = list[j].getBoundingClientRect();
+                  if (r.width >= vw * 0.4 && r.height > 0 && r.top >= -1 && r.top <= vh * 0.3) {
+                    return [r.left, r.top, r.width, r.height, vw, vh].join('|');
+                  }
+                }
+              }
+              return '';
             })();
         """.trimIndent()
     }

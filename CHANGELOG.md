@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.6.58
+- Fixed: the next video of a list (autoplay) started muted. YouTube moves on to the next video without loading a new page
+  and starts it muted again ("tap to unmute"), but the page script turned the sound on only once per page load, so it
+  never did it for the second video on. It now starts over for every video: when the player loads a video
+  (`loadstart` / `emptied`) or the address names another one, the sound is turned on again right after it starts.
+  A video counts as "with sound" only after 2 seconds of playing (it was 0.5), because YouTube can mute it again right
+  after the start. A mute you set yourself later in the video still stays.
+- Fixed: the mini player sometimes showed the wrong part of the page (the picture of the suggested next video and the
+  "Next video" bar, not the video), most often after a video ended and YouTube opened the next one. Causes found and
+  fixed:
+  - The video's box was measured once, 500 ms after the address changed, and never again. If YouTube had not finished
+    laying out the page by then, or moved things afterwards, the box stayed wrong. `PlayerHost` now looks at it again
+    every 2 seconds while the mini player shows and changes the box only when it really moved.
+  - The measuring script took the first element it found, wherever it was. It now takes the first box, in the same order
+    as before (`#player-container-id`, `#movie_player`, `.html5-video-player`, `video`), that is wide enough and sits
+    near the top of the page, and goes on to the next one otherwise (a stale copy of the player or a suggestion's
+    picture far down the page is no longer taken for the video). `PlayerHost` also refuses a box lower than 35% of the
+    screen's height.
+  - YouTube can scroll the page by itself when it opens the next video of a list. While the mini player shows, the page
+    script (`window.__wardtube.setMini(true)`) now puts the page back at the top at once. Full screen leaves the page
+    alone (`setMini(false)`).
+- Checked in headless Chromium: with the old script the second and later videos stayed muted and a far-away box was
+  taken for the player; with the new one both work.
+
 ## 2.6.57
 - Changed: the developer contact in the About screen is now the WhatsApp username `@Mohamed_ward505` instead of a phone
   number, which no longer works. The row opens `https://wa.me/Mohamed_ward505` (`AboutSheet.openWhatsapp` drops the
