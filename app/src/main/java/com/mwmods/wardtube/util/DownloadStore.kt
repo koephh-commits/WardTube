@@ -105,6 +105,7 @@ object DownloadStore {
     const val FOLDER_VIDEOS = "فيديوهات"
     const val FOLDER_AUDIO = "أصوات"
     const val FOLDER_LYRICS = "كلمات"
+    private const val DIRECTORY_MIME = "vnd.android.document/directory"
 
     /** Files saved from the browser screen that are not media (zip, pdf, apk...). */
     const val FOLDER_FILES = "ملفات"
@@ -533,14 +534,17 @@ object DownloadStore {
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
                     val name = cursor.getString(nameCol) ?: continue
+                    val rawMime = cursor.getString(mimeCol)
+                    val data = cursor.getString(dataCol)
+                    if (isFolderRow(rawMime, name, data)) continue // the folders themselves are not files
                     items += DownloadItem(
                         id = id,
                         uri = ContentUris.withAppendedId(collection, id),
                         name = name,
-                        mimeType = cursor.getString(mimeCol) ?: "application/octet-stream",
+                        mimeType = rawMime ?: "application/octet-stream",
                         sizeBytes = cursor.getLong(sizeCol),
                         dateAddedSec = cursor.getLong(dateCol),
-                        path = if (legacy) cursor.getString(dataCol) else null,
+                        path = if (legacy) data else null,
                         searchKey = normalizeForSearch(name),
                     )
                 }
@@ -551,6 +555,21 @@ object DownloadStore {
             // A collection this device does not answer for: the other one still lists the files.
         }
         return items
+    }
+
+    /**
+     * MediaStore's Files collection lists folders as well as files. The sort folders inside Download/WardTube
+     * (videos / audio / lyrics / files) match the Library's path query like the files in them do, and showed up as nameless
+     * "files" with a document icon (and could even have been picked for deletion). A folder row is recognised by:
+     * the type the system gives directories, one of the app's own sort-folder names (a file always has an extension,
+     * so no file is called just that), a path that is a directory on disk, or no type and no extension at all.
+     */
+    private fun isFolderRow(mimeType: String?, name: String, path: String?): Boolean {
+        if (mimeType == DIRECTORY_MIME) return true
+        if (name == FOLDER_VIDEOS || name == FOLDER_AUDIO || name == FOLDER_LYRICS || name == FOLDER_FILES) return true
+        val untyped = mimeType == null || mimeType == "application/octet-stream"
+        if (untyped && path != null && File(path).isDirectory) return true // only asked of rows that could be folders
+        return mimeType == null && !name.contains('.')
     }
 
     // ---- Search ----

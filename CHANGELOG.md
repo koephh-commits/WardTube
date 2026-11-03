@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.6.61
+- Fixed: the Library listed the sort folders (`فيديوهات`, `أصوات`, `كلمات`, `ملفات`) as if they were files: three or four
+  extra rows with a document icon and no size or date, which also counted in the file total and could have been picked
+  for deletion. Cause: `DownloadStore.query` reads MediaStore's general Files collection (added so that `.srt` / `.lrc`
+  files show up), and that collection lists folders as well as files; the sort folders inside Download/WardTube match
+  the path query like the files inside them. `DownloadStore.isFolderRow` now drops them: a row with the type the system
+  gives directories, one with the name of one of the app's own sort folders, one whose path is a directory on disk
+  (looked at only for rows without a real type), or one with no type and no extension. Real files, including `.srt` /
+  `.lrc`, always have an extension, so none is dropped by mistake.
+- This is unrelated to the mini player fix of 2.6.60: the sort folders have been in the list since they were introduced.
+
 ## 2.6.60
 - Fixed: the mini player showed the wrong part of the page (the page's header, the list of a mix, the suggestions or the
   "Next video" bar instead of the video) when you tapped a video and went back before it had loaded. It stayed wrong
