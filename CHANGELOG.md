@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.6.57
+- Changed: the developer contact in the About screen is now the WhatsApp username `@Mohamed_ward505` instead of a phone
+  number, which no longer works. The row opens `https://wa.me/Mohamed_ward505` (`AboutSheet.openWhatsapp` drops the
+  leading "@" and no longer keeps only digits). The string is now `aboutWhatsappUsername` (it replaces
+  `aboutWhatsappNumber`), and `docs/PUBLISHING.md` points to it.
+
 ## 2.6.56
 - Added: a running download can now be paused and resumed from the Library. The card of a download that is moving has a
   pause button next to Cancel; while it is paused the same button resumes it, and the card shows "Paused" with the

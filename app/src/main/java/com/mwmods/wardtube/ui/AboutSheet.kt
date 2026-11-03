@@ -30,17 +30,17 @@ object AboutSheet {
         content.findViewById<TextView>(R.id.tvAboutCopyright).text = activity.getString(R.string.aboutCopyright, year)
 
         content.findViewById<android.view.View>(R.id.rowWhatsapp).setOnClickListener {
-            openWhatsapp(activity, activity.getString(R.string.aboutWhatsappNumber))
+            openWhatsapp(activity, activity.getString(R.string.aboutWhatsappUsername))
         }
 
         BottomSheetDialog(activity).apply { setContentView(content) }.show()
     }
 
-    /** Opens a WhatsApp chat with the number; non-digit characters are stripped first. */
-    private fun openWhatsapp(activity: AppCompatActivity, rawNumber: String) {
-        val digits = rawNumber.filter { it.isDigit() }
+    /** Opens a WhatsApp chat with the username (`https://wa.me/<username>`); a leading "@" is dropped first. */
+    private fun openWhatsapp(activity: AppCompatActivity, rawUsername: String) {
+        val username = rawUsername.trim().removePrefix("@")
         try {
-            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits")))
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${Uri.encode(username)}")))
         } catch (e: Exception) {
             Toast.makeText(activity, R.string.errorUnknown, Toast.LENGTH_SHORT).show()
         }

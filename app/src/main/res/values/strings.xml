@@ -87,7 +87,7 @@
     <string name="aboutDeveloperHandle" translatable="false">MWMods</string>
     <string name="aboutBio">Passionate about building web and Android apps — simple, practical tools that solve real problems.</string>
     <string name="aboutWhatsapp">WhatsApp</string>
-    <string name="aboutWhatsappNumber" translatable="false">+994 40 733 31 37</string>
+    <string name="aboutWhatsappUsername" translatable="false">\@Mohamed_ward505</string>
     <string name="aboutCopyright">© %1$d MWMods — Free software (GPL-3.0)</string>
     <string name="aboutBasedOn">Based on webTube by martykan (GPL-3.0-or-later)</string>
     <string name="errorUnknown">Something went wrong</string>

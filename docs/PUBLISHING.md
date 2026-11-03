@@ -69,7 +69,7 @@ them to a new release. Every normal push only builds a debug APK to check that t
 ## 6. Before the first release
 
 - Screenshots in `fastlane/.../phoneScreenshots/`.
-- The WhatsApp number in `app/src/main/res/values/strings.xml` (`aboutWhatsappNumber`) becomes public with the
+- The WhatsApp username in `app/src/main/res/values/strings.xml` (`aboutWhatsappUsername`) becomes public with the
   repository and stays in the git history even if you remove it later. Replace it before the first push if you do not
   want it public.
 - Enable **Settings → Code security → Private vulnerability reporting** so that SECURITY.md works.
