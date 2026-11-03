@@ -15,6 +15,8 @@ import com.mwmods.wardtube.util.UrlUtils
 class NativeBridge(
     private val onOpenVideo: (String) -> Unit,
     private val onOpenPage: (String) -> Unit,
+    /** True while the player is shown as the small floating box. Called on a WebView thread, so it must be thread-safe. */
+    private val isMiniNow: () -> Boolean = { false },
 ) {
     private val main = Handler(Looper.getMainLooper())
 
@@ -29,4 +31,12 @@ class NativeBridge(
     fun openPage(url: String?) {
         if (url != null && UrlUtils.isYouTubeUrl(url) && !UrlUtils.isVideoUrl(url)) main.post { onOpenPage(url) }
     }
+
+    /**
+     * Is the player a small box right now? The player page asks on every tick (and when its script starts), so a page
+     * that finished loading after the user left the video never misses the app's "now it is a box": the answer does
+     * not depend on when the app's message happened to arrive.
+     */
+    @JavascriptInterface
+    fun isMini(): Boolean = isMiniNow()
 }

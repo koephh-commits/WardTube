@@ -77,6 +77,15 @@ class PlayerHost(
     val isActive: Boolean get() = mode != Mode.NONE
 
     /**
+     * True from the moment the player becomes the small box until it is shown full screen or closed. The player page
+     * asks for it (see NativeBridge.isMini) on a WebView thread, hence @Volatile, and it is set BEFORE the page is
+     * told, so the answer is never behind the message.
+     */
+    @Volatile
+    var miniWanted: Boolean = false
+        private set
+
+    /**
      * True while a Short is on screen: the mini player stays out of its way. The video is not closed, it waits
      * (paused) inside the hidden box and the box comes back when the Short is left. Full screen is not affected.
      */
@@ -319,6 +328,7 @@ class PlayerHost(
     /** Measures the video's box again in a moment (the page has just changed or finished loading). */
     fun remeasureSoon() {
         if (mode != Mode.MINI) return
+        tellPageMini() // a page that has just (re)loaded starts out knowing nothing about the box
         area.removeCallbacks(remeasure)
         area.postDelayed(remeasure, REMEASURE_DELAY_MS)
     }
@@ -332,6 +342,7 @@ class PlayerHost(
     fun expand() {
         val view = webView ?: return
         leaveDock(resume = true)
+        miniWanted = false // before the page is told (see below)
         mode = Mode.EXPANDED
         view.layoutParams = FrameLayout.LayoutParams(MATCH, MATCH)
         view.scaleX = 1f
@@ -355,9 +366,11 @@ class PlayerHost(
     /** Shrinks the player to the floating box; the video keeps playing. */
     fun minimize() {
         if (webView == null || mode == Mode.MINI) return
+        miniWanted = true // before the page is told: the page also asks for it by itself (NativeBridge.isMini)
         mode = Mode.MINI
         miniRect = null
         applyMini()
+        tellPageMini() // at once: with the page still loading, the first measure below may find nothing to talk to
         measureVideoBox()
         remeasureSoon() // and again every few seconds from then on
         showControls()
@@ -372,6 +385,7 @@ class PlayerHost(
         container.removeView(view)
         webView = null
         lastUrl = null
+        miniWanted = false
         mode = Mode.NONE
         container.visibility = View.GONE
         overlay.visibility = View.GONE
@@ -414,6 +428,11 @@ class PlayerHost(
     }
 
     // ---- Mini player geometry ----
+
+    /** Tells the player page that it is shown as the small box (it hides everything but the video and stays at the top). */
+    private fun tellPageMini() {
+        webView?.evaluateJavascript("window.__wardtube&&window.__wardtube.setMini(true)", null)
+    }
 
     /** Asks the page where its video is, then places the box again with the real size. */
     private fun measureVideoBox() {

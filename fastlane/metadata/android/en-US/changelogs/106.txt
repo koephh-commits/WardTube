@@ -1,0 +1,1 @@
+Fixed: the mini player showed the wrong part of the page (the header, the list of a mix or the "Next video" bar) when you left a video before it had loaded, until you opened the player and minimized it again.

@@ -565,28 +565,51 @@
   }
 
   // ---- Mini player --------------------------------------------------------------
-  // While the app shows the player as a small box, only the video may be seen in it. Two things keep it so:
-  //  - Everything on the page except the player is hidden (visibility, so nothing moves). The page below the video (the
-  //    list of a mix, the suggestions, the comments, the "next video" bar) can then never show in the box, wherever
-  //    it ends up.
+  // While the app shows the player as a small box, only the video may be seen in it. Three things keep it so:
+  //  - Everything on the page except the player is hidden (visibility, so nothing moves), and the page's background
+  //    is black. The page below the video (the list of a mix, the suggestions, the comments, the "next video" bar,
+  //    the header) can then never show in the box, wherever it ends up, and a page that is still loading shows a
+  //    black box instead of its header.
+  //  - The player's container is pinned to the top-left corner of the window (position: fixed). Wherever YouTube
+  //    scrolls the page or moves its header, the player stays at the same place: the box never has to chase it.
   //  - The page stays scrolled to the top. YouTube scrolls it by itself at times (when it opens the next video of a
   //    list, it brings the current item of the list into view), and it is not always the window that scrolls: any
-  //    container around the player may. The box would then show the list instead of the video.
+  //    container around the player may.
+  //
+  // Whether the player is a small box is the app's decision, and it is asked, not told: every document the player
+  // loads starts with a fresh script (this variable back at false), so a "now it is a box" message sent while the page
+  // was still loading (the user left the video before it opened) used to be lost and the page showed unhidden and
+  // shifted until the app measured again. The app's answer (WardTubeNative.isMini) is read on every tick and at
+  // once when the script starts; setMini is kept as a faster way of saying the same thing.
 
   var mini = false;
 
   whenRoot(function () {
     if (cfg.route !== 'player') return;
     addStyle('wardtube-mini-css',
+      'html[data-wt-mini],html[data-wt-mini] body{background:#000!important}' +
       'html[data-wt-mini] body *{visibility:hidden!important}' +
-      'html[data-wt-mini] .html5-video-player,html[data-wt-mini] .html5-video-player *{visibility:visible!important}');
+      'html[data-wt-mini] .html5-video-player,html[data-wt-mini] .html5-video-player *{visibility:visible!important}' +
+      'html[data-wt-mini] #player-container-id{position:fixed!important;top:0!important;left:0!important;' +
+      'right:auto!important;bottom:auto!important;width:100%!important;max-width:100%!important;margin:0!important;' +
+      'transform:none!important;z-index:2147483646!important}');
   });
 
-  // Hides the page around the player while it is a small box. Only when the player exists: without it nothing is hidden.
+  // The app's answer to "is the player a small box right now?", or null when it cannot be asked (no bridge, old app).
+  function appSaysMini() {
+    try {
+      var bridge = window.WardTubeNative;
+      if (bridge && typeof bridge.isMini === 'function') return !!bridge.isMini();
+    } catch (e) {}
+    return null;
+  }
+
+  // Hides the page around the player while it is a small box. Only in the player's own WebView: the page being
+  // browsed (route 'browse') is never touched.
   function markMini() {
     var root = document.documentElement;
     if (!root) return;
-    var on = mini && !!document.querySelector('.html5-video-player');
+    var on = mini && cfg.route === 'player';
     if (on !== root.hasAttribute('data-wt-mini')) {
       if (on) root.setAttribute('data-wt-mini', ''); else root.removeAttribute('data-wt-mini');
     }
@@ -604,9 +627,16 @@
   }
 
   function keepTop() {
+    if (cfg.route !== 'player') return;
+    var asked = appSaysMini();
+    if (asked !== null) mini = asked;
     markMini();
     if (mini) scrollToTop();
   }
+
+  // The script has just started in a new document: ask at once, before the first tick.
+  keepTop();
+  document.addEventListener('DOMContentLoaded', keepTop);
 
   // ---- Timer --------------------------------------------------------------
 

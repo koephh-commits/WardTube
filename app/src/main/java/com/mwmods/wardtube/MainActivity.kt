@@ -341,6 +341,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private fun createBridge() = NativeBridge(
         onOpenVideo = { url -> if (!isDestroyed) openVideo(url) },
         onOpenPage = { url -> openPageFromPlayer(url) },
+        isMiniNow = { ::playerHost.isInitialized && playerHost.miniWanted },
     )
 
     // ---- The video player ----

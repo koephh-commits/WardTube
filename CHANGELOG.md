@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.6.60
+- Fixed: the mini player showed the wrong part of the page (the page's header, the list of a mix, the suggestions or the
+  "Next video" bar instead of the video) when you tapped a video and went back before it had loaded. It stayed wrong
+  until you opened the player full screen and minimized it again (which measured everything afresh). Causes:
+  - Whether the player is a small box was only ever *told* to the page (`setMini(true)`). Every page the player loads
+    starts a new script with `mini` back at false, so the message sent while the video page was still loading (you left
+    before it opened) was lost: the page stayed unhidden and unpinned, and the box, which showed the top 16:9 of the
+    page until the first measure, showed the header and the page's content. The next message came only with the 2-second
+    measure, and measuring a page that is still laying itself out could give a wrong box that was then kept.
+  - The box showed a part of the page picked by a measurement. Anything that moved the player afterwards (the page's
+    header appearing, a list panel opening, YouTube scrolling to the current item of a mix) left the box on the wrong part.
+  Fixed by:
+  - The page now *asks* the app (`WardTubeNative.isMini()`, a new method of `NativeBridge`, backed by the volatile
+    `PlayerHost.miniWanted`) every 0.3 seconds and as soon as its script starts, instead of waiting to be told. The flag
+    is set before the page is told, so the answer is never behind the message. `PlayerHost` also tells the page right
+    away in `minimize()` and whenever the page changes (`remeasureSoon()`), as before but faster.
+  - While the player is a box, the page's background is black and everything except the player is hidden even before the
+    player exists, so a page that is still loading shows a black box, not its header (it used to hide things only once
+    the player element was there).
+  - While the player is a box, the player's container (`#player-container-id`) is pinned to the top-left corner of the
+    window (`position: fixed`). The video is then always in the same place, wherever YouTube scrolls the page or moves its
+    header, and it is exactly where the box looks before the first measure. Full screen takes the pin off at once.
+  - The page is only ever marked as a box in the player's own WebView (`route == 'player'`); the page being browsed is
+    never touched.
+- Checked in headless Chromium with a fake watch page (fixed header, player that appears 1.2 s after the page, list
+  panel, "next video" bar, scrolling): with 2.6.59 the box region showed 24% foreign content (the header and the page)
+  until the first 2-second measure; with 2.6.60 it shows only the player at every moment, after scrolling too, and the
+  page is back to normal when the player is full screen again. Not checked on the real YouTube page (no network here).
+
 ## 2.6.59
 - Fixed: the mini player still showed the wrong thing in a mix or playlist: the list of the mix (the shuffle and repeat
   buttons and the current item) or the suggestions instead of the video. Cause: after a video changes, YouTube brings the
