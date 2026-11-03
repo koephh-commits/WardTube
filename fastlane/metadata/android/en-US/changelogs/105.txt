@@ -1,0 +1,1 @@
+Fixed: the mini player no longer shows the list of a mix or playlist instead of the video.

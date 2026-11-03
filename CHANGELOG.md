@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.6.59
+- Fixed: the mini player still showed the wrong thing in a mix or playlist: the list of the mix (the shuffle and repeat
+  buttons and the current item) or the suggestions instead of the video. Cause: after a video changes, YouTube brings the
+  current item of the list into view and scrolls the page; it is not always the window that scrolls (it can be a
+  container around the player), so putting only the window back at the top did nothing and the player was left above the
+  box. The page script now, while the mini player shows (`window.__wardtube.setMini(true)`):
+  - puts the window and every container around the player back at the top, at once and again every 0.3 seconds;
+  - hides everything on the page except the player (`html[data-wt-mini]`, `visibility: hidden`: nothing moves), so the
+    list, the suggestions, the header and the "Next video" bar can never show in the box, wherever they end up. Nothing
+    is hidden when the page has no player, and full screen shows everything again at once (`setMini(false)`).
+- Checked in headless Chromium with a fake watch page (list panel under the player, a "next video" bar, scrolling in the
+  window and in an inner container): with 2.6.58 the inner container stayed scrolled and the list showed; with 2.6.59 the
+  box shows only the player in both cases.
+
 ## 2.6.58
 - Fixed: the next video of a list (autoplay) started muted. YouTube moves on to the next video without loading a new page
   and starts it muted again ("tap to unmute"), but the page script turned the sound on only once per page load, so it

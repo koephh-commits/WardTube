@@ -565,16 +565,47 @@
   }
 
   // ---- Mini player --------------------------------------------------------------
-  // While the app shows the player as a small box, only the top of the page (the video) can be seen, so the page must
-  // stay scrolled to the top. YouTube scrolls it by itself at times (when it opens the next video of a list, for
-  // example) and the box would then show the suggestions or the comments instead of the video.
+  // While the app shows the player as a small box, only the video may be seen in it. Two things keep it so:
+  //  - Everything on the page except the player is hidden (visibility, so nothing moves). The page below the video (the
+  //    list of a mix, the suggestions, the comments, the "next video" bar) can then never show in the box, wherever
+  //    it ends up.
+  //  - The page stays scrolled to the top. YouTube scrolls it by itself at times (when it opens the next video of a
+  //    list, it brings the current item of the list into view), and it is not always the window that scrolls: any
+  //    container around the player may. The box would then show the list instead of the video.
 
   var mini = false;
 
-  function keepTop() {
-    if (!mini) return;
+  whenRoot(function () {
+    if (cfg.route !== 'player') return;
+    addStyle('wardtube-mini-css',
+      'html[data-wt-mini] body *{visibility:hidden!important}' +
+      'html[data-wt-mini] .html5-video-player,html[data-wt-mini] .html5-video-player *{visibility:visible!important}');
+  });
+
+  // Hides the page around the player while it is a small box. Only when the player exists: without it nothing is hidden.
+  function markMini() {
+    var root = document.documentElement;
+    if (!root) return;
+    var on = mini && !!document.querySelector('.html5-video-player');
+    if (on !== root.hasAttribute('data-wt-mini')) {
+      if (on) root.setAttribute('data-wt-mini', ''); else root.removeAttribute('data-wt-mini');
+    }
+  }
+
+  // Scrolls the window and every container around the player back to the top.
+  function scrollToTop() {
     var root = document.scrollingElement || document.documentElement;
     if ((window.pageYOffset || (root && root.scrollTop) || 0) > 0) window.scrollTo(0, 0);
+    var player = document.querySelector('.html5-video-player') || mainVideo();
+    for (var n = player && player.parentElement; n; n = n.parentElement) {
+      if (n.scrollTop > 0) n.scrollTop = 0;
+    }
+    if (document.body && document.body.scrollTop > 0) document.body.scrollTop = 0;
+  }
+
+  function keepTop() {
+    markMini();
+    if (mini) scrollToTop();
   }
 
   // ---- Timer --------------------------------------------------------------
