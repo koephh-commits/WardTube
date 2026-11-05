@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.6.63
+- Fixed (security): `UrlUtils`, which decides whether an address is YouTube's and whether a plain `http://` address is
+  a local one, was too loose. A link to another site could be taken for a YouTube link and so get YouTube's treatment
+  (stay inside the app, skip the referer that other sites' embedded players get, lose its `t` parameter on download),
+  and a crafted `http://` address could be read as a local one, so the unencrypted-download warning was skipped.
+  `UrlUtils` now:
+  - accepts only YouTube's own domains (`youtube.com`, `youtube.co.uk`, `youtube.com.tr`, `youtu.be` and their
+    subdomains) and Google's sign-in hosts matched exactly. Before, any host with a `youtube` label (for example
+    `youtube.xyz`) or starting with `accounts.google.` (for example `accounts.google.evil.com`) was accepted;
+  - checks the host in `isWatchPage` / `isShortsPage` / `videoId` too, and matches the path exactly (`/watch`,
+    `/watch/...`) instead of by prefix, so `/watch-next` and other sites' `/watch` pages no longer count;
+  - never trusts an address with a backslash or a control character (Android's `Uri` and the WebView read
+    `https://evil.com\@youtube.com/` differently: `Uri` says youtube.com, the WebView goes to evil.com), and
+    `isYouTubeUrl` also rejects an address that carries a user name or password;
+  - ignores the trailing dot of a fully qualified host name (`youtube.com.`);
+  - for plain `http://` addresses, shows the warning (and refuses the automatic upgrade to https) whenever the address
+    cannot be read with certainty, instead of treating it as a local one.
+
 ## 2.6.62
 - Fixed: when a Short was opened from the feed while the bottom bar was hidden (the bar slides away as you scroll down
   the feed), the bar stayed hidden and only came back after you swiped to the next Short. Cause: the bar was only

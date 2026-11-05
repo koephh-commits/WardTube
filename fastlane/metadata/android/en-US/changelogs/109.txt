@@ -1,0 +1,1 @@
+Fixed: stricter address checks, so a link to another site is no longer taken for a YouTube link or a local address.
