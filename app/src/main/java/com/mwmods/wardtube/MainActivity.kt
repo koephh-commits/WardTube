@@ -781,6 +781,10 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 val onShorts = UrlUtils.isShortsPage(url)
                 if (onShorts && playerHost.isActive) pauseVideo()
                 playerHost.miniHidden = onShorts
+                // A Short opened from the feed (YouTube changes the page without a load) arrives with the bar still
+                // hidden by the scrolling that came before it. On Shorts the bar must always be there, not only
+                // after the first swipe (onPageScrolled brings it back for that).
+                if (onShorts) setBarHidden(false)
             }
         }
     }

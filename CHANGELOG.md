@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.6.62
+- Fixed: when a Short was opened from the feed while the bottom bar was hidden (the bar slides away as you scroll down
+  the feed), the bar stayed hidden and only came back after you swiped to the next Short. Cause: the bar was only
+  brought back in two places: `loadBrowse()` (a full page load) and `onPageScrolled()` (a swipe on a Shorts page).
+  A tap on a Short in the feed does not load a page, YouTube just changes the address, so neither ran until the first
+  swipe. `onPageChanged()` now brings the bar back as soon as the page becomes a Shorts page.
+
 ## 2.6.61
 - Fixed: the Library listed the sort folders (`فيديوهات`, `أصوات`, `كلمات`, `ملفات`) as if they were files: three or four
   extra rows with a document icon and no size or date, which also counted in the file total and could have been picked

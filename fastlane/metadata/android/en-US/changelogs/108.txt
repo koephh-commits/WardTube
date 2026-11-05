@@ -1,0 +1,1 @@
+Fixed: the bottom bar stayed hidden when a Short was opened from the feed, until you swiped to the next Short.
