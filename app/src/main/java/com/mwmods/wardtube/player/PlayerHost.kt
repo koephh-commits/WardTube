@@ -6,6 +6,7 @@ package com.mwmods.wardtube.player
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.graphics.Outline
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
@@ -15,6 +16,7 @@ import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
@@ -49,6 +51,10 @@ import kotlin.math.roundToInt
  * video goes on (if it was playing). If the video is started from outside the app while the box is tucked away (the
  * notification's Play button, a headset or Bluetooth key, Next / Previous), the box comes back too, so the video never
  * plays out of sight (see [onPlaybackState]).
+ *
+ * Full screen, a swipe down that starts on the video follows the finger (the whole player slides down over the
+ * browsing page) and, let go far enough or flicked, shrinks into the mini player's corner; let go early, it slides
+ * back. See [onPlayerTouch]. The same as the minimize arrow, like the YouTube app's swipe down.
  *
  * In the mini player the WebView keeps its full size (so the page does not reflow and the video does not
  * stutter) and is scaled down and shifted inside a small, clipping container so that only the video shows. The
@@ -147,6 +153,22 @@ class PlayerHost(
     private var enlarged = false
     private var smallOnRight = true
     private var resizeAnimator: ValueAnimator? = null
+
+    // Swipe down on the full-screen video to minimize it (see [onPlayerTouch]).
+    // WATCHING: the finger is down and the page still has the touch (it may be a tap or a scroll). DRAGGING: the player
+    // follows the finger. SWALLOW: the rest of a touch that was cut short is kept from the page.
+    private enum class Swipe { IDLE, WATCHING, DRAGGING, SWALLOW }
+
+    private var swipe = Swipe.IDLE
+    private var swipeId = 0 // counts touches, so a late answer about the video's box is never used for the next touch
+    private var swipeDownRawX = 0f
+    private var swipeDownRawY = 0f
+    private var swipeDownY = 0f // in the player's own pixels, to compare with the video's box
+    private var swipeAnchorRawY = 0f // where the finger was when the drag took over
+    private var swipeBase = 0f // how far down the player already was then (it may still have been sliding back)
+    private var swipeBox: RectF? = null // the video's box in the page, in the player's pixels; null: none found
+    private var swipeBoxRead = false // the page has answered (swipeBox is null if it found no video)
+    private var swipeTracker: VelocityTracker? = null
 
     // The dark discs behind the play/pause and close buttons. They fade out after [FADE_DELAY_MS] without a touch;
     // the icons themselves stay.
@@ -302,6 +324,7 @@ class PlayerHost(
     }
 
     /** Plays [url] and shows the player full screen. The same video that is already open is just shown again. */
+    @SuppressLint("ClickableViewAccessibility")
     fun play(url: String) {
         val current = webView
         if (current != null && mode != Mode.NONE) {
@@ -317,6 +340,7 @@ class PlayerHost(
         }
         val view = createWebView()
         webView = view
+        view.setOnTouchListener { v, event -> onPlayerTouch(v, event) }
         container.addView(view, 0, FrameLayout.LayoutParams(MATCH, MATCH))
         PlayerController.attach(view)
         lastUrl = url
@@ -364,11 +388,14 @@ class PlayerHost(
     }
 
     /** Shrinks the player to the floating box; the video keeps playing. */
-    fun minimize() {
+    fun minimize() = enterMini(null)
+
+    /** [box]: where the video will be in the box (known from the swipe), or null to assume 16:9 until it is measured. */
+    private fun enterMini(box: RectF?) {
         if (webView == null || mode == Mode.MINI) return
         miniWanted = true // before the page is told: the page also asks for it by itself (NativeBridge.isMini)
         mode = Mode.MINI
-        miniRect = null
+        miniRect = box
         applyMini()
         tellPageMini() // at once: with the page still loading, the first measure below may find nothing to talk to
         measureVideoBox()
@@ -395,6 +422,7 @@ class PlayerHost(
         area.removeCallbacks(fadeDiscs)
         area.removeCallbacks(remeasure)
         stopMotion()
+        endSwipe()
         offsetX = 0f
         offsetY = 0f
         container.translationX = 0f
@@ -594,6 +622,213 @@ class PlayerHost(
     private fun stopMotion() {
         resizeAnimator?.cancel()
         container.animate().cancel()
+    }
+
+    // ---- Swipe down to minimize ----
+
+    /**
+     * Sees every touch of the full-screen player before its page does, to turn a swipe down that starts on the video into
+     * "minimize" (like the YouTube app). Everything else, taps, scrolls, the seek bar, goes to the page untouched.
+     *
+     * A touch is only followed when the phone is upright (held sideways the page is mostly the video and scrolls) and it
+     * starts in the upper part of the screen, where the video is. The page is asked where its video is (a touch that
+     * starts on the comments or the description is a scroll, not a swipe), and when the finger has gone down more than
+     * the touch slop, mostly straight down, from a spot on the video (not on its seek bar), the player takes over: the
+     * page is sent a cancel, so it does not scroll or take the end for a tap, and the whole player slides down with the
+     * finger over the browsing page. Let go past [SWIPE_MINIMIZE_DP], or flicked down, it shrinks into the mini player
+     * from where it is; otherwise it slides back.
+     */
+    private fun onPlayerTouch(view: View, event: MotionEvent): Boolean {
+        val action = event.actionMasked
+        if (action == MotionEvent.ACTION_DOWN) {
+            if (swipe == Swipe.DRAGGING) settleBack() // the last touch never ended properly
+            endSwipe()
+            if (canWatchSwipe(view, event)) startWatching(event)
+            return false // the page always gets the start of a touch
+        }
+        if (mode != Mode.EXPANDED) {
+            // The player became the box (the back key, a link) in the middle of a touch. A drag under way still owns the
+            // rest of it: the page was told its touch was over, so it must not see the end of it.
+            val swallow = swipe == Swipe.DRAGGING || swipe == Swipe.SWALLOW
+            if (swallow && action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL) swipe = Swipe.SWALLOW
+            else endSwipe()
+            return swallow
+        }
+        return when (swipe) {
+            Swipe.WATCHING -> watchSwipe(view, event)
+            Swipe.DRAGGING -> dragSwipe(event)
+            Swipe.SWALLOW -> {
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) endSwipe()
+                true
+            }
+            Swipe.IDLE -> false
+        }
+    }
+
+    /** Only an upright phone, one finger, and a start in the upper part of the screen (where the video is) can be a swipe. */
+    private fun canWatchSwipe(view: View, event: MotionEvent): Boolean =
+        mode == Mode.EXPANDED && webView === view && event.pointerCount == 1 &&
+            view.width > 0 && view.width < view.height && event.y < view.height * SWIPE_ZONE_SHARE
+
+    private fun startWatching(event: MotionEvent) {
+        val web = webView ?: return
+        swipe = Swipe.WATCHING
+        val id = ++swipeId
+        swipeDownRawX = event.rawX
+        swipeDownRawY = event.rawY
+        swipeDownY = event.y
+        swipeBox = null
+        swipeBoxRead = false
+        swipeTracker?.recycle()
+        swipeTracker = VelocityTracker.obtain().also { addToTracker(it, event) }
+        // Where is the video? The answer comes back within a few milliseconds, while the finger is still going.
+        web.evaluateJavascript(VIDEO_BOX_SCRIPT) { value ->
+            if (id != swipeId || swipe == Swipe.IDLE) return@evaluateJavascript
+            swipeBox = parseBox(value)
+            swipeBoxRead = true
+        }
+    }
+
+    /** The box a [VIDEO_BOX_SCRIPT] answer describes, in the player's pixels, or null when the page has no video to show. */
+    private fun parseBox(value: String?): RectF? {
+        val parts = value?.trim('"')?.split('|') ?: return null
+        if (parts.size < 6) return null
+        val n = FloatArray(parts.size)
+        for (i in parts.indices) n[i] = parts[i].toFloatOrNull() ?: return null
+        val w = area.width
+        if (n[4] <= 0f || w <= 0) return null
+        val k = w / n[4] // CSS pixels to screen pixels
+        return RectF(n[0] * k, n[1] * k, (n[0] + n[2]) * k, (n[1] + n[3]) * k)
+    }
+
+    /** The finger is down and the page has the touch: decide whether it is going to be a swipe down on the video. */
+    private fun watchSwipe(view: View, event: MotionEvent): Boolean {
+        if (event.actionMasked != MotionEvent.ACTION_MOVE) { // lifted, cancelled, or a second finger came down
+            endSwipe()
+            return false
+        }
+        swipeTracker?.let { addToTracker(it, event) }
+        val dx = event.rawX - swipeDownRawX
+        val dy = event.rawY - swipeDownRawY
+        if (abs(dx) <= touchSlop && abs(dy) <= touchSlop) return false // still a tap
+        // Up, sideways or slanted: the page's own scroll (or a seek), not ours.
+        if (dy <= touchSlop || dy < abs(dx) * SWIPE_VERTICAL_RATIO) {
+            endSwipe()
+            return false
+        }
+        if (!swipeBoxRead) return false // no answer about the video yet: wait, the finger is still going
+        val box = swipeBox
+        // Not on the video, or on its seek bar along the bottom edge: the page's.
+        if (box == null || swipeDownY < box.top || swipeDownY > box.bottom - SWIPE_BOTTOM_DP * density) {
+            endSwipe()
+            return false
+        }
+        beginDrag(view, event)
+        return true
+    }
+
+    private fun beginDrag(view: View, event: MotionEvent) {
+        swipe = Swipe.DRAGGING
+        container.animate().cancel() // a slide back that is still running: the finger takes the player from where it is
+        swipeBase = container.translationY
+        swipeAnchorRawY = event.rawY
+        // The page is told its touch is over, so it neither scrolls nor takes the end of this one for a tap.
+        val cancel = MotionEvent.obtain(event)
+        cancel.action = MotionEvent.ACTION_CANCEL
+        view.onTouchEvent(cancel)
+        cancel.recycle()
+        view.parent?.requestDisallowInterceptTouchEvent(true)
+    }
+
+    /** The player follows the finger down (never up past its place); lifting it decides between minimizing and sliding back. */
+    private fun dragSwipe(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_MOVE -> {
+                swipeTracker?.let { addToTracker(it, event) }
+                container.translationY = (swipeBase + event.rawY - swipeAnchorRawY).coerceIn(0f, area.height.toFloat())
+            }
+            MotionEvent.ACTION_UP -> {
+                val tracker = swipeTracker
+                var velocity = 0f
+                if (tracker != null) {
+                    addToTracker(tracker, event)
+                    tracker.computeCurrentVelocity(1000)
+                    velocity = tracker.yVelocity
+                }
+                val box = swipeBox
+                endSwipe()
+                finishDrag(velocity, box)
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                endSwipe()
+                settleBack()
+            }
+            else -> { // a second finger: let go of the drag, and keep the rest of the touch from the page
+                endSwipe()
+                swipe = Swipe.SWALLOW
+                settleBack()
+            }
+        }
+        return true
+    }
+
+    /** The finger was lifted at [velocity] px/s (down is positive). [box] is the video's box in the page. */
+    private fun finishDrag(velocity: Float, box: RectF?) {
+        val dy = container.translationY
+        val enough = dy >= SWIPE_MINIMIZE_DP * density
+        val flungDown = velocity >= SWIPE_FLING_DP_S * density
+        val flungUp = velocity <= -SWIPE_FLING_DP_S * density
+        if ((enough && !flungUp) || (flungDown && dy > touchSlop)) minimizeFromSwipe(dy, box) else settleBack()
+    }
+
+    /**
+     * The player becomes the mini player and the video shrinks into its corner from where the finger left it: the box
+     * starts out the size and place of the video on screen ([dy] below where it sat in the page) and grows smaller into
+     * the corner, the same animation as the double tap's resize.
+     */
+    private fun minimizeFromSwipe(dy: Float, box: RectF?) {
+        val w = area.width.toFloat()
+        val h = area.height.toFloat()
+        val fromLeft = box?.left ?: 0f
+        val fromTop = (box?.top ?: 0f) + dy
+        val fromW = box?.width() ?: w
+        val fromH = box?.height() ?: (w * 9f / 16f)
+        // In the mini player the page pins the video to the top-left corner at full width, so that is the box to start
+        // from (the first measure corrects it if the page disagrees). Without it a video that is not 16:9 would first be
+        // shrunk as if it were, and only jump to its real shape when the animation is over.
+        val seed = box?.takeIf { it.width() > 0f && it.height() > 0f }
+            ?.let { RectF(0f, 0f, w, w * it.height() / it.width()) }
+            ?.takeIf { it.height() <= h * 1.05f }
+        container.animate().cancel()
+        enterMini(seed)
+        animateResize(fromLeft, fromTop, fromW.roundToInt(), fromH.roundToInt())
+        // The play/pause and close buttons would be seen shrinking along with the box: they appear once it has landed.
+        overlay.animate().cancel()
+        overlay.alpha = 0f
+        overlay.animate().alpha(1f).setStartDelay(RESIZE_MS * 3 / 5).setDuration(DISC_SHOW_MS).start()
+    }
+
+    /** Let go too early: the player slides back up to cover the page again. */
+    private fun settleBack() {
+        container.animate().cancel()
+        container.animate().translationY(0f).setDuration(SNAP_MS).start()
+    }
+
+    private fun endSwipe() {
+        swipe = Swipe.IDLE
+        swipeTracker?.recycle()
+        swipeTracker = null
+    }
+
+    /**
+     * Gives the touch to the velocity tracker in screen coordinates: the player moves with the finger, so its own
+     * coordinates would hardly change and the speed would read as zero.
+     */
+    private fun addToTracker(tracker: VelocityTracker, event: MotionEvent) {
+        val copy = MotionEvent.obtain(event)
+        copy.setLocation(event.rawX, event.rawY)
+        tracker.addMovement(copy)
+        copy.recycle()
     }
 
     // ---- Button discs ----
@@ -806,6 +1041,32 @@ class PlayerHost(
         const val TAB_WIDTH_DP = 22f
         const val TAB_HEIGHT_DP = 92f
         const val DISC_HIDE_MS = 350L
+
+        // Swipe down to minimize (see onPlayerTouch).
+        const val SWIPE_ZONE_SHARE = 0.6f // a touch can only start in the upper 60% of the screen
+        const val SWIPE_VERTICAL_RATIO = 1.2f // the finger must go down this much more than sideways
+        const val SWIPE_BOTTOM_DP = 36f // the video's bottom edge (its seek bar) is left to the page
+        const val SWIPE_MINIMIZE_DP = 72f // let go after sliding down this far: minimize
+        const val SWIPE_FLING_DP_S = 600f // or flick down faster than this
+
+        // The same answer as MEASURE_SCRIPT, but it changes nothing in the page (the player is full screen, the page
+        // must stay where the user left it): where the video's box is right now, or '' when no video is in view.
+        val VIDEO_BOX_SCRIPT = """
+            (function () {
+              var vw = window.innerWidth, vh = window.innerHeight;
+              var picks = ['#player-container-id', '#movie_player', '.html5-video-player', 'video'];
+              for (var i = 0; i < picks.length; i++) {
+                var list = document.querySelectorAll(picks[i]);
+                for (var j = 0; j < list.length; j++) {
+                  var r = list[j].getBoundingClientRect();
+                  if (r.width >= vw * 0.4 && r.height > 0 && r.bottom > 0 && r.top <= vh * 0.3) {
+                    return [r.left, r.top, r.width, r.height, vw, vh].join('|');
+                  }
+                }
+              }
+              return '';
+            })();
+        """.trimIndent()
 
         // "<left>|<top>|<width>|<height>|<viewport width>|<viewport height>" of the video's box, in CSS pixels, or ''.
         // The page is put back at the top first (the box shows only the top of it). The player is the first box, in the

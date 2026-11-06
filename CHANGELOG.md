@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.6.65
+- Added: **swipe down to minimize**, like the YouTube app. While a video is full screen, put a finger on the video and
+  drag down: the player follows the finger and slides down over the browsing page; let go past about 72 dp, or flick
+  down, and the video shrinks into the mini player's corner; let go earlier and it slides back up. It does the same as
+  the minimize arrow and the back key. Before, the video could only be minimized with those two.
+  - Only a swipe that starts **on the video** counts (and not on the seek bar along its bottom edge), so scrolling the
+    description or the comments, seeking, and taps all work as before. The page is asked where its video is on every
+    touch (`VIDEO_BOX_SCRIPT`, which changes nothing in the page); a touch that starts elsewhere, goes up or sideways, or
+    uses two fingers is left to the page. It is off while the phone is held sideways, where the page is mostly the video.
+  - `PlayerHost.onPlayerTouch` sees the player's touches before its WebView. When the drag takes over, the WebView is sent
+    a cancel (so it neither scrolls nor takes the end of the touch for a tap), `container.translationY` follows the finger
+    (taken from the screen's coordinates, because the player moves with the finger) and a `VelocityTracker` fed the same
+    way tells a flick from a slow drag.
+  - The shrink reuses the double tap's resize animation (`animateResize`), starting from the video's size and place on
+    screen. `minimize()` now delegates to a private `enterMini(box)`, which can be given the video's box so a video that
+    is not 16:9 shrinks into its real shape instead of a 16:9 one that jumps when the first measure arrives.
+
 ## 2.6.64
 - Added: when a YouTube link is shared to Ward Tube, the share window now starts with a **Play in Ward Tube** card
   (**Open in Ward Tube** for a playlist or channel): a soft rounded card in the style of the three-dots menu, with a
