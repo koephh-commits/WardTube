@@ -5,6 +5,7 @@ package com.mwmods.wardtube.download
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -17,6 +18,8 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.StringRes
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.isVisible
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -40,6 +43,9 @@ object Downloader {
     private val VIDEO_HEIGHTS = intArrayOf(0, 2160, 1440, 1080, 720, 480, 360, 240, 144)
     private val AUDIO_KBPS = intArrayOf(0, 320, 256, 192, 128, 96, 64)
 
+    /** How strong the tint behind the play card's icon is (0-255): the same as the three-dots menu's icons. */
+    private const val PLAY_TILE_ALPHA = 0x2E
+
     /**
      * [title] (the page title) names the job in the Library while it waits in the queue.
      *
@@ -61,6 +67,12 @@ object Downloader {
         direct: Boolean = false,
         /** True once the person has accepted the warning about a plain http link (the flow then goes on as usual). */
         insecureAccepted: Boolean = false,
+        /**
+         * When set, the window shows a "Play in Ward Tube" card above the download choices; tapping it runs this and
+         * closes the window instead of downloading (a video plays in the player, a list or channel opens as a page).
+         * The share screen sets it for YouTube links.
+         */
+        onOpenInApp: (() -> Unit)? = null,
         // Keep this one last: callers pass it as a trailing lambda.
         onClosed: () -> Unit = {},
     ) {
@@ -72,7 +84,10 @@ object Downloader {
                 .setMessage(activity.getString(R.string.insecureDownloadMessage, RequestHeaders.display(videoUrl).take(300)))
                 .setCancelable(false)
                 .setPositiveButton(R.string.browserInsecureProceed) { _, _ ->
-                    chooseAndStart(activity, videoUrl, snackbarAnchor, title, direct, insecureAccepted = true, onClosed = onClosed)
+                    chooseAndStart(
+                        activity, videoUrl, snackbarAnchor, title, direct,
+                        insecureAccepted = true, onOpenInApp = onOpenInApp, onClosed = onClosed,
+                    )
                 }
                 .setNegativeButton(android.R.string.cancel) { _, _ -> onClosed() }
                 .show()
@@ -92,8 +107,12 @@ object Downloader {
             activity, view, DownloadOptions.fromJson(prefs.downloadOptionsJson),
             showScope = analysis.kind == PlaylistLinks.Kind.VIDEO_IN_LIST,
         )
-        MaterialAlertDialogBuilder(activity)
-            .setTitle(if (analysis.kind == PlaylistLinks.Kind.LIST) R.string.downloadChooseList else R.string.downloadChoose)
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(when {
+                onOpenInApp != null -> R.string.shareChooseTitle
+                analysis.kind == PlaylistLinks.Kind.LIST -> R.string.downloadChooseList
+                else -> R.string.downloadChoose
+            })
             .setView(view)
             // Closed only by its Cancel / Download buttons: a tap outside must not drop the choices being made.
             .setCancelable(false)
@@ -116,7 +135,38 @@ object Downloader {
                 probe?.cancel()
                 onClosed()
             }
-            .show()
+            .create()
+        if (onOpenInApp != null) {
+            showPlayCard(activity, view, isList = analysis.kind == PlaylistLinks.Kind.LIST) {
+                dialog.dismiss()
+                probe?.cancel()
+                onOpenInApp()
+                onClosed()
+            }
+        }
+        dialog.show()
+    }
+
+    /**
+     * The "Play in Ward Tube" card at the top of the share window: a tinted icon, what it does, and an arrow, in the
+     * style of the three-dots menu. A tap runs [onClick]. A list or channel says "Open" and shows the list icon.
+     */
+    private fun showPlayCard(activity: AppCompatActivity, root: android.view.View, isList: Boolean, onClick: () -> Unit) {
+        root.findViewById<android.view.View>(R.id.sectionPlay).isVisible = true
+        val row = root.findViewById<android.view.View>(R.id.playRow)
+        row.findViewById<TextView>(R.id.menuRowTitle).setText(if (isList) R.string.openInApp else R.string.playInApp)
+        row.findViewById<TextView>(R.id.menuRowSubtitle).apply {
+            setText(if (isList) R.string.openInAppHint else R.string.playInAppHint)
+            isVisible = true
+        }
+        val accent = ContextCompat.getColor(activity, R.color.menuAccentRed)
+        row.findViewById<ImageView>(R.id.menuRowIcon).apply {
+            setImageResource(if (isList) R.drawable.ic_list_24dp else R.drawable.ic_play_white_24dp)
+            backgroundTintList = ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, PLAY_TILE_ALPHA))
+            imageTintList = ColorStateList.valueOf(accent)
+        }
+        row.findViewById<android.view.View>(R.id.menuRowChevron).isVisible = true
+        row.setOnClickListener { onClick() }
     }
 
     /**

@@ -176,6 +176,12 @@
 
     <!-- Download by sharing a link to the app -->
     <string name="shareTargetLabel">Download with Ward Tube</string>
+    <string name="shareChooseTitle">What would you like to do?</string>
+    <string name="playInApp">Play in Ward&#160;Tube</string>
+    <string name="playInAppHint">Watch it without downloading</string>
+    <string name="openInApp">Open in Ward&#160;Tube</string>
+    <string name="openInAppHint">Browse it without downloading</string>
+    <string name="shareOrDownload">or download</string>
     <string name="shareNoLink">No link found in the shared text</string>
     <string name="shareNotVideo">This link is not a video or playlist link</string>
     <string name="downloadWaitingCount">%1$d waiting</string>

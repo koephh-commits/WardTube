@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.6.64
+- Added: when a YouTube link is shared to Ward Tube, the share window now starts with a **Play in Ward Tube** card
+  (**Open in Ward Tube** for a playlist or channel): a soft rounded card in the style of the three-dots menu, with a
+  tinted icon, a line saying what it does and an arrow. Tapping it opens the video in the app's own player, or the list /
+  channel as a page, instead of downloading it. Below it an "or download" line leads into the usual download choices, with
+  the Cancel / Download buttons unchanged. The window's title is then "What would you like to do?". Before, the share
+  window could only download.
+  - `ShareReceiverActivity` hands the link to `MainActivity` (a normal `ACTION_VIEW`, which already plays YouTube links),
+    so the app comes to the front if it is running and starts if it is not.
+  - A link shared with "start at" (`t=`) plays from that time: `ShareLinks.Link` has a new `playUrl` that keeps `t`,
+    while `url` (the download address) still drops it.
+  - `Downloader.chooseAndStart` has a new optional `onOpenInApp`; only the share screen sets it, so the other download
+    windows (browser screen, mini player) are unchanged. Other sites get no such button: they have no player in the app.
+
 ## 2.6.63
 - Fixed (security): `UrlUtils`, which decides whether an address is YouTube's and whether a plain `http://` address is
   a local one, was too loose. A link to another site could be taken for a YouTube link and so get YouTube's treatment

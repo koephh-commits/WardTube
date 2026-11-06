@@ -179,6 +179,12 @@
 
     <!-- التنزيل بمشاركة رابط إلى التطبيق -->
     <string name="shareTargetLabel">التنزيل عبر Ward Tube</string>
+    <string name="shareChooseTitle">ماذا تريد أن تفعل؟</string>
+    <string name="playInApp">تشغيل في Ward&#160;Tube</string>
+    <string name="playInAppHint">شاهده دون تنزيل</string>
+    <string name="openInApp">فتح في Ward&#160;Tube</string>
+    <string name="openInAppHint">تصفّحها دون تنزيل</string>
+    <string name="shareOrDownload">أو نزّله</string>
     <string name="shareNoLink">لا يوجد رابط في النص المُشارَك</string>
     <string name="shareNotVideo">هذا الرابط ليس رابط فيديو أو قائمة تشغيل</string>
     <string name="downloadWaitingCount">%1$d في الانتظار</string>

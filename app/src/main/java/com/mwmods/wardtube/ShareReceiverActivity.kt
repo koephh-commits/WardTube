@@ -6,6 +6,7 @@ package com.mwmods.wardtube
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.FrameLayout
@@ -22,7 +23,8 @@ import com.mwmods.wardtube.util.ShareLinks
  *
  * The screen itself is transparent: only the usual "Download as" dialog shows, over the app the link came from, and
  * when it is done (or cancelled) this activity closes and the person is back where they were. The browser screen
- * ([MainActivity]) is never opened, so downloading by sharing needs no visit to the app.
+ * ([MainActivity]) is not opened for a download, so downloading by sharing needs no visit to the app. A YouTube link
+ * also offers "Play in Ward Tube", the one case where the browser screen is opened (on that video).
  */
 class ShareReceiverActivity : AppCompatActivity() {
 
@@ -89,7 +91,21 @@ class ShareReceiverActivity : AppCompatActivity() {
             return
         }
         // No title: the link carries none, and yt-dlp's own file name names the job in the Library.
-        Downloader.chooseAndStart(this, link.url, findViewById(android.R.id.content), null) { finish() }
+        // A YouTube link also gets "Play in Ward Tube" next to Download (other sites have no player here).
+        val play: (() -> Unit)? = if (link.site == ShareLinks.Site.YOUTUBE) this::openInApp else null
+        Downloader.chooseAndStart(this, link.url, findViewById(android.R.id.content), null, onOpenInApp = play) { finish() }
+    }
+
+    /**
+     * "Play in Ward Tube": hands the link to the browser screen, which plays a video in its player and opens a list or a
+     * channel as a page. [MainActivity] is single-task: it comes to the front if the app is already running.
+     */
+    private fun openInApp() {
+        val open = Intent(this, MainActivity::class.java)
+            .setAction(Intent.ACTION_VIEW)
+            .setData(Uri.parse(link.playUrl))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(open)
     }
 
     /**

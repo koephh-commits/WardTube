@@ -164,7 +164,8 @@ and applied by `ui/ThemeHelper.kt` (called from `WardTubeApp` before any activit
 
 - **Download by sharing**: share a video link from any app and pick *Ward Tube* (`ShareReceiverActivity`, text/plain `SEND`).
   Any site is accepted and yt-dlp decides whether it can download it. Only the transparent "Download as" dialog opens over
-  the sharing app; the file is queued like any other download. `util/ShareLinks.kt` cuts the link out of the shared text;
+  the sharing app; the file is queued like any other download. A YouTube link also gets a **Play in Ward Tube** card
+  on top of the window (**Open in Ward Tube** for a list or channel) that opens it in the app's player instead. `util/ShareLinks.kt` cuts the link out of the shared text;
   YouTube and TikTok links are also rewritten to a plain form, and their pages that are neither a video nor a list are refused.
   Lists (a playlist, Mix or channel; any other site yt-dlp reads as a list) get a choice of videos after the format window;
   each chosen video is queued as a job of its own (`DownloadService` takes the whole batch in one request).

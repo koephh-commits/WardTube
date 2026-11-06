@@ -24,8 +24,11 @@ object ShareLinks {
 
     enum class Site { YOUTUBE, TIKTOK, OTHER }
 
-    /** A link to download: [url] is the cleaned link yt-dlp is given. */
-    class Link(val url: String, val site: Site)
+    /**
+     * A link to download: [url] is the cleaned link yt-dlp is given. [playUrl] is the one the app opens when the person
+     * chooses to play it instead: the same, plus YouTube's start time (`t`) when the shared link had one.
+     */
+    class Link(val url: String, val site: Site, val playUrl: String = url)
 
     /** What was found in a shared text. */
     sealed interface Result {
@@ -42,6 +45,7 @@ object ShareLinks {
     private val ID_PATTERN = Regex("[A-Za-z0-9_-]{11}")
     private val LIST_PATTERN = Regex("[A-Za-z0-9_-]{2,}")
     private val DIGITS = Regex("[0-9]+")
+    private val START_PATTERN = Regex("[0-9hms]{1,12}")
     private const val TRAILING_PUNCTUATION = ".,;:!?)]"
 
     /**
@@ -136,7 +140,10 @@ object ShareLinks {
         if (id != null && ID_PATTERN.matches(id)) {
             // One form for every kind of link: it drops `si`, `t`, `index`... which a download does not need.
             val video = "https://www.youtube.com/watch?v=$id"
-            return Link(if (list != null && first != "shorts" && first != "live") "$video&list=$list" else video, Site.YOUTUBE)
+            val link = if (list != null && first != "shorts" && first != "live") "$video&list=$list" else video
+            // "Share at this time" puts `t=` in the link: kept for playing, dropped for downloading.
+            val start = queryValue(rawQuery, "t")?.takeIf { START_PATTERN.matches(it) }
+            return Link(link, Site.YOUTUBE, if (start != null) "$link&t=$start" else link)
         }
         if (list != null && (first == "playlist" || first == "watch")) {
             return Link(PlaylistLinks.youTubeListUrl(null, list), Site.YOUTUBE)
