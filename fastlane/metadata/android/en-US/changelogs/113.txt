@@ -1,0 +1,1 @@
+Added: Picture in picture. Press Home or swipe up while a video plays and it keeps playing in the system's small floating window, with a play / pause button; tap the window to come back, close it to stop. A new Picture in picture switch in the menu turns it off.

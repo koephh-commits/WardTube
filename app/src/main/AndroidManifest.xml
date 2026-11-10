@@ -45,12 +45,16 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
 
+        <!-- supportsPictureInPicture: the video can go on in the system's small floating window when the app is left.
+             orientation|screenSize|smallestScreenSize|screenLayout in configChanges are required for it: without them
+             the activity would be rebuilt every time it shrinks into that window and back. -->
         <activity
             android:name=".MainActivity"
             android:alwaysRetainTaskState="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:supportsPictureInPicture="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

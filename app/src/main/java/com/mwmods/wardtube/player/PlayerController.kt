@@ -19,6 +19,8 @@ object PlayerController {
     /**
      * [positionMs] / [durationMs] are -1 when unknown (no video yet, or a live stream with no fixed length).
      * [rate] is the playback speed (1 = normal), [isLive] says YouTube's player reports a live stream.
+     * [videoWidth] x [videoHeight] is the picture's own size and [boxWidth] x [boxHeight] the size of the page's player
+     * box, both 0 when unknown: the picture-in-picture window takes its shape from them.
      */
     data class State(
         val hasVideo: Boolean,
@@ -28,15 +30,23 @@ object PlayerController {
         val positionMs: Long = -1L,
         val durationMs: Long = -1L,
         val rate: Float = 1f,
-        val isLive: Boolean = false
+        val isLive: Boolean = false,
+        val videoWidth: Int = 0,
+        val videoHeight: Int = 0,
+        val boxWidth: Int = 0,
+        val boxHeight: Int = 0
     )
 
     // Tested in headless Chromium: normal videos, live streams (also with a rewind window), replays, no video.
-    // "<-1 none | 0 paused | 1 playing>|<seconds>|<length in seconds, -1 if unknown or live>|<speed>|<1 if live>"
+    // "<-1 none | 0 paused | 1 playing>|<seconds>|<length in seconds, -1 if unknown or live>|<speed>|<1 if live>|
+    //  <video width>|<video height>|<player box width>|<player box height>"  (the last four are missing when there is no video)
     private val STATE_SCRIPT = """
         (function () {
           var v = document.querySelector('video.html5-main-video') || document.querySelector('video');
           if (!v) return '-1|0|-1|1|0';
+          var box = document.querySelector('#player-container-id') || document.getElementById('movie_player') ||
+            document.querySelector('.html5-video-player');
+          var br = box ? box.getBoundingClientRect() : null;
           var m = location.search.match(/[?&]v=([^&]+)/), cur = m ? m[1] : '';
           var p = document.getElementById('movie_player');
           // A live stream has no fixed length. Ask YouTube's player (a live stream with a rewind window reports a finite,
@@ -50,7 +60,9 @@ object PlayerController {
           } catch (e) {}
           var length = (!live && isFinite(v.duration) && v.duration > 0) ? v.duration : -1;
           var rate = v.playbackRate > 0 ? v.playbackRate : 1;
-          return (v.paused ? 0 : 1) + '|' + v.currentTime + '|' + length + '|' + rate + '|' + (live ? 1 : 0);
+          return (v.paused ? 0 : 1) + '|' + v.currentTime + '|' + length + '|' + rate + '|' + (live ? 1 : 0) + '|' +
+            (v.videoWidth || 0) + '|' + (v.videoHeight || 0) + '|' +
+            (br ? Math.round(br.width) : 0) + '|' + (br ? Math.round(br.height) : 0);
         })();
     """.trimIndent()
 
@@ -122,7 +134,11 @@ object PlayerController {
                         positionMs = if (code >= 0 && position != null && position >= 0) (position * 1000).toLong() else -1L,
                         durationMs = if (code >= 0 && !live && duration != null && duration > 0) (duration * 1000).toLong() else -1L,
                         rate = rate,
-                        isLive = live
+                        isLive = live,
+                        videoWidth = parts.getOrNull(5)?.toIntOrNull() ?: 0,
+                        videoHeight = parts.getOrNull(6)?.toIntOrNull() ?: 0,
+                        boxWidth = parts.getOrNull(7)?.toIntOrNull() ?: 0,
+                        boxHeight = parts.getOrNull(8)?.toIntOrNull() ?: 0
                     )
                 )
             }

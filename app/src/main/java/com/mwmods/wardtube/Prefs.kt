@@ -30,6 +30,14 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(BACKGROUND_PLAY, true)
         set(value) = sp.edit { putBoolean(BACKGROUND_PLAY, value) }
 
+    /**
+     * Picture in picture: leaving the app (Home / the gesture bar) while a video plays shrinks it into the system's small
+     * floating window instead of leaving only its sound. Needs Android 8+; the menu row is not shown on older versions.
+     */
+    var pipAuto: Boolean
+        get() = sp.getBoolean(PIP_AUTO, true)
+        set(value) = sp.edit { putBoolean(PIP_AUTO, value) }
+
     var cookies: Boolean
         get() = sp.getBoolean(COOKIES, true)
         set(value) = sp.edit { putBoolean(COOKIES, value) }
@@ -117,6 +125,7 @@ class Prefs(context: Context) {
 
         private const val HOMEPAGE = "homepage"
         private const val BACKGROUND_PLAY = "backgroundPlayEnabled"
+        private const val PIP_AUTO = "pipAuto"
         private const val COOKIES = "cookiesEnabled"
         private const val AD_BLOCK = "adBlockEnabled"
         private const val AUTO_HIDE_BAR = "autoHideBar"

@@ -1,5 +1,53 @@
 # Changelog
 
+## 2.6.69
+- Fixed: two problems in the **picture-in-picture window's buttons**.
+  - On a right-to-left phone (Arabic) the previous and next buttons looked swapped: the system draws the window and puts
+    the first button on the right, so "previous" appeared on the right with an arrow pointing left. `pipActions()` now
+    reverses the order when the phone's layout direction is right-to-left (`Resources.getSystem()`, because the window
+    follows the phone's language, not the app's).
+  - The play / pause button kept showing the pause icon after it was pressed. The two states differed only by their icon
+    (same label, same request code), and the system window did not redraw such a button. Each state now has its own label
+    (`pipPause` / `pipPlay`) and request code (`PIP_REQUEST_PAUSE` / `PIP_REQUEST_PLAY`). Also, a poll right after the
+    press could still report the old state and flip the icon back, so for `PIP_TOGGLE_GRACE_MS` after a press the polls
+    no longer overwrite the state (`pipToggledAt` in `onVideoState`).
+
+## 2.6.68
+- Added: **previous and next buttons in the picture-in-picture window**. The window now has previous, play / pause and
+  next (before it had play / pause only), the same buttons as the playback notification and with the same behaviour:
+  inside a playlist or mix they move to the neighbouring item; otherwise next uses YouTube's own next button or the first
+  suggestion, and previous restarts a video that played for more than 5 seconds, else goes to the video before it.
+  - `MainActivity`: the window's actions are built by `pipActions()` (previous, play / pause, next) and handled by the
+    existing `pipReceiver`, which calls `PlayerController.previous()` / `next()`. On a phone that allows fewer than three
+    window buttons (`maxNumPictureInPictureActions`) only play / pause is kept.
+
+## 2.6.67
+- Added: **picture in picture** (Android 8+). Press Home or swipe up while a video plays and it keeps playing in the
+  system's small floating window instead of leaving only its sound. The window shows the video like the mini player:
+  just the picture, in its real shape, with a play / pause button; tapping the window brings the app back (the player
+  returns to full screen or to the floating box, as it was) and closing the window pauses the video.
+  - New menu switch **Picture in picture** (Playback group, on by default; only shown when the phone supports it).
+    Background play still works as before when it is off or the window is closed.
+  - The window is the same player as the mini player: the page script hides everything but the video (`miniWanted`) and
+    `PlayerHost.enterPip` keeps the WebView laid out at the screen's size and only scales its drawing into the window
+    (`applyPip`), so the page does not reflow while the window shrinks and the video does not stutter.
+  - No right-to-left problems: the player is laid out with `Gravity.LEFT` (never START, which turned the video black in
+    Arabic), and the container is forced to `LAYOUT_DIRECTION_LTR` while the window is shown, whatever the phone's language.
+  - The window takes the video's shape (`PlayerController.State` now reports the picture's and the player box's size), within
+    the 1:2.39 to 2.39:1 range Android allows, and the shrinking animation starts from where the video was
+    (`PlayerHost.pipSourceRect`). From Android 12 Home / the gesture bar enters the window by itself.
+  - It is only entered while a video is playing and the player is on screen (not tucked away at the edge, not docked, not
+    on Shorts). The app's own screens, permission dialogs and the share sheet do not start it (`ownLaunchUntil`).
+  - New setting `Prefs.pipAuto`; new strings `pictureInPicture*` (English, Arabic) and icon `ic_menu_pip`; the activity is
+    declared `android:supportsPictureInPicture="true"`.
+
+## 2.6.66
+- Fixed: the **Refresh button on the "page could not load" notice kept disappearing**. Two things took it away:
+  - The "no internet connection" notice was set to vanish after a few seconds (`LENGTH_LONG`), unlike the other
+    load errors. It now stays, like them, until Refresh is tapped or another page starts loading.
+  - A drag on the error page counted as scrolling and slid the bottom bar away, and the notice is anchored to that bar,
+    so it went with it. While the notice is showing, the bar now stays in place (`onPageScrolled`).
+
 ## 2.6.65
 - Added: **swipe down to minimize**, like the YouTube app. While a video is full screen, put a finger on the video and
   drag down: the player follows the finger and slides down over the browsing page; let go past about 72 dp, or flick

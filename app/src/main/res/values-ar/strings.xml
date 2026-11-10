@@ -10,6 +10,9 @@
     <string name="homePageSet">تم تعيين هذه الصفحة كصفحة رئيسية.</string>
     <string name="menu">القائمة</string>
     <string name="playInBackground">التشغيل في الخلفية</string>
+    <string name="pictureInPicture">صورة داخل صورة</string>
+    <string name="pictureInPictureOn">عند الخروج من التطبيق يستمر الفيديو في نافذة صغيرة عائمة</string>
+    <string name="pictureInPictureOff">متوقف: الخروج من التطبيق يُبقي الصوت فقط (إذا كان التشغيل في الخلفية مفعّلاً)</string>
     <string name="hideBarOnScroll">إخفاء الشريط عند التمرير</string>
     <string name="refresh">تحديث</string>
     <string name="set_as_home">تعيين كصفحة رئيسية</string>
@@ -243,6 +246,8 @@
     <string name="downloadChoiceList">القائمة أو القناة المفتوحة</string>
     <string name="downloadChoiceListHint">اختر الفيديوهات التي تريدها من القائمة</string>
     <string name="miniPlayerPlayPause">تشغيل أو إيقاف مؤقت</string>
+    <string name="pipPause">إيقاف مؤقت</string>
+    <string name="pipPlay">تشغيل</string>
     <string name="miniPlayerClose">إغلاق الفيديو</string>
     <string name="miniPlayerShow">إظهار المشغل المصغر</string>
 

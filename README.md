@@ -19,6 +19,8 @@ library that works offline. Free software under the [GPL-3.0](LICENSE).
 - **Background play**, also with the screen off. The notification shows the cover and has Previous / Next.
 - **Mini player** like the YouTube app: a playing video shrinks into a floating box you can drag around while you
   keep browsing. Swipe down on the video (or press back) to minimize it.
+- **Picture in picture**: press Home while a video plays and it keeps going in the system's small floating window,
+  with a play / pause button (Android 8+; can be turned off in the menu).
 - **Sleep timer**: ready-made times or a time you type (up to 24 hours).
 - **Downloads** done on the device (yt-dlp + ffmpeg): MP4, MP3 or M4A, with subtitles. A queue shows progress.
 - **Playlists**: share or paste a playlist, Mix or channel link (YouTube, and any other site yt-dlp reads as a list),

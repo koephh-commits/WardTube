@@ -12,6 +12,9 @@
     <string name="homePageSet">Your homepage has been set to this page.</string>
     <string name="menu">Menu</string>
     <string name="playInBackground">Play in background</string>
+    <string name="pictureInPicture">Picture in picture</string>
+    <string name="pictureInPictureOn">When you leave the app, the video keeps playing in a small floating window</string>
+    <string name="pictureInPictureOff">Off: leaving the app keeps only the sound (if play in background is on)</string>
     <string name="hideBarOnScroll">Hide bar while scrolling</string>
     <string name="refresh">Refresh</string>
     <string name="set_as_home">Set as home</string>
@@ -240,6 +243,8 @@
     <string name="downloadChoiceList">The open playlist or channel</string>
     <string name="downloadChoiceListHint">Pick the videos you want from the list</string>
     <string name="miniPlayerPlayPause">Play or pause</string>
+    <string name="pipPause">Pause</string>
+    <string name="pipPlay">Play</string>
     <string name="miniPlayerClose">Close video</string>
     <string name="miniPlayerShow">Show mini player</string>
 

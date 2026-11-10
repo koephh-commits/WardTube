@@ -1,0 +1,1 @@
+Added: previous and next buttons in the picture-in-picture window, next to play / pause (same behaviour as the playback notification).

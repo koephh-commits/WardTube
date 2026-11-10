@@ -8,6 +8,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.graphics.Outline
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -60,6 +61,14 @@ import kotlin.math.roundToInt
  * stutter) and is scaled down and shifted inside a small, clipping container so that only the video shows. The
  * video's box is measured again every few seconds, because YouTube moves things around when it opens a new video, and
  * the page script keeps the page scrolled to the top meanwhile (see [MEASURE_SCRIPT]).
+ *
+ * Picture in picture ([enterPip]): when the whole app window becomes the system's small floating window, the player
+ * is shown the same way as the mini player (the page hides everything but the video, the WebView keeps a screen-sized
+ * layout and is scaled down), only the "box" is the whole window and has no buttons of its own (the system draws
+ * its own). [mode] stays what it was (full screen or mini) so [exitPip] can put it back. Everything that places the
+ * WebView there uses LEFT / top-left, never START, and the container is forced left-to-right: in a right-to-left
+ * layout START puts the wider WebView against the window's right edge and the window would show the wrong part
+ * of the page (black).
  */
 class PlayerHost(
     private val area: FrameLayout,
@@ -109,6 +118,20 @@ class PlayerHost(
             }
         }
 
+    /**
+     * True while the app window is the system's picture-in-picture window and this player fills it (see [enterPip]).
+     * [mode] is still the one from before (full screen or mini).
+     */
+    var pip: Boolean = false
+        private set
+
+    /** The size the WebView is laid out at while in picture in picture (the screen's), in pixels. */
+    private var pipPageWidth = 0
+    private var pipPageHeight = 0
+
+    /** True when there is a video to show in a picture-in-picture window: not closed, not hidden for a Short, not tucked away. */
+    val canPip: Boolean get() = webView != null && mode != Mode.NONE && !miniHidden && !docked
+
     /** The page the player shows (the video being played), or null when there is no player. */
     val currentUrl: String? get() = webView?.url ?: lastUrl
 
@@ -125,7 +148,7 @@ class PlayerHost(
     // once would then show the wrong part of the page (the suggestions below the video, for example).
     private val remeasure = object : Runnable {
         override fun run() {
-            if (mode != Mode.MINI) return
+            if (mode != Mode.MINI && !pip) return
             if (!docked && !miniHidden) measureVideoBox()
             area.postDelayed(this, REMEASURE_PERIOD_MS)
         }
@@ -302,6 +325,12 @@ class PlayerHost(
         area.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             val widthChanged = right - left != oldRight - oldLeft
             val heightChanged = bottom - top != oldBottom - oldTop
+            if (pip) {
+                // The little window came out another size (the system lets the person make it bigger or smaller): the
+                // video's box is fitted into it again.
+                if (widthChanged || heightChanged) area.post { if (pip) applyPip() }
+                return@addOnLayoutChangeListener
+            }
             if (docked) area.post { placeDockTab(horizontal = widthChanged) }
             if (mode == Mode.MINI) {
                 if (widthChanged) {
@@ -351,7 +380,7 @@ class PlayerHost(
 
     /** Measures the video's box again in a moment (the page has just changed or finished loading). */
     fun remeasureSoon() {
-        if (mode != Mode.MINI) return
+        if (mode != Mode.MINI && !pip) return
         tellPageMini() // a page that has just (re)loaded starts out knowing nothing about the box
         area.removeCallbacks(remeasure)
         area.postDelayed(remeasure, REMEASURE_DELAY_MS)
@@ -365,6 +394,7 @@ class PlayerHost(
     /** Shows the player over the whole browsing area. */
     fun expand() {
         val view = webView ?: return
+        endPip()
         leaveDock(resume = true)
         miniWanted = false // before the page is told (see below)
         mode = Mode.EXPANDED
@@ -408,6 +438,7 @@ class PlayerHost(
     /** Stops the video and removes the player. */
     fun close() {
         val view = webView ?: return
+        endPip()
         PlayerController.detach(view)
         container.removeView(view)
         webView = null
@@ -466,14 +497,16 @@ class PlayerHost(
     private fun measureVideoBox() {
         val view = webView ?: return
         view.evaluateJavascript(MEASURE_SCRIPT) { value ->
-            if (mode != Mode.MINI || webView !== view) return@evaluateJavascript
+            if ((mode != Mode.MINI && !pip) || webView !== view) return@evaluateJavascript
             val parts = value?.trim('"')?.split('|') ?: return@evaluateJavascript
             if (parts.size < 6) return@evaluateJavascript
             val n = FloatArray(parts.size)
             for (i in parts.indices) n[i] = parts[i].toFloatOrNull() ?: return@evaluateJavascript
             val innerWidth = n[4]
-            val w = area.width
-            val h = area.height
+            // The size the WebView itself is laid out at: the area's, or in picture in picture the screen's (the area is
+            // then the little window, and the WebView is bigger than it and scaled down).
+            val w = if (pip) pipPageWidth else area.width
+            val h = if (pip) pipPageHeight else area.height
             if (innerWidth <= 0f || w <= 0 || h <= 0) return@evaluateJavascript
             val k = w / innerWidth // CSS pixels to screen pixels
             val rect = RectF(n[0] * k, n[1] * k, (n[0] + n[2]) * k, (n[1] + n[3]) * k)
@@ -495,6 +528,10 @@ class PlayerHost(
     }
 
     private fun applyMini() {
+        if (pip) {
+            applyPip()
+            return
+        }
         val view = webView ?: return
         val w = area.width
         val h = area.height
@@ -622,6 +659,115 @@ class PlayerHost(
     private fun stopMotion() {
         resizeAnimator?.cancel()
         container.animate().cancel()
+    }
+
+    // ---- Picture in picture ----
+
+    /**
+     * The app window has become the system's picture-in-picture window (the activity has hidden its bars, so the area is
+     * the whole window): the video fills it. [pageWidth] x [pageHeight] is the screen's size. The WebView is laid out at
+     * that size, as in the mini player, and only its drawing is scaled down, so the page does not reflow when the window
+     * shrinks and the video does not stutter. The page itself hides everything but the player (see [miniWanted]).
+     */
+    fun enterPip(pageWidth: Int, pageHeight: Int) {
+        val view = webView ?: return
+        if (mode == Mode.NONE || pip) return
+        pip = true
+        // From the mini player the WebView already has a full-size layout fixed in pixels, which the window shrinking
+        // does not touch: it is kept, so the page does not reflow at all. Full screen, the WebView follows the window
+        // (it is already shrinking), so the screen's size is used.
+        val keepSize = mode == Mode.MINI && view.width > 0 && view.height > 0
+        pipPageWidth = if (keepSize) view.width else pageWidth.coerceAtLeast(1)
+        pipPageHeight = if (keepSize) view.height else pageHeight.coerceAtLeast(1)
+        miniWanted = true // before the page is told: the page also asks for it by itself (NativeBridge.isMini)
+        stopMotion()
+        area.removeCallbacks(fadeDiscs)
+        overlay.animate().cancel()
+        overlay.visibility = View.GONE // the system draws the window's own buttons
+        dockTab.visibility = View.GONE
+        // Never mirrored: whatever the phone's language is, the window is laid out from its physical left.
+        container.layoutDirection = View.LAYOUT_DIRECTION_LTR
+        container.layoutParams = FrameLayout.LayoutParams(MATCH, MATCH)
+        container.scaleX = 1f
+        container.scaleY = 1f
+        container.translationX = 0f
+        container.translationY = 0f
+        container.clipToOutline = false
+        container.elevation = 0f
+        container.visibility = View.VISIBLE
+        applyPip()
+        tellPageMini() // at once, so the page does not show its other parts while the window is shrinking
+        measureVideoBox()
+        area.removeCallbacks(remeasure)
+        area.postDelayed(remeasure, REMEASURE_DELAY_MS)
+    }
+
+    /** The window is the app again: the player goes back to what it was before, full screen or the floating box. */
+    fun exitPip() {
+        if (!pip) return
+        endPip()
+        when (mode) {
+            Mode.EXPANDED -> expand()
+            Mode.MINI -> {
+                overlay.alpha = 1f
+                applyMini()
+                tellPageMini()
+                measureVideoBox()
+                remeasureSoon()
+                showControls()
+                scheduleFade()
+            }
+            Mode.NONE -> Unit
+        }
+    }
+
+    /** Drops the picture-in-picture state; the caller lays the player out again for the mode it is in. */
+    private fun endPip() {
+        if (!pip) return
+        pip = false
+        container.layoutDirection = View.LAYOUT_DIRECTION_INHERIT
+    }
+
+    /** Fits the video's box into the window: as large as it goes, centred, with black around it if the shapes differ. */
+    private fun applyPip() {
+        val view = webView ?: return
+        val w = area.width
+        val h = area.height
+        if (w <= 0 || h <= 0) return // not laid out yet: the layout listener comes back when it is
+        val pageW = pipPageWidth
+        val pageH = pipPageHeight
+        val rect = miniRect ?: RectF(0f, 0f, pageW.toFloat(), pageW * 9f / 16f)
+        val scale = minOf(w / rect.width(), h / rect.height())
+        val shownW = rect.width() * scale
+        val shownH = rect.height() * scale
+        // LEFT, not START: see the class comment.
+        val gravity = Gravity.TOP or Gravity.LEFT
+        val params = view.layoutParams as? FrameLayout.LayoutParams
+        if (params == null || params.width != pageW || params.height != pageH || params.gravity != gravity) {
+            view.layoutParams = FrameLayout.LayoutParams(pageW, pageH, gravity)
+        }
+        view.pivotX = 0f
+        view.pivotY = 0f
+        view.scaleX = scale
+        view.scaleY = scale
+        view.translationX = (w - shownW) / 2f - rect.left * scale
+        view.translationY = (h - shownH) / 2f - rect.top * scale
+    }
+
+    /**
+     * Where the video is in the window right now, for the system's shrinking animation; null when that cannot be said.
+     * [aspect] is the picture's width over its height.
+     */
+    fun pipSourceRect(aspect: Float): Rect? {
+        if (mode == Mode.NONE || pip || container.visibility != View.VISIBLE) return null
+        val w = container.width
+        val h = container.height
+        if (w <= 0 || h <= 0 || aspect <= 0f) return null
+        val where = IntArray(2)
+        container.getLocationInWindow(where)
+        // Full screen the video sits at the top of the player and is as wide as it; in the floating box it is the box.
+        val boxHeight = if (mode == Mode.EXPANDED) minOf(h, (w / aspect).roundToInt()) else h
+        return Rect(where[0], where[1], where[0] + w, where[1] + boxHeight)
     }
 
     // ---- Swipe down to minimize ----

@@ -5,24 +5,37 @@ package com.mwmods.wardtube
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.app.PictureInPictureParams
+import android.app.RemoteAction
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.content.res.Resources
 import android.graphics.Color
+import android.graphics.Point
+import android.graphics.Rect
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.content.pm.ActivityInfo
 import android.os.Handler
 import android.os.Looper
+import android.util.Rational
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.ViewGroup
+import kotlin.math.roundToInt
 import android.webkit.PermissionRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -33,6 +46,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.ActionMenuView
 import androidx.core.content.ContextCompat
@@ -42,6 +56,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
+import androidx.lifecycle.Lifecycle
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import com.google.android.material.snackbar.Snackbar
@@ -243,7 +258,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             onDownload = { startDownloadFlow(it) },
             onSleepTimerChanged = { updateSleepButton(force = true) },
             onMinimize = { playerHost.minimize() },
-            onAutoHideBarChanged = { if (!prefs.autoHideBar) setBarHidden(false) }
+            onAutoHideBarChanged = { if (!prefs.autoHideBar) setBarHidden(false) },
+            pipAvailable = pipSupported,
+            onPipChanged = { updatePipParams() }
         )
         menuController.setUp(findViewById<ActionMenuView>(R.id.menu_main))
 
@@ -294,7 +311,10 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private fun loadBrowse(url: String) {
         setBarHidden(false)
         browseLoaded = true
-        if (::playerHost.isInitialized) playerHost.miniHidden = UrlUtils.isShortsPage(url)
+        if (::playerHost.isInitialized) {
+            playerHost.miniHidden = UrlUtils.isShortsPage(url)
+            updatePipParams()
+        }
         webView.loadUrl(url)
     }
 
@@ -312,6 +332,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (!browseLoaded) loadBrowse(browseHomepage()) // something to browse behind the mini player
         errorSnackbar?.dismiss()
         errorSnackbar = null
+        videoPlaying = true // a video starts by itself: leaving the app at once already means picture in picture
         playerHost.play(url)
     }
 
@@ -330,6 +351,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
     private fun pauseVideo() {
         PlayerController.pause()
+        videoPlaying = false
         if (::playerHost.isInitialized) playerHost.setPlaying(false)
     }
 
@@ -383,6 +405,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (::menuController.isInitialized) menuController.setVideoFullScreen(mode == PlayerHost.Mode.EXPANDED)
         updateDownloadButton()
         if (mode != PlayerHost.Mode.NONE && prefs.backgroundPlay) askForNotificationPermission()
+        if (mode == PlayerHost.Mode.NONE) videoPlaying = false
+        updatePipParams()
     }
 
     /**
@@ -553,6 +577,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private fun onPageScrolled(down: Boolean) {
         if (!prefs.autoHideBar || isFullscreen) return
         if (playerHost.mode == PlayerHost.Mode.EXPANDED) return
+        // The load-error notice (with Refresh) is anchored to the bar: while it is up the bar must not slide away,
+        // or a drag on the error page would take the Refresh button with it.
+        if (down && errorSnackbar?.isShownOrQueued == true) return
         // Shorts swipe up and down all the time: keep the bar where it is reachable and do not resize the page.
         if (UrlUtils.isShortsPage(webView.url)) {
             setBarHidden(false)
@@ -623,17 +650,279 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         recreate()
     }
 
+    // ---- Picture in picture ----
+    //
+    // Leaving the app while a video plays shrinks the whole window into the system's small floating window (Android 8+).
+    // The window then shows only the video, the way the mini player shows it (see PlayerHost.enterPip), and has the
+    // system's own buttons plus previous, play/pause and next. Closing the window pauses the video; tapping it brings the app back.
+
+    /** Android 8 or newer, on a phone that has the feature (some makers switch it off). */
+    private val pipSupported: Boolean by lazy {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
+
+    /** The app's bars are hidden and the player fills the window. */
+    private var pipUiOn = false
+
+    /** When enterPictureInPictureMode was asked for: onPause must not pause the video that is about to be shown there. */
+    private var pipAskedAt = 0L
+
+    /** Android 12+: the system enters picture in picture by itself when the user goes Home (set through the params). */
+    private var pipArmed = false
+
+    /** What was last handed to setPictureInPictureParams, so it is only sent again when it changes. */
+    private var pipParamsKey = ""
+
+    /** Until when a "user leaves" signal is really the app opening one of its own screens or a permission dialog. */
+    private var ownLaunchUntil = 0L
+
+    /** From the player's last report (and what the app itself did since): playing now, and the two shapes it has. */
+    private var videoPlaying = false
+    private var videoAspect = 0f
+    private var boxAspect = 0f
+
+    /** When the window's play / pause button was last pressed: a poll just after it can still report the old state. */
+    private var pipToggledAt = 0L
+
+    private var pipReceiverOn = false
+
+    /** The buttons of the little window: previous, play/pause and next. */
+    private val pipReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                ACTION_PIP_TOGGLE -> {
+                    PlayerController.toggle()
+                    pipToggledAt = SystemClock.uptimeMillis()
+                    videoPlaying = !videoPlaying // the polls say what really happened once the page has reacted
+                    updatePipParams()
+                }
+                // Same behaviour as the notification's buttons (see PlaybackService.skip and wardtube.js).
+                ACTION_PIP_PREVIOUS -> PlayerController.previous()
+                ACTION_PIP_NEXT -> PlayerController.next()
+            }
+        }
+    }
+
+    /** Android calls onUserLeaveHint for the app's own startActivity and permission dialogs too: those are marked. */
+    private fun markOwnLaunch() {
+        ownLaunchUntil = SystemClock.uptimeMillis() + OWN_LAUNCH_MS
+    }
+
+    private fun canEnterPip(): Boolean = pipSupported && ::playerHost.isInitialized && playerHost.canPip
+
+    /** True in the little window, and for a moment before it (asked for, or Android 12+ is about to do it by itself). */
+    private fun isPipActiveOrComing(): Boolean = pipSupported &&
+        (isInPictureInPictureMode || pipArmed || SystemClock.uptimeMillis() - pipAskedAt < PIP_ASK_WINDOW_MS)
+
+    /** The player's report (every second or three): keeps the window's shape and play/pause button up to date. */
+    private fun onVideoState(state: PlayerController.State?) {
+        if (isDestroyed || !::playerHost.isInitialized) return
+        if (SystemClock.uptimeMillis() - pipToggledAt > PIP_TOGGLE_GRACE_MS) videoPlaying = state?.playing == true
+        if (state != null) {
+            if (state.videoWidth > 0 && state.videoHeight > 0) videoAspect = state.videoWidth.toFloat() / state.videoHeight
+            if (state.boxWidth > 0 && state.boxHeight > 0) boxAspect = state.boxWidth.toFloat() / state.boxHeight
+        }
+        updatePipParams()
+    }
+
+    /**
+     * The window's shape: the picture's own while the video is in the system's full screen, the page's player box
+     * otherwise (that is what the window shows), 16:9 until either is known. Android refuses shapes beyond 2.39:1.
+     */
+    private fun pipRatio(): Rational {
+        val aspect = when {
+            isFullscreen && videoAspect > 0f -> videoAspect
+            boxAspect > 0f -> boxAspect
+            videoAspect > 0f -> videoAspect
+            else -> 16f / 9f
+        }.coerceIn(PIP_MIN_ASPECT, PIP_MAX_ASPECT)
+        return Rational((aspect * 1000f).roundToInt(), 1000)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun pipAction(iconRes: Int, labelRes: Int, action: String, requestCode: Int): RemoteAction {
+        val icon = Icon.createWithResource(this, iconRes)
+        val label = getString(labelRes)
+        val intent = PendingIntent.getBroadcast(
+            this, requestCode, Intent(action).setPackage(packageName),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        return RemoteAction(icon, label, label, intent)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun pipPlayPauseAction(): RemoteAction =
+        // Each state has its own label and request code: the system window did not redraw a button that differed only by its icon.
+        if (videoPlaying) pipAction(R.drawable.ic_pause_white_24dp, R.string.pipPause, ACTION_PIP_TOGGLE, PIP_REQUEST_PAUSE)
+        else pipAction(R.drawable.ic_play_white_24dp, R.string.pipPlay, ACTION_PIP_TOGGLE, PIP_REQUEST_PLAY)
+
+    /**
+     * Previous, play/pause, next. Android shows only as many buttons as the phone allows (three on almost every
+     * phone); on one that allows fewer, play/pause alone is kept.
+     */
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun pipActions(): List<RemoteAction> {
+        val playPause = pipPlayPauseAction()
+        if (maxNumPictureInPictureActions < 3) return listOf(playPause)
+        val previous = pipAction(R.drawable.ic_skip_previous_white_24dp, R.string.previousVideo, ACTION_PIP_PREVIOUS, PIP_REQUEST_PREVIOUS)
+        val next = pipAction(R.drawable.ic_skip_next_white_24dp, R.string.nextVideo, ACTION_PIP_NEXT, PIP_REQUEST_NEXT)
+        // The window is drawn by the system, so it follows the phone's language, not the app's: on a right-to-left phone
+        // it puts the first button on the right, which would show "previous" on the right with an arrow pointing left.
+        val rtl = Resources.getSystem().configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL
+        return if (rtl) listOf(next, playPause, previous) else listOf(previous, playPause, next)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun buildPipParams(ratio: Rational, sourceRect: Rect?): PictureInPictureParams {
+        val builder = PictureInPictureParams.Builder()
+            .setAspectRatio(ratio)
+            .setActions(pipActions())
+        if (sourceRect != null) builder.setSourceRectHint(sourceRect)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(pipArmed)
+            builder.setSeamlessResizeEnabled(false) // for video, the system's smooth resize looks worse than a crisp one
+        }
+        return builder.build()
+    }
+
+    /**
+     * Tells Android what the little window should look like and, from Android 12 on, whether it may enter it by itself
+     * when the user goes Home (only while a video that can be shown plays and the menu switch is on). Cheap to call:
+     * nothing is sent unless something changed.
+     */
+    private fun updatePipParams() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !pipSupported) return
+        if (isDestroyed || isFinishing || !::playerHost.isInitialized) return
+        pipArmed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && prefs.pipAuto && videoPlaying && playerHost.canPip
+        val ratio = pipRatio()
+        val sourceRect = playerHost.pipSourceRect(ratio.toFloat())
+        val key = "$ratio|$videoPlaying|$pipArmed|$sourceRect"
+        if (key == pipParamsKey) return
+        pipParamsKey = key
+        try {
+            setPictureInPictureParams(buildPipParams(ratio, sourceRect))
+        } catch (e: Exception) {
+            // The system refused the params (the feature was switched off meanwhile): the app works without them.
+        }
+    }
+
+    /** Asks Android to shrink the app into the little window now. Returns false when that is not possible. */
+    private fun enterPip(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !canEnterPip() || isInPictureInPictureMode) return false
+        return try {
+            pipAskedAt = SystemClock.uptimeMillis()
+            menuController.dismissSheet()
+            val ratio = pipRatio()
+            val entered = enterPictureInPictureMode(buildPipParams(ratio, playerHost.pipSourceRect(ratio.toFloat())))
+            if (!entered) pipAskedAt = 0L
+            entered
+        } catch (e: Exception) {
+            pipAskedAt = 0L
+            false
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pipAskedAt = 0L
+        if (isInPictureInPictureMode) enterPipUi() else leavePipUi()
+    }
+
+    /** The window is now the small one: only the video is left in it, filling it. */
+    private fun enterPipUi() {
+        if (pipUiOn || !::playerHost.isInitialized) return
+        registerPipReceiver()
+        // The upkeep (screen on, play/pause state of the window's button) goes on while the activity is paused.
+        keepAwakeHandler.removeCallbacks(keepAwakePoll)
+        keepAwakeHandler.post(keepAwakePoll)
+        val fullscreen = isFullscreen
+        // Nothing to show (no video, or a Short is on the page): the window is left as the app is.
+        if (!fullscreen && !playerHost.canPip) return
+        pipUiOn = true
+        menuController.dismissSheet()
+        errorSnackbar?.dismiss()
+        errorSnackbar = null
+        showChrome(false)
+        // A video in the system's full screen already fills the window by itself; otherwise the player takes it over.
+        if (!fullscreen) {
+            val screen = realDisplaySize()
+            playerHost.enterPip(screen.x, screen.y)
+        }
+    }
+
+    /** The window is the app again (the person tapped it) or it was closed (the video stops). */
+    private fun leavePipUi() {
+        unregisterPipReceiver()
+        if (!pipUiOn) return
+        pipUiOn = false
+        showChrome(true)
+        playerHost.exitPip()
+        // Closed with its X: the activity is already stopped by now. The video stops too, but stays in the player.
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) pauseVideo()
+        updatePipParams()
+    }
+
+    /** Hides ([show] = false) or brings back the status bar space, the bottom bar and the navigation space. */
+    private fun showChrome(show: Boolean) {
+        bottomBar.animate().cancel()
+        if (show) {
+            statusBarSpace.visibility = View.VISIBLE
+            bottomBar.translationY = 0f
+            bottomBar.visibility = if (barHidden) View.GONE else View.VISIBLE
+            navBarSpace.visibility = View.VISIBLE
+            updateNavBarSpace()
+        } else {
+            statusBarSpace.visibility = View.GONE
+            bottomBar.visibility = View.GONE
+            navBarSpace.visibility = View.GONE
+        }
+    }
+
+    /** The screen's size in its current rotation, whatever size the window has (the little window is not the screen). */
+    @Suppress("DEPRECATION")
+    private fun realDisplaySize(): Point {
+        val size = Point()
+        windowManager.defaultDisplay.getRealSize(size)
+        if (size.x <= 0 || size.y <= 0) size.set(webArea.width.coerceAtLeast(1), webArea.height.coerceAtLeast(1))
+        return size
+    }
+
+    private fun registerPipReceiver() {
+        if (pipReceiverOn) return
+        val filter = IntentFilter().apply {
+            addAction(ACTION_PIP_TOGGLE)
+            addAction(ACTION_PIP_PREVIOUS)
+            addAction(ACTION_PIP_NEXT)
+        }
+        ContextCompat.registerReceiver(this, pipReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        pipReceiverOn = true
+    }
+
+    private fun unregisterPipReceiver() {
+        if (!pipReceiverOn) return
+        pipReceiverOn = false
+        try {
+            unregisterReceiver(pipReceiver)
+        } catch (e: IllegalArgumentException) {
+            // Not registered after all.
+        }
+    }
+
     // ---- Keep screen on while a video plays ----
 
     private val keepAwakeHandler = Handler(Looper.getMainLooper())
     private val keepAwakePoll = object : Runnable {
         override fun run() {
-            if (!resumed) return
+            // The small picture-in-picture window is visible but paused (not resumed): it needs the same upkeep.
+            if (!resumed && !isInPictureInPictureMode) return
             PlayerController.queryState { state ->
                 setKeepScreenOn(isFullscreen || state?.playing == true)
                 if (state != null && playerHost.mode == PlayerHost.Mode.MINI) playerHost.onPlaybackState(state.playing)
+                onVideoState(state)
             }
-            keepAwakeHandler.postDelayed(this, if (playerHost.mode == PlayerHost.Mode.MINI) 1000L else 3000L)
+            val fast = playerHost.mode == PlayerHost.Mode.MINI || isInPictureInPictureMode
+            keepAwakeHandler.postDelayed(this, if (fast) 1000L else 3000L)
         }
     }
 
@@ -687,6 +976,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         adBlocker.refreshIfStale()
         sleepHandler.removeCallbacks(sleepTick)
         sleepHandler.post(sleepTick)
+        // Not unregistered when the app went into the picture-in-picture window (see onPause): never registered twice.
+        noisyReceiver.unregister(this)
         noisyReceiver.register(this)
         keepAwakeHandler.removeCallbacks(keepAwakePoll)
         keepAwakeHandler.post(keepAwakePoll)
@@ -703,17 +994,50 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     override fun onPause() {
         super.onPause()
         resumed = false
-        keepAwakeHandler.removeCallbacks(keepAwakePoll)
         sleepHandler.removeCallbacks(sleepTick)
-        setKeepScreenOn(false)
-        noisyReceiver.unregister(this)
+        // Turning into the small picture-in-picture window (or about to): the video stays in view and goes on playing,
+        // so nothing is paused and the screen, the poll and the headphone receiver keep going.
+        val toPip = isPipActiveOrComing()
+        if (!toPip) {
+            keepAwakeHandler.removeCallbacks(keepAwakePoll)
+            setKeepScreenOn(false)
+            noisyReceiver.unregister(this)
+        }
         if (recreating) return // being rebuilt for a theme change: no background service needed
         if (prefs.backgroundPlay) {
             // Normally already running (started while the page was visible); this is only a fallback.
             if (playerHost.isActive) PlaybackService.start(this)
-        } else {
+        } else if (!toPip) {
             PlayerController.pause()
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // onPause left the video playing because the picture-in-picture window was expected; if the activity is really
+        // out of sight now (the window did not come, was closed, or the screen went off) and background play is off,
+        // nothing may go on playing.
+        if (!recreating && !prefs.backgroundPlay && ::playerHost.isInitialized && playerHost.isActive) {
+            PlayerController.pause()
+        }
+    }
+
+    /**
+     * Called when the user leaves the app (Home, Recents). Android 12+ enters picture in picture by itself when the
+     * params say so ([updatePipParams]); before that this is where it is asked for.
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (!pipSupported || !prefs.pipAuto || isInPictureInPictureMode) return
+        // Android also calls this when the app opens one of its own screens or a permission dialog: not leaving.
+        if (SystemClock.uptimeMillis() < ownLaunchUntil) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && pipArmed) return
+        if (videoPlaying) enterPip()
+    }
+
+    override fun startActivity(intent: Intent?, options: Bundle?) {
+        markOwnLaunch()
+        super.startActivity(intent, options)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -732,6 +1056,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     override fun onDestroy() {
+        unregisterPipReceiver()
         // Leaving the app for real (not a rebuild for a theme change) cancels the timer.
         if (isFinishing && !recreating) SleepTimer.cancel()
         if (::adBlocker.isInitialized) adBlocker.removeOnFiltersChanged(filtersListener)
@@ -781,6 +1106,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 val onShorts = UrlUtils.isShortsPage(url)
                 if (onShorts && playerHost.isActive) pauseVideo()
                 playerHost.miniHidden = onShorts
+                updatePipParams()
                 // A Short opened from the feed (YouTube changes the page without a load) arrives with the bar still
                 // hidden by the scrolling that came before it. On Shorts the bar must always be there, not only
                 // after the first swipe (onPageScrolled brings it back for that).
@@ -820,10 +1146,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             ErrorKind.OTHER -> getString(R.string.error) + " " + description
         }
         setBarHidden(false) // the notice is anchored to the bar
-        // Sits above the bottom bar so Library/Downloads stay reachable, and an offline notice
-        // disappears by itself instead of staying on screen for good.
-        val duration = if (kind == ErrorKind.OFFLINE) Snackbar.LENGTH_LONG else Snackbar.LENGTH_INDEFINITE
-        errorSnackbar = Snackbar.make(appWindow, message, duration)
+        // Sits above the bottom bar so Library/Downloads stay reachable. It stays (for every kind of failure,
+        // offline included) until Refresh is tapped or another page starts loading, so the button never vanishes.
+        errorSnackbar = Snackbar.make(appWindow, message, Snackbar.LENGTH_INDEFINITE)
             .setAnchorView(bottomBar)
             .setAction(R.string.refresh) { onRetry() }
             .also { it.show() }
@@ -902,6 +1227,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         } else {
             pendingDownloadUrl = url
             pendingDownloadTitle = title
+            markOwnLaunch()
             storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
     }
@@ -915,6 +1241,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
         pendingMicRequest?.deny() // a newer request replaces an unanswered one
         pendingMicRequest = request
+        markOwnLaunch()
         microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
 
@@ -927,6 +1254,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             launchSpeechRecognizer()
         } else {
             voiceSearchPending = true
+            markOwnLaunch()
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
@@ -937,6 +1265,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.voiceSearchPrompt))
         try {
+            markOwnLaunch()
             speechRecognizer.launch(intent)
         } catch (e: ActivityNotFoundException) {
             Snackbar.make(appWindow, R.string.voiceNotAvailable, Snackbar.LENGTH_LONG).show()
@@ -961,7 +1290,10 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         prefs.notificationPermissionAsked = true
         val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
-        if (!granted) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        if (!granted) {
+            markOwnLaunch()
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     private companion object {
@@ -972,5 +1304,19 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val SEARCH_URL = "https://m.youtube.com/results?search_query="
         const val BAR_ANIMATION_MS = 150L
         const val BAR_SCROLL_THRESHOLD_DP = 24f
+
+        // Picture in picture. Android accepts window shapes between 1:2.39 and 2.39:1.
+        const val ACTION_PIP_TOGGLE = "com.mwmods.wardtube.PIP_TOGGLE"
+        const val ACTION_PIP_PREVIOUS = "com.mwmods.wardtube.PIP_PREVIOUS"
+        const val ACTION_PIP_NEXT = "com.mwmods.wardtube.PIP_NEXT"
+        const val PIP_REQUEST_PAUSE = 1
+        const val PIP_REQUEST_PREVIOUS = 2
+        const val PIP_REQUEST_NEXT = 3
+        const val PIP_REQUEST_PLAY = 4
+        const val PIP_TOGGLE_GRACE_MS = 1500L
+        const val PIP_MIN_ASPECT = 0.45f
+        const val PIP_MAX_ASPECT = 2.35f
+        const val PIP_ASK_WINDOW_MS = 1500L
+        const val OWN_LAUNCH_MS = 1500L
     }
 }

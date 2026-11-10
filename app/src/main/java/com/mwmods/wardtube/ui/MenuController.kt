@@ -66,6 +66,9 @@ class MenuController(
     private val onSleepTimerChanged: () -> Unit,
     private val onMinimize: () -> Unit,
     private val onAutoHideBarChanged: () -> Unit,
+    /** Picture in picture is possible on this phone (Android 8+ with the feature): only then the menu has its switch. */
+    private val pipAvailable: Boolean = false,
+    private val onPipChanged: () -> Unit = {},
 ) : ActionMenuView.OnMenuItemClickListener {
 
     private lateinit var actionMenu: ActionMenuView
@@ -132,6 +135,11 @@ class MenuController(
 
     /** True while the three-dots menu is open (the sleep time is then refreshed every second). */
     fun isOverflowShowing(): Boolean = sheet?.isShowing == true
+
+    /** Closes the three-dots menu if it is open (the app is turning into the small picture-in-picture window). */
+    fun dismissSheet() {
+        sheet?.dismiss()
+    }
 
     /** The sleep timer line of the menu shows the remaining time under its name while a timer runs. */
     fun setSleepLabel(label: String?) {
@@ -227,6 +235,17 @@ class MenuController(
             prefs.backgroundPlay = on
             applyScriptSettings()
             (activity as? com.mwmods.wardtube.MainActivity)?.updateBackgroundPlayback()
+        }
+        if (pipAvailable) {
+            addSwitchRow(
+                R.string.pictureInPicture, R.drawable.ic_menu_pip, prefs.pipAuto,
+                subtitle = { on ->
+                    activity.getString(if (on) R.string.pictureInPictureOn else R.string.pictureInPictureOff)
+                }
+            ) { on ->
+                prefs.pipAuto = on
+                onPipChanged()
+            }
         }
         sleepValue = addRow(R.string.sleepTimer, R.drawable.ic_menu_moon, value = sleepLabel, chevron = true) {
             showSleepTimerDialog()

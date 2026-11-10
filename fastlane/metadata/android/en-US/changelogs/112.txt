@@ -1,0 +1,1 @@
+Fixed: the Refresh button shown when a page fails to load no longer disappears by itself; it stays until you tap it.

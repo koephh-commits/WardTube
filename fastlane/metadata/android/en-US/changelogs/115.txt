@@ -1,0 +1,1 @@
+Fixed: in the picture-in-picture window, previous / next were swapped on right-to-left phones, and the play / pause button kept showing the pause icon after it was pressed.
