@@ -1,5 +1,379 @@
 # Changelog
 
+## 2.6.91
+- Fixed: **hiding the bottom bar while scrolling did not work on the Subscriptions screen** (the bar did not hide when the
+  list was scrolled, and a bar that was already hidden did not come back).
+  - Cause: the hiding follows the finger through a touch listener on the browsing WebView (`watchScrollDirection`). The
+    Subscriptions screen is the app's own view placed over the WebView, so none of its touches ever reached that listener.
+  - `SubsScreen` now watches the finger over the whole screen (`dispatchTouchEvent`, touches are only watched, never
+    consumed) with the same rule as the page: 24 dp in one direction, starting over when the finger turns, horizontal
+    drags and pinches ignored. It sees a pull-down at the top of the list too, so a hidden bar can always be brought back.
+    New `SubsListener.onDrag(down)`, passed on by `SubsController` (new `onScrollDirection` parameter) to
+    `MainActivity.onPageScrolled`, so the "Hide the bar while scrolling" switch and the exceptions (full screen,
+    expanded player, load-error notice, Shorts page) apply here exactly as on the other pages.
+  - Not built or run on a phone.
+
+## 2.6.90
+- Added: **a note under the "Picture in picture" row of the three-dots menu** (shown whether the switch is on or off):
+  the window is not reliable when the video is in fill or full-screen mode, and works well with the video in the portrait
+  page or in the mini player. New string `pictureInPictureNote` (English and Arabic); `MenuController` adds it on a new
+  line after the state line. Nothing else changed: the 2.6.89 changes to the window stay as they are.
+
+## 2.6.89
+- Fixed: **the picture-in-picture window, entered from the player's full screen, did not look the same as the one entered
+  from the normal watch page or the mini player** (a band of black under the picture, the picture pinned to the top of the
+  window instead of filling it).
+  - Cause (read from the screenshots, not confirmed on a phone): after full screen the page's player box is the full 16:9
+    but YouTube leaves the `<video>` sized for an in-between moment of the page, a few percent shorter than its box. The window
+    fitted the box, so the missing part showed as black under the picture. The synthetic `resize` events of `relayoutPage` did
+    not make YouTube size the video again.
+  - `PlayerHost.nudgePage`: the WebView is laid out 6 px narrower for 140 ms and then given its size back, a real change of
+    width that makes YouTube's own resize handling run. Once after full screen (about 1.4 s into the window), and, at most 2
+    times and not closer than 0.9 s, whenever the measure finds the picture shorter than its box. Nothing is measured while
+    the nudge lasts.
+  - `MEASURE_SCRIPT` also reports the `<video>`'s own box (four more numbers, zeros if none). `measureVideoBox`, in picture
+    in picture only, fits that box instead of the player's when it is inside it, nearly as large (90% wide, 85% tall) and
+    shorter than it by more than 2%. A wide film's bars or a 4:3 video's sides (picture much smaller than its box) are not
+    touched, and neither are the mini player and the normal page.
+  - Not built or run on a phone or against live YouTube pages.
+
+## 2.6.88
+- Fixed: **the picture-in-picture window, entered from the player's full screen, came out right only some of the times.**
+  - Cause: a race in `MainActivity.enterPipUi`. While the window shrinks, YouTube's page can leave full screen by itself
+    (its viewport turns upright) before `onPictureInPictureModeChanged` arrives. `isFullscreen` was already false then, so
+    `takeOver` was false: the box measured in full screen was kept, the page was not laid out again, and a video the page
+    paused was not started again. When the page was slower, everything was right.
+  - `MainActivity`: `onUserLeaveHint` now remembers (before its early returns, because Android 12+ enters the window by
+    itself) whether the player was in full screen and whether the video was playing (`playerFullscreenAtLeave`,
+    `playingAtLeave`, `leftAppAt`). `enterPipUi` decides `takeOver` and `wasPlaying` from that memory as well as from the
+    state it finds. The memory is cleared in `onResume` and once `enterPipUi` has used it.
+  - `canEnterFullscreen` also refuses while the app was just left and the window has not come yet (`leavingForPip`): the
+    page asks for full screen again when the window's shape changes, which put the landscape lock back inside the window.
+- Changed: **the "Open app" button of YouTube's top bar is hidden.**
+  - `base.css` hides it by the names it is known to have (`ytm-open-app-button`, classes containing `open-app`).
+  - `wardtube.js` (`hideOpenApp`) also finds it by its label (Arabic, English and about 15 other languages), inside the top
+    bar only, and hides it with the wrappers that hold nothing else. It looks again when the page changes and every
+    1.5 seconds.
+  - Not built or run on a phone or against live YouTube pages: the script was only tried on test pages, so the real name of
+    the button is not confirmed.
+
+## 2.6.87
+- Changed: **the Shorts chip of the Subscriptions screen (no channel chosen) goes on with no end, like YouTube's.**
+  - Cause: the chip only picked the Shorts out of the feed of every video. YouTube puts Shorts in the feed in a few
+    shelves, so a page of 20-30 videos held a handful of them; the chip then stopped asking for more after 8 pages in a
+    row with no Short, or at 500 Shorts, and a list too short to scroll had no scroll to ask for the next page.
+  - `SubsRepository`: the feed's first page now also gives its filter chips (`collectChips`: `chipCloudChipRenderer` and
+    `chipViewModel`, each with its continuation token). `fetchChip` reads the first page of one chip's own list, and
+    `mostlyShorts` says whether that answer is (nearly) all Shorts. The pages after it come through the same `fetchMore`
+    as the feed's, from the continuation at the end of each page.
+  - `SubsController` (`ensureShorts`, `onShortsHead`, `moreShorts`): when the Shorts chip is chosen it asks YouTube for
+    the chip's own list (the chip named "Shorts" or "قصير", else the one in the Shorts chip's usual place, the fourth),
+    keeps it in `shortsFeed` with its own next page, and asks for the next page whenever the end of the grid comes in
+    view, until YouTube has no older Short (a stop at 10,000 only guards against a list that never ends). A chip's answer
+    is used only if it is (nearly) all Shorts, so a wrong guess of which chip it is can never show another list.
+  - If no chip gives Shorts (YouTube changed its page, or the page has no chips), the chip lists the Shorts of the feed as
+    before, with wider limits: 20 pages in a row with no Short (was 8), 2000 Shorts (was 500). A read that failed (offline,
+    an error answer) is tried again after a minute or at the next tap on the chip; the feed's Shorts show meanwhile.
+  - The list is read again after a pull-to-refresh and when the chip is tapped after 5 minutes.
+  - `SubsScreen`: the Shorts grid asks for its next page 12 tiles before its end (about three screens; 4 items for the
+    other lists), so the list goes on under the finger without a wait.
+  - A channel's own Shorts (a channel chosen in the strip) are unchanged.
+  - Not built or run on a phone or against live YouTube pages (no Android SDK and no access to YouTube where it was
+    written): the code was checked with the Kotlin compiler for syntax and for the names it uses.
+
+## 2.6.86
+- Added: **the sound is turned on for a Short that opens muted, the same way it is for a normal video in the player.**
+  2.6.85 let the browsing WebView play a Short with sound, but YouTube's own page can still start a Short muted (it does so
+  for any page opened without a tap inside it), so the page script now does what it already did for the player.
+  - `wardtube.js`, `autoUnmuteShort` (new, run by the 300 ms timer on the browsing page only, on `/shorts/...` addresses):
+    once per Short it unmutes the video (`player.unMute()` when the page has it, then `video.muted = false`, then a tap on
+    `.ytp-unmute` if that is on view), tries for about 15 seconds at most, and counts the job done after the Short has
+    played 2 seconds with sound, so a Short the person mutes by hand stays muted.
+  - A new Short starts the job again: when the address names another one, when the page loads a new picture in a video
+    (`loadstart` / `emptied`, because YouTube may change the address a moment after it starts the next Short), or when the
+    person swipes to the next one.
+  - The video of the Short on view is the active reel's, else the one that is playing, else the page's main video.
+  - An ad reel is left alone (the existing Shorts ad skipper mutes it and moves on).
+  - Checked with a fake page in node (12 checks: unmute, the person's own mute, next Short, `loadstart`, ad reel, other
+    pages and the player untouched, giving up after 50 tries, `player.unMute`, the fallback to the playing video). Not
+    built or run on a phone or against live YouTube pages (no Android SDK where it was written).
+
+## 2.6.85
+- Fixed: **a Short opened from the app (most of all from the Subscriptions screen) did not play its sound until the
+  person tapped the screen.**
+  - Cause: a Short opens in the browsing WebView through `loadBrowse` (`webView.loadUrl`), so the page loads without any
+    tap inside it. The browsing WebView kept WebView's default `mediaPlaybackRequiresUserGesture = true`, which keeps the
+    sound of a video off until the page has had a tap. (The player's WebView, where normal videos play, has had it
+    switched off since the start, which is why those start with their sound.)
+  - `MainActivity.allowAutoplayFor` (new) sets the rule from the address: off while a Short's page is the one on view,
+    on for every other page of the browsing WebView (so nothing else starts to play by itself). It runs in `loadBrowse`
+    (before the page is loaded), `onPageStarted` (a Short reached by a link of YouTube's own page loads as a new page
+    too) and `onPageChanged` (YouTube changing the page without a load).
+  - Not built or run here (no Android SDK where it was written). If a Short still starts without sound on a phone, the
+    cause is YouTube's own page choosing to start it muted, and the next step is to unmute it from the page script.
+
+## 2.6.84
+- Fixed: **the strip of channels on the Subscriptions screen still scrolled strangely when the screen opened (2.6.83 did
+  not fix it).** The person noticed that it began with 2.6.82, when the "All" button was fixed beside the strip.
+  - Probable cause: in 2.6.82 the strip became a weighted child (width 0, weight 1) of a horizontal `LinearLayout` next to
+    the button. A `LinearLayout` measures such a child twice, first with an unspecified width and then with the width
+    left over, and a `RecyclerView` lays its items out in both passes, so on every layout (and the screen has many in its
+    first moments: the pictures arrive one by one) the strip was laid out with two different widths. Not confirmed on a
+    phone: it is the one thing 2.6.82 changed in the strip's measuring, and 2.6.81 did not have the problem.
+  - `SubsScreen`: the row (`stripRow`) is a `FrameLayout` now. The strip fills its whole width, as it did before 2.6.82
+    (one measure with an exact width), and the "All" button sits over its end in a holder of the screen's own colour that
+    hides the channels scrolling under it and takes the touches there. The strip's end padding leaves room for the button,
+    so the last channel can still be scrolled into view. `setPaddingRelative` and `Gravity.END` keep the button on the left
+    in Arabic.
+  - `SubsScreen.scrollStripToStart` also pins the strip: after every layout of the strip, while the person has not touched
+    it, the strip is put back at its first channel if that is not fully in view (at most 8 times, a guard against a loop).
+    Touching the strip ends the pin.
+  - 2.6.83's changes stay (the order of the strip is kept while the screen is open; the strip returns to its first channel
+    when the screen is opened again), they were a real cause of shuffling but not the one of this problem.
+  - Not built or run here (no Android SDK where it was written).
+
+## 2.6.83
+- Fixed: **the strip of channels on the Subscriptions screen moved and scrolled by itself when the screen opened, and did
+  not start from its first channel.**
+  - Cause 1: the strip was put in "newest video first" order again every time the feed finished loading
+    (`SubsController.finishFeed`), a second or two after the screen opened, and the adapter was reset
+    (`notifyDataSetChanged`), so the pictures changed places under the person's finger.
+  - Cause 2: nothing ever took the strip back to its first channel (`scrollToPosition(0)` was only called for the list of
+    videos), and the screen is kept, only hidden, between visits, so the strip opened where it was left, and then its
+    channels were reordered under that place.
+  - `SubsController.orderStrip` (new) sets the strip. While the screen is on view and the strip was already ordered by a
+    feed, its order stays: channels that are gone leave, new ones join at the end, the rest take the newest data. The new
+    order is applied when the screen is opened again, after a pull-to-refresh, and the first time a feed is read (before
+    that the channels were not in a meaningful order). The pictures and blue dots are still updated at once.
+  - `SubsController.show`: when the screen is opened (it was hidden) the strip goes back to its first channel, unless a
+    channel is chosen. After a new order is applied while the screen is on view, the strip goes back to its start too.
+  - `SubsScreen`: `setChannels` / `setSelected` only rebind the items when the order did not change
+    (`notifyItemRangeChanged`, no change animation) instead of resetting the adapter; `scrollStripToStart` (new).
+  - Not built or run here (no Android SDK where it was written). The ordering rules were checked on a port of the logic.
+
+## 2.6.82
+- Changed: **the "All" button of the Subscriptions screen is fixed in its place, like YouTube's, and opens the list of
+  every subscription.** It used to be the first item of the strip of channels: it scrolled away with them, and a tap on
+  it only took the chosen channel away (back to the videos of every channel).
+  - `SubsScreen`: the strip now sits in a row (`stripRow`) with the "All" button after it, outside the scrolling list, at
+    the end of the row (the right in a left-to-right language, the left in Arabic, where YouTube has it too). The
+    channels scroll beside it and are cut where its space begins. The button is level with the channels' pictures, in the
+    same blue as before. The strip's adapter lists only channels now (`TYPE_ALL` and `buildAllItem` are gone).
+  - `SubsListener.onOpenAllChannels` (new) and `SubsController.onOpenAllChannels`: the tap opens
+    `https://m.youtube.com/feed/channels` (YouTube's "All subscriptions" page, the one the app also reads its list of
+    channels from) in the browsing WebView. The screen is held over the page until the new page is on view, the same way
+    as for "Go to channel" (2.6.80), so YouTube's own Subscriptions list does not show for a moment. The Back button
+    returns to the Subscriptions screen.
+  - To go back from one channel's videos to every channel's, tap the chosen channel again (it was already so; the "All"
+    button used to do it too, and no longer does).
+  - Not tested on a phone (no device or Android SDK where it was written, so the app was not built either): the button's
+    size and the place where the channels are cut were chosen from the screenshot of YouTube's own page.
+
+## 2.6.81
+- Removed: **the SoundCloud shortcut** from the browser's quick sites (the main screen of the browser).
+  - `BrowserHome.builtIn()` lists six sites now (YouTube, TikTok, Facebook, Instagram, Dailymotion, Vimeo), and the
+    string `quickSoundcloud` (English and Arabic) is gone with it.
+  - It was a built-in tile, so it could not be removed with a long press like the sites the person adds. Sites the person
+    added themselves (`Prefs.quickSites`) are not touched, so a SoundCloud tile added by hand stays.
+  - Not built or run here (no Android SDK where it was written); the change is the removal of one line.
+
+## 2.6.80
+- Fixed: **"Go to channel" on the Subscriptions screen showed YouTube's own Subscriptions list** for a second, or for the
+  whole time the channel's page was loading, before the channel appeared.
+  - Cause: the tap opens the channel's page in the browsing WebView, and the screen was taken away as soon as that page
+    started loading (`SubsController.onPage` sees an address that is not the Subscriptions one). A WebView goes on
+    drawing the page it had until the new page paints its first content, so the page under the screen, YouTube's own
+    Subscriptions list, was uncovered for the whole load (long on a phone with little memory).
+  - `SubsController`: the tap now starts a hold (`startHold`): while it lasts `onPage` does not take the screen away.
+    The hold ends (`endHold`, which then takes the screen away as before) when the WebView reports that the channel's page
+    painted (`onPageShown`), or after `HOLD_MAX_MS` = 12 seconds if it never does (offline, a failed load). While it lasts
+    the pull-to-refresh spinner of the screen is shown, so the person sees that the channel is loading.
+  - `PageEvents.onPageCommitVisible` (new, empty by default) is sent by `WardTubeWebViewClient.onPageCommitVisible`
+    (the WebView's "first content of the new page is drawn; no leftovers of the old page" callback, API 23+; the app's
+    minimum is 24) and `MainActivity` hands it to `SubsController.onPageShown`.
+  - Only the tap on "Go to channel" holds the screen. Any other change of page (YouTube's own tabs and links) takes the
+    screen away at once, as before.
+  - Not tested on a phone (no device or Android SDK where it was written, so the app was not built either): if the
+    old list still shows for a moment, the WebView reported the new page's first paint before it had really replaced
+    the old content.
+
+## 2.6.79
+- Fixed: **the Live chip of the Subscriptions screen listed ordinary videos for a chosen channel** that has no live
+  streams (a channel's own list under "Live" showed its normal videos, with their lengths, as if they were past streams).
+  - Cause: the Live chip of a chosen channel reads the channel's streams page (`/channel/<id>/streams`) and marked every
+    video found there as a past live stream (live type 3). A channel with no streams has no such tab, so YouTube answers
+    that address with the channel's first tab instead (its ordinary videos), and those were all taken for streams.
+  - `SubsRepository.streamsTabOpen` (new): reads which tab the page data says is open (the `tabRenderer` marked
+    `selected`: its address ends with `/streams`, or its `params` are the streams tab's). `fetchChannelTab("streams")`
+    now returns an empty page when another tab is open, so nothing is listed for a channel without streams. A page that
+    names no open tab at all is taken as before (so a change in YouTube's page cannot hide the streams of the channels
+    that have them).
+  - `SubsScreen`: an empty Live chip says "No live streams" (`subsEmptyLive`) instead of "No recent videos".
+  - Only the streams tab of a chosen channel is changed. The Live chip of the whole feed (no channel chosen) already lists
+    only videos YouTube marks as live or scheduled, and the Shorts and Videos chips are as they were.
+  - Not tested on a phone or against YouTube's live pages (no device, Android SDK or access to YouTube where it was
+    written; it was checked against small models of the page data). If a channel without streams still lists its
+    videos, YouTube's page names its open tab in a way the check does not know.
+
+## 2.6.78
+- Fixed: **the Shorts chip of the Subscriptions screen was limited**: it listed only the few Shorts found in the feed's
+  first 200 videos and then stopped, while "All content" and "Today" went on loading as the list was scrolled.
+  - Cause: the Shorts chip lists the Shorts of the feed (`feed.filter { it.short }`), and the feed stops growing at
+    `MAX_FEED` = 200 videos of every kind, of which only a small share are Shorts (about 40 in a model with 6 Shorts to a
+    page of 30). Also, only the "All content" and "Videos" chips asked for more when the end of their list was already in
+    view (`applyVideos` → `checkEnd`), so a short Shorts grid that fitted on the screen never asked.
+  - `SubsController`: while the Shorts chip is chosen the feed goes on past `MAX_FEED` until it holds
+    `MAX_SHORTS` = 500 Shorts (`feedFull`); past 200 videos only the Shorts of each new page are kept, so the other chips
+    keep their size and speed (`onEnd`).
+  - The Shorts chip asks for the next page by itself when the end of its grid is in view (`shortsChipReadsOn`), and stops
+    doing so after `MAX_DRY_PAGES` = 8 pages in a row with no new Short (`shortsDry`); scrolling still asks for one more.
+  - Only the feed's Shorts chip is changed. A chosen channel's own Shorts / Videos / Live list still shows the first page
+    of that channel's tab (`loadChannel`), as before.
+  - Not tested on a phone (no device or Android SDK where it was written; the loading rules were only checked on a small
+    model). If YouTube's later pages of the feed hold few Shorts, the chip ends sooner than 500.
+
+## 2.6.77
+- Fixed: **the picture-in-picture window after leaving the app from a full-screen video** showed the video outside the
+  window's frame: only the top part of the picture (cut off) with black under it, instead of the whole picture filling
+  the window like the mini player does inside the app.
+  - Likely cause (worked out from the code and the screenshot; the phone was not at hand): in
+    `MainActivity.enterPipUi` the video is taken out of the system's full screen while the window is already shrinking,
+    so `PlayerHost.enterPip` fitted the picture while the
+    page was still between layouts: the WebView had just come back from the full-screen view (its viewport went from the
+    sideways full screen, to the little window, to the upright layout), and YouTube's player sizes itself at each step. The
+    box measured at that moment (or one kept from before) was used, and the player could also stay sized for one of those
+    moments. The mini player never meets this: its page is already settled when it is measured.
+  - `PlayerHost.enterPip(afterFullscreen = true)` (only when the window comes from full screen; the normal path is
+    unchanged): the box measured before is dropped, and for 6 seconds (`PIP_STRICT_MS`) a measured box is only believed when
+    it is where the page script pins the player (top-left corner, as wide as the page, not taller than wide); otherwise
+    the last box, or 16:9 at the top, stays and the next look decides (`measureVideoBox`).
+  - `PlayerHost.pipSettle`: in the first 3.6 seconds the window tells the page it is the box, fits the picture to the
+    window's current size and measures the box again six times (`PIP_SETTLE_MS`), instead of once and then every 2
+    seconds, so a wrong first fit is corrected at once. After full screen each of these also calls `relayoutPage()`.
+  - `assets/wardtube/wardtube.js`: new `window.__wardtube.relayout()`. It sends the events a real change sends (leaving
+    full screen when the page is not in it, and a window resize) so YouTube sizes its player and the picture inside it
+    again for the page's final size.
+  - Not tested on a phone (no device where it was written; there is no network or Android SDK either, so it was also not
+    built here): if the window still shows the video cut off, YouTube's player is left in a state that the events above
+    do not reach.
+
+## 2.6.76
+- Added: **a "Download video" row in the menu of the three dots** beside a video on YouTube's pages (the Home feed,
+  search results, channels, playlists, rows of Shorts). The row is the first one of the menu, with the look of the other
+  rows (same text style, height and spacing), and it starts the same download as the download button: the format window,
+  then the Library.
+  - `assets/wardtube/menu-download.js` (new) runs on every YouTube page of the browsing WebView. A tap on a button inside a
+    video card remembers that card's video (the video link inside the card, and its title); when YouTube's menu appears
+    in the next 6 seconds the row is added before its first row. A card with no video link (an ad) gets nothing, and a
+    menu opened by anything else is left alone. Tapping the row is swallowed (YouTube does not see it), the menu is
+    closed the way a finger would (a tap on the dimmed page, then Escape) and the app is told.
+  - The row is a plain `div` that copies the first row's text style, not a copy of YouTube's own row: that is a custom
+    element that would start without the data it draws itself from. No `innerHTML` is used (YouTube's Trusted Types
+    rules refuse it).
+  - `web/MenuDownload.kt` (new) installs the script at the start of every YouTube page (`addDocumentStartJavaScript`;
+    for a WebView too old for it, `MainActivity.onPageChanged` injects it by hand) and receives the tap through its own
+    bridge, `WardTubeMenuDl`. The app builds the address itself from the 11-character video id (`/watch?v=` or
+    `/shorts/`), so a page cannot hand it any other address.
+  - `MainActivity.startMenuDownload` / `beginDownload`: the video belongs to a card of the browsing page, so the player
+    (which may hold another video, even a live one) is not asked about it and the page's own title is not used as its
+    name; the card's title is, when there is one.
+  - Only the browsing page has the row (not the watch page, not the app's own Subscriptions screen).
+  - A live stream picked here is not refused beforehand (the card does not say it is live).
+  - Not tested against YouTube's live pages (no network where it was written; checked against a small model of the
+    page): if the row does not appear in the menu, YouTube's menu uses names this script does not know.
+
+## 2.6.75
+- Fixed: **leaving the app from a landscape / full-screen video** left the picture-in-picture window wrong and the video
+  stopped (it started when play was pressed, in the window or in the notification, and stopped again).
+  - Cause: the video was left in the system's full screen, which is locked to landscape (`SENSOR_LANDSCAPE`), while the
+    phone's home screen is upright. The window came out with the old full-screen layout (part of the page instead of the
+    picture), the page's own full-screen changes (YouTube leaves and enters full screen when the shape changes) kept
+    stopping the video, and `pipSourceRect` gave the shrinking animation the place of the player's hidden box.
+  - `MainActivity.enterPipUi`: when the player's video is full screen as the window comes, it is taken out of full screen
+    (`exitFullscreen`, which also gives the screen's rotation back) and the player fills the window the same way it does
+    from the normal watch page (`PlayerHost.enterPip`). The page is laid out upright there (`pipLayoutSize`).
+  - `MainActivity.pipSourceRect`: no source rectangle while the video is full screen.
+  - `WardTubeChromeClient.FullscreenListener.canEnterFullscreen`: the page is refused full screen while the app is the
+    little window, so it cannot put the landscape lock and the bars back inside it.
+  - `MainActivity.guardPipPlayback`: the video was playing when the window came, so for 3 seconds it is started again if it
+    reports paused (not when the window's own button was pressed).
+  - Tapping the window brings the app back to the full-screen player (the watch page), not to the landscape full screen.
+  - Not tested on a phone (no device where it was written).
+
+## 2.6.74
+- Changed: **shorter lists, faster loading** in the Subscriptions screen and in the "download a list" window.
+  - **Subscriptions**: the feed now stops at 200 videos (was 1000, set in 2.6.73). Each new page rebuilds the whole
+    list on the main thread, so a very long feed made the screen slow. `SubsController.MAX_FEED`.
+  - **Download a playlist / channel**: only the first 50 videos are read and offered (was 200). yt-dlp has fewer pages of
+    YouTube's list to ask for (a playlist page holds up to 100 videos), so the "Reading the list…" window is
+    shorter, and the list to tick is shorter. The existing note ("Only the first 50 videos of the list are shown") follows the
+    new number. `PlaylistLister.MAX_ENTRIES`.
+
+## 2.6.73
+- Fixed: the **Subscriptions screen** showed only the newest videos and then stopped; it now scrolls on without an end
+  (like YouTube) and lists the newest videos first, older ones below, in every chip.
+  - Most likely cause: the "load more" request used the *last* continuation command found anywhere in YouTube's page,
+    and the page also holds such commands in its filter chips and menus. When one of those stood after the list, the
+    request asked for something that is not the next page of videos, got no videos, and the feed was marked as ended.
+    `SubsRepository.collectVideos` now takes the token of the list's own `continuationItemRenderer` (any other
+    continuation command is only a fallback, `Stats.loose`).
+  - A page with nothing new no longer ends the feed at once: the next page is tried (up to 3 empty pages in a row).
+  - When the end of the list is already in view (a short list, or a page that finished loading while you were at the
+    bottom) no scroll event comes, so the list stuck there. `SubsScreen.checkEnd` now asks for more after each layout
+    (All content and Videos).
+  - The feed read back from the phone's copy had lost its way to ask for older videos, so for the first minutes after
+    the app started the list ended at the saved videos. It is now read again at once (`cursorMissing`). Only the newest
+    120 videos are saved on the phone; the feed in memory may hold up to 1000 (was 300).
+  - **Order**: every chip is sorted by age from YouTube's own text (`SubsAge.newestFirst`; videos of the same age keep
+    YouTube's order, a scheduled stream stays beside the video before it). *Live*: streams on now, then scheduled ones,
+    then past ones. *Today* stops asking for more pages once the loaded videos are older than a day.
+  - Not tested against YouTube's live pages (no network where it was written). With a channel chosen, the list still
+    shows that channel's first page only, as before.
+
+## 2.6.72
+- Added: **filter chips, Shorts and a real blue dot on the Subscriptions screen**, like the YouTube app.
+  - **Chips** under the strip of channels: All content, Today, Videos, Shorts, Live. They scroll sideways and the chosen one
+    is drawn inverted. *Today*: videos of the last 24 hours (a live stream that is on counts). *Videos*: normal videos
+    (no Shorts, no streams). *Shorts*: only Shorts, in two columns. *Live*: streams on now and scheduled ones.
+    A chip that matches only a few videos of the feed asks for the next pages by itself (up to three).
+  - **Shorts** are no longer left out of the feed: *All content* shows a row of Shorts (title with the red Shorts mark,
+    tall rounded cards with title and views, scrolling sideways) after the third video and then after every sixth; a
+    tap opens the Short in the Shorts player. Live videos have a red "LIVE" badge, scheduled ones "Upcoming", and a
+    video the account has partly watched has YouTube's red line under its picture.
+  - **With a channel chosen** the chips work on that channel: its Shorts and its live streams are read from the
+    channel's `/shorts` and `/streams` pages when those chips are tapped (`SubsRepository.fetchChannelTab`).
+  - **Blue dot** (`SubsController.newIds`): a channel gets it while it has a video of the last 7 days that was not seen.
+    Seen means: the account watched part of it (YouTube's own watch state, read from the feed), it was opened from this
+    screen, or the channel was tapped in the strip. Shorts and streams that have not started do not count. Before, the
+    first run counted everything as seen, so the dots showed only after a new upload and never at the start.
+    The feed is refreshed when the tab is opened and the last read is older than 5 minutes (was 15).
+  - New: `SubsAge` (age in hours from YouTube's own text: Arabic, English, French, Spanish, Portuguese, German; other
+    languages give "unknown": not in *Today*), `SubsFilter`, and `SubsVideo` got `short`, `live` and `watched`
+    (kept in `subscriptions.json`, older files still load). Opened videos are kept in `subs_state` (`seen_ids`, last 1500).
+  - Not tested against YouTube's live pages (written and checked against sample data of every shape it uses):
+    if the Shorts rows or the dots do not appear, the screen's small text under "No recent videos" shows what was found.
+
+## 2.6.71
+- Added: **the Subscriptions tab has its own screen**, like the YouTube app. A strip of channel pictures sits on top
+  (the ones with a new video first, with a blue dot) and the videos are big cards below, with the duration, views and
+  age written by YouTube in the phone's language. Tapping a channel shows only its videos right there and the strip
+  stays where it is (tap it again, or "All", to see every channel); "Go to channel" opens the channel's page. Pull down
+  to refresh; the list loads more as it is scrolled. Before, tapping a channel in YouTube's mobile page left the feed
+  and opened the channel page.
+  - New package `subs`: `SubsController` shows `SubsScreen` (built in code, a RecyclerView strip and list) over the
+    browsing WebView while it is on `/feed/subscriptions`; the WebView keeps running underneath, so YouTube's header and
+    bottom tabs stay (the screen covers only the space between them, measured from the page).
+  - Data, with no API key: the list of channels, the feed and a channel's videos are read from YouTube's own pages
+    (`/feed/channels`, `/feed/subscriptions`, `/channel/<id>/videos`) fetched with the cookies the WebView already holds,
+    so they are the signed-in account's own (`SubsRepository`: `ytInitialData`, both the `videoRenderer` and the newer
+    `lockupViewModel` shapes, Shorts left out; more pages through continuation requests). A channel's RSS feed is the
+    way out when a page gives nothing. Everything is kept on the phone (`subscriptions.json`), so the screen opens at
+    once and refreshes in the background. Pictures: `SubsImages` (small cache, no image library).
+  - If the list of channels cannot be read (signed out, or YouTube changed its page) the screen is not shown and
+    YouTube's own page appears as before, with a short message once per run. If there are channels but no videos, the
+    screen says why in small text under "No recent videos". Menu: **Subscriptions screen** switches it off.
+  - New dependency: `androidx.swiperefreshlayout` (pull to refresh).
+
 ## 2.6.69
 - Fixed: two problems in the **picture-in-picture window's buttons**.
   - On a right-to-left phone (Arabic) the previous and next buttons looked swapped: the system draws the window and puts

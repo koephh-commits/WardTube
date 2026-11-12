@@ -1,0 +1,1 @@
+Fixed: tapping "Go to channel" on the Subscriptions screen no longer uncovers YouTube's own Subscriptions list while the channel loads. The app's screen stays (with a loading spinner) until the channel's page appears.

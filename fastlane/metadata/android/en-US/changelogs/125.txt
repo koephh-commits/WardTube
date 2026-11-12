@@ -1,0 +1,1 @@
+Fixed: choosing a channel in the Subscriptions screen and then the Live chip no longer lists the channel's ordinary videos when the channel has no live streams. It now says "No live streams".

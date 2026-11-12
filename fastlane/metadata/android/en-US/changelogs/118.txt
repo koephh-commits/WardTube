@@ -1,0 +1,1 @@
+Added: the Subscriptions screen now has the filter chips (All content, Today, Videos, Shorts, Live), rows of Shorts between the videos, and a blue dot on every channel that has a video you have not seen, like YouTube.

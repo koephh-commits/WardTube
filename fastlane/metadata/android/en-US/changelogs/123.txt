@@ -1,0 +1,1 @@
+Fixed: the picture-in-picture window after leaving the app from a full-screen video should no longer show the video cut off with black under it. The player waits for the page to settle and lays it out again.

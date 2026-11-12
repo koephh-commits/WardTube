@@ -48,8 +48,12 @@ sealed interface ProbeResult {
  */
 object PlaylistLister {
 
-    /** A list is read up to this many videos: every video becomes a job of the queue, which the Library redraws often. */
-    const val MAX_ENTRIES = 200
+    /**
+     * A list is read up to this many videos. Fewer videos means a faster read (yt-dlp has fewer pages of YouTube's
+     * list to ask for) and a shorter list to choose from; every video that is ticked also becomes a job of the queue,
+     * which the Library redraws often.
+     */
+    const val MAX_ENTRIES = 50
 
     /** Throws if the engine or the network fails. Blocking: call from a background thread. */
     fun fetch(context: Context, url: String, processId: String): ProbeResult {

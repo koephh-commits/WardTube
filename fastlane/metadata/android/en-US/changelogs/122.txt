@@ -1,0 +1,1 @@
+Added: a "Download video" row in the menu of the three dots beside a video on YouTube pages. It starts the same download as the download button.

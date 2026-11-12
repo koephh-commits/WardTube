@@ -356,6 +356,72 @@
     }
   }
 
+  // ---- Sound on in Shorts (browsing page) -------------------------------------
+  // A Short opened by the app (from the Subscriptions screen, a link, the player) is a page loaded without any tap
+  // inside it, so YouTube starts it muted, the same as it does a video in the player. The same job as above is done
+  // for the Short on view: once per Short, right after it starts, so a Short you mute yourself stays muted. A Short
+  // is a new "video" when the address names another one, when the page loads a new picture ('loadstart' / 'emptied';
+  // YouTube may change the address a moment after it starts the next Short) or when you swipe to the next one.
+  // An ad in the Shorts feed is left alone: the ad skipper above mutes it and moves on.
+
+  var shortUnmuteDone = false;
+  var shortUnmuteTries = 0;
+  var shortUnmuteFor = '';
+
+  function onShorts() {
+    return location.pathname.indexOf('/shorts') === 0;
+  }
+
+  function resetShortUnmute() {
+    shortUnmuteDone = false;
+    shortUnmuteTries = 0;
+  }
+
+  if (cfg.route === 'browse') {
+    ['loadstart', 'emptied'].forEach(function (type) {
+      document.addEventListener(type, function (e) {
+        if (onShorts() && e.target && e.target.tagName === 'VIDEO') resetShortUnmute();
+      }, true);
+    });
+  }
+
+  /** The video of the Short on view: the active reel's, else the one that is playing, else the page's main one. */
+  function shortVideo(active) {
+    var v = active && active.querySelector('video');
+    if (v) return v;
+    var all = document.querySelectorAll('video');
+    for (var i = 0; i < all.length; i++) {
+      if (!all[i].paused && !all[i].ended) return all[i];
+    }
+    return mainVideo();
+  }
+
+  function autoUnmuteShort() {
+    if (cfg.route !== 'browse') return;
+    if (!onShorts()) { shortUnmuteFor = ''; return; }
+    var m = /^\/shorts\/([^/?#]+)/.exec(location.pathname);
+    var id = m ? m[1] : '';
+    if (id !== shortUnmuteFor) { shortUnmuteFor = id; resetShortUnmute(); }
+    if (shortUnmuteDone) return;
+    var active = document.querySelector(ACTIVE_REEL);
+    if (active && active.querySelector(AD_IN_REEL)) return;
+    var video = shortVideo(active);
+    if (!video) return;
+    if (!video.muted) {
+      // playing with sound for a moment already (YouTube may mute it again right after it starts)
+      if (video.currentTime > 2) shortUnmuteDone = true;
+      return;
+    }
+    if (++shortUnmuteTries > 50) { shortUnmuteDone = true; return; } // gave up after about 15 seconds
+    var player = (active && active.querySelector('.html5-video-player')) || document.querySelector('.html5-video-player');
+    try { if (player && player.isMuted && player.isMuted() && player.unMute) player.unMute(); } catch (e) {}
+    video.muted = false;
+    if (video.muted) {
+      var button = document.querySelector('.ytp-unmute');
+      if (button && button.offsetParent !== null) button.click();
+    }
+  }
+
   // ---- Playlists and mixes (player only) -----------------------------------------
   // YouTube's mobile page does not always move on inside a playlist or a mix, most often with shuffle on: the video
   // ends and plays again, and its own next button does the same. So the page script does the moving itself. It finds
@@ -638,15 +704,83 @@
   keepTop();
   document.addEventListener('DOMContentLoaded', keepTop);
 
+  // ---- "Open app" button ---------------------------------------------------
+  // m.youtube.com puts an "Open app" pill in the top bar of the pages (video pages included). Inside this app it only
+  // gets in the way, so it is hidden. base.css hides it by the names YouTube is known to give it; this also finds it by
+  // its label, in the languages YouTube is likely to be shown in, so a renamed class does not bring it back.
+
+  var OPEN_APP_TEXTS = [
+    'open app', 'open the app', 'open in app', 'open in the app', 'open youtube app',
+    '\u0641\u062a\u062d \u062a\u0637\u0628\u064a\u0642', '\u0641\u062a\u062d \u0627\u0644\u062a\u0637\u0628\u064a\u0642',
+    '\u0627\u0641\u062a\u062d \u0627\u0644\u062a\u0637\u0628\u064a\u0642', '\u0641\u062a\u062d \u0641\u064a \u0627\u0644\u062a\u0637\u0628\u064a\u0642',
+    "ouvrir l'application", 'ouvrir l\u2019application', "ouvrir l'appli", 'ouvrir l\u2019appli',
+    'abrir app', 'abrir la app', 'abrir la aplicaci\u00f3n', 'abrir aplicativo', 'abrir o app', 'abrir a aplica\u00e7\u00e3o',
+    'app \u00f6ffnen', 'apri app', "apri l'app", 'open de app',
+    '\u043e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435',
+    '\u30a2\u30d7\u30ea\u3092\u958b\u304f', '\u30a2\u30d7\u30ea\u3067\u958b\u304f',
+    '\uc571 \uc5f4\uae30', '\uc571\uc5d0\uc11c \uc5f4\uae30',
+    '\u6253\u5f00\u5e94\u7528', '\u6253\u5f00\u5e94\u7528\u7a0b\u5e8f', '\u958b\u555f\u61c9\u7528\u7a0b\u5f0f',
+    'uygulamay\u0131 a\u00e7', 'buka aplikasi', 'otw\u00f3rz aplikacj\u0119', 'm\u1edf \u1ee9ng d\u1ee5ng',
+    '\u0910\u092a \u0916\u094b\u0932\u0947\u0902'
+  ];
+
+  function normText(s) {
+    return (s || '').replace(/[\s\u200e\u200f\u202a-\u202e]+/g, ' ').trim().toLowerCase();
+  }
+
+  function isOpenAppLabel(el) {
+    var t = normText(el.textContent);
+    if (t && t.length <= 40 && OPEN_APP_TEXTS.indexOf(t) >= 0) return true;
+    var a = normText(el.getAttribute && el.getAttribute('aria-label'));
+    return !!a && OPEN_APP_TEXTS.indexOf(a) >= 0;
+  }
+
+  var CLICKABLE = 'a, button, [role="button"]';
+
+  function hideOpenApp() {
+    try {
+      var bar = document.querySelector('ytm-mobile-topbar-renderer') || document.querySelector('header');
+      if (!bar) return;
+      var items = bar.querySelectorAll(CLICKABLE + ', ytm-button-renderer, yt-button-shape');
+      for (var i = 0; i < items.length; i++) {
+        var el = items[i];
+        if (el.getAttribute('data-wt-open-app') || !isOpenAppLabel(el)) continue;
+        // Takes the wrappers with it as long as they hold nothing but this one button (no empty pill left behind).
+        var target = el;
+        var label = normText(el.textContent);
+        while (target.parentElement && target.parentElement !== bar) {
+          var p = target.parentElement;
+          if (p.querySelectorAll(CLICKABLE).length > 1 || normText(p.textContent) !== label) break;
+          target = p;
+        }
+        el.setAttribute('data-wt-open-app', '1');
+        target.setAttribute('data-wt-open-app', '1');
+        target.style.setProperty('display', 'none', 'important');
+      }
+    } catch (e) {}
+  }
+
+  whenRoot(function () {
+    var pending = false;
+    new MutationObserver(function () {
+      if (pending) return;
+      pending = true;
+      setTimeout(function () { pending = false; hideOpenApp(); }, 100);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    hideOpenApp();
+  });
+
   // ---- Timer --------------------------------------------------------------
 
   var ticks = 0;
   setInterval(function () {
     ticks++;
+    if (ticks % 5 === 0) hideOpenApp();
     skipAd();
     autoUnmute();
     keepTop();
     skipShortsAd();
+    autoUnmuteShort();
     if (ticks % 5 === 0) dropIframes();
   }, 300);
 
@@ -660,6 +794,22 @@
     /** The app shows the player as a small box (true) or full screen (false). */
     setMini: function (on) {
       mini = !!on;
+      keepTop();
+    },
+    /**
+     * The app asks the page to lay itself out again. YouTube sizes its player (and the picture inside it) when the page
+     * changes size or leaves full screen; when the app's picture-in-picture window takes the player out of full screen
+     * while the page is still changing size, the player can stay sized for an in-between moment (part of the video cut
+     * off, black under it). The same events that a real change sends make it size itself again.
+     */
+    relayout: function () {
+      try {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+          document.dispatchEvent(new Event('webkitfullscreenchange'));
+          document.dispatchEvent(new Event('fullscreenchange'));
+        }
+      } catch (e) {}
+      try { window.dispatchEvent(new Event('resize')); } catch (e) {}
       keepTop();
     },
     configure: function (next) {

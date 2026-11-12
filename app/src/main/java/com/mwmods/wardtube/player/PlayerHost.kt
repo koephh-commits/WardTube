@@ -69,6 +69,8 @@ import kotlin.math.roundToInt
  * WebView there uses LEFT / top-left, never START, and the container is forced left-to-right: in a right-to-left
  * layout START puts the wider WebView against the window's right edge and the window would show the wrong part
  * of the page (black).
+ * After full screen the video may be left shorter than the player's box: the picture's own box is fitted then and the page is
+ * nudged to size the video again (see [nudgePage]).
  */
 class PlayerHost(
     private val area: FrameLayout,
@@ -128,6 +130,38 @@ class PlayerHost(
     /** The size the WebView is laid out at while in picture in picture (the screen's), in pixels. */
     private var pipPageWidth = 0
     private var pipPageHeight = 0
+
+    /**
+     * Right after the window came from the system's full screen (see [enterPip]) and until this uptime, a measure of the
+     * video's box is only believed when the box is where the page script pins it (the top-left corner, as wide as the
+     * page): before that the page is still leaving full screen and its player is in some in-between shape.
+     */
+    private var pipStrictUntil = 0L
+
+    // After full screen the page can be left with its video sized for an in-between moment (a band of black under the
+    // picture, the picture not filling the player's box). Synthetic resize events do not always make YouTube size it
+    // again, a real change of the page's width does: for a split second the WebView is laid out a few pixels narrower and
+    // then given its size back (see [nudgePage]). Nothing is measured while that lasts.
+    private var pipNudging = false
+    private var pipNudgesLeft = 0
+    private var pipNudgedAt = 0L
+
+    // The first seconds of the window: the page is told it is the box, laid out again (after full screen) and the video's
+    // box is measured and fitted again several times, so the picture does not stay in the shape of the in-between moment.
+    private var pipSettleStep = 0
+    private var pipSettleRelayout = false
+    private val pipSettle = object : Runnable {
+        override fun run() {
+            if (!pip) return
+            tellPageMini()
+            if (pipSettleRelayout) relayoutPage()
+            applyPip() // the window's size may have changed since the last fit
+            if (pipSettleRelayout && pipSettleStep == PIP_NUDGE_STEP) nudgePage()
+            measureVideoBox()
+            pipSettleStep++
+            if (pipSettleStep < PIP_SETTLE_MS.size) area.postDelayed(this, PIP_SETTLE_MS[pipSettleStep])
+        }
+    }
 
     /** True when there is a video to show in a picture-in-picture window: not closed, not hidden for a Short, not tucked away. */
     val canPip: Boolean get() = webView != null && mode != Mode.NONE && !miniHidden && !docked
@@ -496,8 +530,9 @@ class PlayerHost(
     /** Asks the page where its video is, then places the box again with the real size. */
     private fun measureVideoBox() {
         val view = webView ?: return
+        if (pipNudging) return
         view.evaluateJavascript(MEASURE_SCRIPT) { value ->
-            if ((mode != Mode.MINI && !pip) || webView !== view) return@evaluateJavascript
+            if ((mode != Mode.MINI && !pip) || webView !== view || pipNudging) return@evaluateJavascript
             val parts = value?.trim('"')?.split('|') ?: return@evaluateJavascript
             if (parts.size < 6) return@evaluateJavascript
             val n = FloatArray(parts.size)
@@ -514,11 +549,56 @@ class PlayerHost(
             val plausible = rect.width() >= w * 0.4f && rect.height() > 0f && rect.top >= -1f &&
                 rect.top <= h * 0.35f && rect.bottom <= h * 1.05f
             val next = if (plausible) rect else null
+            // The window has just come from the system's full screen: the page is still leaving it, and a box that is not
+            // pinned at the top-left corner at the page's width, or that is taller than wide, is the page between two
+            // layouts. It is not used (the last box, or 16:9 at the top, stays) and the next look decides.
+            if (pip && next != null && SystemClock.uptimeMillis() < pipStrictUntil) {
+                val pinned = abs(n[0]) <= 2f && abs(n[1]) <= 2f && abs(n[2] - innerWidth) <= maxOf(2f, innerWidth * 0.02f)
+                if (!pinned || next.height() > next.width()) return@evaluateJavascript
+            }
+            // Picture in picture only: the player's box can be taller than the picture it holds (YouTube sized the video for an
+            // in-between moment of the page when the player left full screen: black under the picture, which then sits at the
+            // top of the window instead of filling it). The picture's own box is shown then, and the page is nudged to size
+            // the video again. A picture much smaller than its box (a wide film's bars, a 4:3 video's sides) is left alone.
+            var box = next
+            if (pip && next != null && parts.size >= 10) {
+                val v = RectF(n[6] * k, n[7] * k, (n[6] + n[8]) * k, (n[7] + n[9]) * k)
+                val insideBox = v.left >= next.left - 2f && v.top >= next.top - 2f &&
+                    v.right <= next.right + 2f && v.bottom <= next.bottom + 2f
+                val almostFillsBox = v.width() >= next.width() * 0.9f && v.height() >= next.height() * 0.85f
+                val shorterThanBox = v.height() < next.height() * 0.98f
+                if (insideBox && almostFillsBox && shorterThanBox) {
+                    box = v
+                    if (pipNudgesLeft > 0 && SystemClock.uptimeMillis() - pipNudgedAt > PIP_NUDGE_GAP_MS) {
+                        pipNudgesLeft--
+                        nudgePage()
+                    }
+                }
+            }
             // Nothing moved (the usual case on the repeated look), or the box is in the middle of its resize animation.
-            if (sameBox(miniRect, next) || resizeAnimator != null) return@evaluateJavascript
-            miniRect = next
+            if (sameBox(miniRect, box) || resizeAnimator != null) return@evaluateJavascript
+            miniRect = box
             applyMini()
         }
+    }
+
+    /**
+     * Lays the page out a few pixels narrower for a split second and then gives it its size back, so that YouTube gets a
+     * real change of width (its resize handlers run, the player sizes the video to its box again) and not only the events
+     * [relayoutPage] sends. The window is not affected: the WebView is only a few pixels narrower and scaled the same.
+     */
+    private fun nudgePage() {
+        val view = webView ?: return
+        if (!pip || pipNudging || pipPageWidth <= PIP_NUDGE_PX * 4) return
+        pipNudging = true
+        pipNudgedAt = SystemClock.uptimeMillis()
+        view.layoutParams = FrameLayout.LayoutParams(pipPageWidth - PIP_NUDGE_PX, pipPageHeight, Gravity.TOP or Gravity.LEFT)
+        area.postDelayed({
+            pipNudging = false
+            if (!pip) return@postDelayed
+            applyPip() // the size is not the page's own any more: it is set again here
+            measureVideoBox()
+        }, PIP_NUDGE_MS)
     }
 
     private fun sameBox(a: RectF?, b: RectF?): Boolean {
@@ -668,11 +748,24 @@ class PlayerHost(
      * the whole window): the video fills it. [pageWidth] x [pageHeight] is the screen's size. The WebView is laid out at
      * that size, as in the mini player, and only its drawing is scaled down, so the page does not reflow when the window
      * shrinks and the video does not stutter. The page itself hides everything but the player (see [miniWanted]).
+     *
+     * [afterFullscreen]: the window came from the system's full screen and the activity has just taken the video out of it.
+     * The page is then in the middle of leaving full screen (its viewport changed from the sideways full screen to the
+     * window's size and on to the upright layout, and YouTube's player sizes itself at each step), so what it reports at
+     * this moment is not trusted (see [pipStrictUntil]), the box measured before is dropped, and the page is told to lay
+     * itself out again while the window settles ([pipSettle]).
      */
-    fun enterPip(pageWidth: Int, pageHeight: Int) {
+    fun enterPip(pageWidth: Int, pageHeight: Int, afterFullscreen: Boolean = false) {
         val view = webView ?: return
         if (mode == Mode.NONE || pip) return
         pip = true
+        pipNudging = false
+        pipNudgesLeft = PIP_NUDGE_MAX
+        pipNudgedAt = 0L
+        if (afterFullscreen) {
+            miniRect = null // measured before, in another layout (or for another video)
+            pipStrictUntil = SystemClock.uptimeMillis() + PIP_STRICT_MS
+        }
         // From the mini player the WebView already has a full-size layout fixed in pixels, which the window shrinking
         // does not touch: it is kept, so the page does not reflow at all. Full screen, the WebView follows the window
         // (it is already shrinking), so the screen's size is used.
@@ -700,6 +793,20 @@ class PlayerHost(
         measureVideoBox()
         area.removeCallbacks(remeasure)
         area.postDelayed(remeasure, REMEASURE_DELAY_MS)
+        // The first seconds: tell, fit and measure again several times (after full screen also lay the page out again).
+        area.removeCallbacks(pipSettle)
+        pipSettleStep = 0
+        pipSettleRelayout = afterFullscreen
+        area.postDelayed(pipSettle, PIP_SETTLE_MS[0])
+    }
+
+    /**
+     * Asks the page to lay itself out again: YouTube sizes its player (and the picture inside it) when the page's size or
+     * full-screen state changes, and after the window took the player out of full screen it can be left sized for one of
+     * the in-between moments (a part of the video cut off, black under it).
+     */
+    private fun relayoutPage() {
+        webView?.evaluateJavascript("window.__wardtube&&window.__wardtube.relayout&&window.__wardtube.relayout()", null)
     }
 
     /** The window is the app again: the player goes back to what it was before, full screen or the floating box. */
@@ -725,6 +832,9 @@ class PlayerHost(
     private fun endPip() {
         if (!pip) return
         pip = false
+        pipStrictUntil = 0L
+        pipNudging = false
+        area.removeCallbacks(pipSettle)
         container.layoutDirection = View.LAYOUT_DIRECTION_INHERIT
     }
 
@@ -1178,6 +1288,20 @@ class PlayerHost(
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val REMEASURE_DELAY_MS = 500L
         const val REMEASURE_PERIOD_MS = 2000L // how often the mini player looks at the video's box again
+
+        // Picture in picture: how soon after the window appears the page is told, fitted and measured again (one entry per
+        // look, each the wait after the one before), and how long, after full screen, a box that is not pinned is distrusted.
+        val PIP_SETTLE_MS = longArrayOf(150L, 250L, 400L, 600L, 900L, 1300L)
+        const val PIP_STRICT_MS = 6000L
+
+        // The page nudge (see nudgePage): after full screen, at this look of the settle sequence (about 1.4 s in) the page is
+        // laid out PIP_NUDGE_PX narrower for PIP_NUDGE_MS; and, up to PIP_NUDGE_MAX times, PIP_NUDGE_GAP_MS apart at least,
+        // again whenever the picture is found shorter than the player's box.
+        const val PIP_NUDGE_STEP = 3
+        const val PIP_NUDGE_PX = 6
+        const val PIP_NUDGE_MS = 140L
+        const val PIP_NUDGE_MAX = 2
+        const val PIP_NUDGE_GAP_MS = 900L
         const val SNAP_MS = 180L
         const val FADE_DELAY_MS = 3000L
         const val RESIZE_MS = 500L
@@ -1214,7 +1338,8 @@ class PlayerHost(
             })();
         """.trimIndent()
 
-        // "<left>|<top>|<width>|<height>|<viewport width>|<viewport height>" of the video's box, in CSS pixels, or ''.
+        // "<left>|<top>|<width>|<height>|<viewport width>|<viewport height>|<picture left>|<top>|<width>|<height>" of the
+        // video's box and then of the <video> picture itself (zeros when none is found), in CSS pixels, or ''.
         // The page is put back at the top first (the box shows only the top of it). The player is the first box, in the
         // order below, that is wide enough and sits near the top: a box further down (a suggestion's picture, a copy of
         // the player left over while YouTube changes video) is not the player.
@@ -1225,13 +1350,22 @@ class PlayerHost(
               if (root) root.scrollTop = 0;
               try { if (window.__wardtube) window.__wardtube.setMini(true); } catch (e) {}
               var vw = window.innerWidth, vh = window.innerHeight;
+              var pic = [0, 0, 0, 0];
+              var vids = document.querySelectorAll('video');
+              for (var v = 0; v < vids.length; v++) {
+                var b = vids[v].getBoundingClientRect();
+                if (b.width >= vw * 0.4 && b.height > 0 && b.top >= -1 && b.top <= vh * 0.3) {
+                  pic = [b.left, b.top, b.width, b.height];
+                  break;
+                }
+              }
               var picks = ['#player-container-id', '#movie_player', '.html5-video-player', 'video'];
               for (var i = 0; i < picks.length; i++) {
                 var list = document.querySelectorAll(picks[i]);
                 for (var j = 0; j < list.length; j++) {
                   var r = list[j].getBoundingClientRect();
                   if (r.width >= vw * 0.4 && r.height > 0 && r.top >= -1 && r.top <= vh * 0.3) {
-                    return [r.left, r.top, r.width, r.height, vw, vh].join('|');
+                    return [r.left, r.top, r.width, r.height, vw, vh].concat(pic).join('|');
                   }
                 }
               }

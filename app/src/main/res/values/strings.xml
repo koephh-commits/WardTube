@@ -15,6 +15,7 @@
     <string name="pictureInPicture">Picture in picture</string>
     <string name="pictureInPictureOn">When you leave the app, the video keeps playing in a small floating window</string>
     <string name="pictureInPictureOff">Off: leaving the app keeps only the sound (if play in background is on)</string>
+    <string name="pictureInPictureNote">Note: not reliable when the video is in fill or full-screen mode. It works well with the video in the portrait page or in the mini player.</string>
     <string name="hideBarOnScroll">Hide bar while scrolling</string>
     <string name="refresh">Refresh</string>
     <string name="set_as_home">Set as home</string>
@@ -292,7 +293,6 @@
     <string name="quickTiktok">TikTok</string>
     <string name="quickFacebook">Facebook</string>
     <string name="quickInstagram">Instagram</string>
-    <string name="quickSoundcloud">SoundCloud</string>
     <string name="quickDailymotion">Dailymotion</string>
     <string name="quickVimeo">Vimeo</string>
     <string name="quickAdd">Add</string>
@@ -348,4 +348,23 @@
     <string name="menuSectionBrowsing">Browsing</string>
     <string name="menuSectionAds">Ads</string>
     <string name="adsBlockedCount">%1$d blocked</string>
+
+    <!-- Subscriptions screen -->
+    <string name="subsAll">All</string>
+    <string name="subsGoToChannel">Go to channel</string>
+    <string name="subsViews">%1$s views</string>
+    <string name="subsEmpty">No recent videos</string>
+    <string name="subsEmptyLive">No live streams</string>
+    <string name="subsLoadFailed">Couldn\'t load your subscriptions (%1$s). Showing YouTube\'s own page instead.</string>
+    <string name="subsNative">Subscriptions screen</string>
+    <string name="subsNativeOn">The app\'s own screen: tap a channel to see only its videos</string>
+    <string name="subsNativeOff">Off: the tab shows YouTube\'s own page</string>
+    <string name="subsChipAll">All content</string>
+    <string name="subsChipToday">Today</string>
+    <string name="subsChipVideos">Videos</string>
+    <string name="subsChipShorts">Shorts</string>
+    <string name="subsChipLive">Live</string>
+    <string name="subsShortsTitle">Shorts</string>
+    <string name="subsLiveBadge">LIVE</string>
+    <string name="subsUpcomingBadge">Upcoming</string>
 </resources>

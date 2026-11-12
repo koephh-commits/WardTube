@@ -69,6 +69,7 @@ class MenuController(
     /** Picture in picture is possible on this phone (Android 8+ with the feature): only then the menu has its switch. */
     private val pipAvailable: Boolean = false,
     private val onPipChanged: () -> Unit = {},
+    private val onNativeSubsChanged: () -> Unit = {},
 ) : ActionMenuView.OnMenuItemClickListener {
 
     private lateinit var actionMenu: ActionMenuView
@@ -240,7 +241,9 @@ class MenuController(
             addSwitchRow(
                 R.string.pictureInPicture, R.drawable.ic_menu_pip, prefs.pipAuto,
                 subtitle = { on ->
-                    activity.getString(if (on) R.string.pictureInPictureOn else R.string.pictureInPictureOff)
+                    // The state, then (always, on or off) the note that the window is not reliable from full screen.
+                    activity.getString(if (on) R.string.pictureInPictureOn else R.string.pictureInPictureOff) +
+                        "\n" + activity.getString(R.string.pictureInPictureNote)
                 }
             ) { on ->
                 prefs.pipAuto = on
@@ -261,6 +264,15 @@ class MenuController(
         addSwitchRow(R.string.hideBarOnScroll, R.drawable.ic_menu_swap_vert, prefs.autoHideBar) { on ->
             prefs.autoHideBar = on
             onAutoHideBarChanged()
+        }
+        addSwitchRow(
+            R.string.subsNative, R.drawable.ic_list_24dp, prefs.nativeSubs,
+            subtitle = { on ->
+                activity.getString(if (on) R.string.subsNativeOn else R.string.subsNativeOff)
+            }
+        ) { on ->
+            prefs.nativeSubs = on
+            onNativeSubsChanged()
         }
 
         addSection(list, R.string.menuSectionBrowsing, R.color.menuAccentTeal)

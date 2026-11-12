@@ -1,0 +1,1 @@
+Fixed: the Shorts chip of the Subscriptions screen now keeps loading as you scroll (up to 500 Shorts) instead of stopping after the few Shorts found in the first 200 videos of the feed.

@@ -29,6 +29,9 @@ interface PageEvents {
     /** The page or its URL changed (also fires for YouTube's in-page navigation). */
     fun onPageChanged(url: String?)
 
+    /** The new page painted its first content: nothing of the page before it is drawn any more. */
+    fun onPageCommitVisible(url: String?) {}
+
     fun onLoadError(kind: ErrorKind, description: String)
 
     fun onRenderProcessGone()
@@ -95,6 +98,11 @@ class WardTubeWebViewClient(
         super.onPageFinished(view, url)
         view?.let { scripts.injectFallback(it) }
         events.onPageChanged(url)
+    }
+
+    override fun onPageCommitVisible(view: WebView?, url: String?) {
+        super.onPageCommitVisible(view, url)
+        events.onPageCommitVisible(url)
     }
 
     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {

@@ -21,6 +21,9 @@ class WardTubeChromeClient(
 
     interface FullscreenListener {
         fun onFullscreenChanged(fullscreen: Boolean)
+
+        /** False while the page must not go full screen (the app is the picture-in-picture window): the request is refused. */
+        fun canEnterFullscreen(): Boolean = true
     }
 
     /** Asked when a YouTube page wants the microphone (voice search); the activity owns the runtime permission. */
@@ -35,7 +38,7 @@ class WardTubeChromeClient(
     val isFullscreen: Boolean get() = customView != null
 
     override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-        if (view == null || customView != null) {
+        if (view == null || customView != null || !listener.canEnterFullscreen()) {
             callback?.onCustomViewHidden()
             return
         }

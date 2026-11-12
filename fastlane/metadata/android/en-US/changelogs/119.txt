@@ -1,0 +1,1 @@
+Fixed: the Subscriptions screen keeps loading older videos as you scroll (All content and Videos no longer stop after the newest ones), and every chip lists the newest videos first with older ones below.

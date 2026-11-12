@@ -1,0 +1,1 @@
+Changed: the "All" button of the Subscriptions screen now stays fixed at the end of the channels row, like YouTube's, instead of scrolling away with the channels. Tapping it opens the list of all your subscriptions. To go back to every channel's videos, tap the chosen channel again.

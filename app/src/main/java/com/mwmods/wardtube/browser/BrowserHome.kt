@@ -32,7 +32,7 @@ import org.json.JSONObject
 /**
  * What the browser screen shows under the link field while no page is open (see `browserHomeScroll` in the layout):
  *
- * - Quick sites: rows of four tiles. Seven sites are built in; the person adds their own with the last tile (a link,
+ * - Quick sites: rows of four tiles. Six sites are built in; the person adds their own with the last tile (a link,
  *   kept in [Prefs.quickSites]) and removes one of their own with a long press. A tap opens the site in the browser.
  * - Recently opened: the last [RECENT_COUNT] pages of the browsing history ([BrowserHistory]), newest first; a tap opens
  *   the page and "See all" opens the whole history. Hidden while the history is empty.
@@ -92,7 +92,6 @@ internal class BrowserHome(
         builtIn(R.string.quickTiktok, "https://www.tiktok.com/", R.color.detectStream, "T"),
         builtIn(R.string.quickFacebook, "https://m.facebook.com/", R.color.detectFile, "F"),
         builtIn(R.string.quickInstagram, "https://www.instagram.com/", R.color.detectPlayer, "I"),
-        builtIn(R.string.quickSoundcloud, "https://soundcloud.com/", R.color.detectAudio, "S"),
         builtIn(R.string.quickDailymotion, "https://www.dailymotion.com/", R.color.detectStream, "D"),
         builtIn(R.string.quickVimeo, "https://vimeo.com/", R.color.detectVideo, "V"),
     )

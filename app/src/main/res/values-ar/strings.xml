@@ -13,6 +13,7 @@
     <string name="pictureInPicture">صورة داخل صورة</string>
     <string name="pictureInPictureOn">عند الخروج من التطبيق يستمر الفيديو في نافذة صغيرة عائمة</string>
     <string name="pictureInPictureOff">متوقف: الخروج من التطبيق يُبقي الصوت فقط (إذا كان التشغيل في الخلفية مفعّلاً)</string>
+    <string name="pictureInPictureNote">ملاحظة: هذه الميزة غير موثوقة في وضع ملء الفيديو أو وضع ملء الشاشة. تعمل بشكل جيد مع الفيديو في وضع الشاشة بالطول أو في الوضع المصغّر.</string>
     <string name="hideBarOnScroll">إخفاء الشريط عند التمرير</string>
     <string name="refresh">تحديث</string>
     <string name="set_as_home">تعيين كصفحة رئيسية</string>
@@ -295,7 +296,6 @@
     <string name="quickTiktok">تيك توك</string>
     <string name="quickFacebook">فيسبوك</string>
     <string name="quickInstagram">إنستغرام</string>
-    <string name="quickSoundcloud">ساوند كلاود</string>
     <string name="quickDailymotion">دايلي موشن</string>
     <string name="quickVimeo">فيميو</string>
     <string name="quickAdd">إضافة</string>
@@ -357,4 +357,23 @@
     <string name="menuSectionBrowsing">التصفح</string>
     <string name="menuSectionAds">الإعلانات</string>
     <string name="adsBlockedCount">تم حظر %1$d</string>
+
+    <!-- شاشة الاشتراكات -->
+    <string name="subsAll">الكل</string>
+    <string name="subsGoToChannel">الانتقال إلى القناة</string>
+    <string name="subsViews">%1$s مشاهدة</string>
+    <string name="subsEmpty">لا توجد فيديوهات حديثة</string>
+    <string name="subsEmptyLive">لا توجد بثوث مباشرة</string>
+    <string name="subsLoadFailed">تعذّر تحميل اشتراكاتك (%1$s). تُعرض صفحة يوتيوب نفسها بدلاً منها.</string>
+    <string name="subsNative">شاشة الاشتراكات</string>
+    <string name="subsNativeOn">شاشة خاصة بالتطبيق: اضغط على قناة لترى فيديوهاتها فقط</string>
+    <string name="subsNativeOff">متوقف: يعرض التبويب صفحة يوتيوب نفسها</string>
+    <string name="subsChipAll">كلّ المحتوى</string>
+    <string name="subsChipToday">اليوم</string>
+    <string name="subsChipVideos">الفيديوهات</string>
+    <string name="subsChipShorts">Shorts</string>
+    <string name="subsChipLive">مباشر</string>
+    <string name="subsShortsTitle">Shorts</string>
+    <string name="subsLiveBadge">مباشر</string>
+    <string name="subsUpcomingBadge">قريبًا</string>
 </resources>

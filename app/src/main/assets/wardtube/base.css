@@ -3,3 +3,14 @@
     outline: none !important;
     -webkit-tap-highlight-color: transparent !important;
 }
+
+/* The "Open app" button in the top bar, and the banners that ask to open the YouTube app.
+   wardtube.js also finds the button by its label, in case YouTube renames these. */
+ytm-open-app-button,
+ytm-open-app-banner-renderer,
+ytm-open-app-header-renderer,
+[class*="open-app"],
+[class*="openapp"],
+[class*="open_app"] {
+    display: none !important;
+}

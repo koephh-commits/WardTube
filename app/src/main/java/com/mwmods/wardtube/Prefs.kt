@@ -52,6 +52,14 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(AUTO_HIDE_BAR, true)
         set(value) = sp.edit { putBoolean(AUTO_HIDE_BAR, value) }
 
+    /**
+     * The Subscriptions tab shows the app's own screen (a strip of channels that filters the videos in place, see
+     * [com.mwmods.wardtube.subs.SubsController]) instead of YouTube's page.
+     */
+    var nativeSubs: Boolean
+        get() = sp.getBoolean(NATIVE_SUBS, true)
+        set(value) = sp.edit { putBoolean(NATIVE_SUBS, value) }
+
     var homepageTutorialSeen: Boolean
         get() = sp.getBoolean(HOMEPAGE_LEARNED, false)
         set(value) = sp.edit { putBoolean(HOMEPAGE_LEARNED, value) }
@@ -129,6 +137,7 @@ class Prefs(context: Context) {
         private const val COOKIES = "cookiesEnabled"
         private const val AD_BLOCK = "adBlockEnabled"
         private const val AUTO_HIDE_BAR = "autoHideBar"
+        private const val NATIVE_SUBS = "nativeSubs"
         private const val HOMEPAGE_LEARNED = "homepageLearned"
         private const val NOTIFICATION_ASKED = "notificationPermissionAsked"
         private const val FILTERS_UPDATED_AT = "filtersUpdatedAt"

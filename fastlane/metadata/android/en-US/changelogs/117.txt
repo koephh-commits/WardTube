@@ -1,0 +1,1 @@
+Added: the Subscriptions tab has its own screen like the YouTube app. Tap a channel to see only its videos while the strip of channels stays in place. Can be switched off in the menu.

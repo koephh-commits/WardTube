@@ -1,0 +1,1 @@
+Changed: shorter lists and faster loading. The Subscriptions feed stops at 200 videos, and a playlist or channel offered for download shows its first 50 videos.

@@ -68,6 +68,7 @@ import com.mwmods.wardtube.player.PlaybackService
 import com.mwmods.wardtube.player.PlayerController
 import com.mwmods.wardtube.player.PlayerHost
 import com.mwmods.wardtube.player.SleepTimer
+import com.mwmods.wardtube.subs.SubsController
 import com.mwmods.wardtube.ui.MenuController
 import com.mwmods.wardtube.util.CookieHelper
 import com.mwmods.wardtube.util.Permissions
@@ -75,6 +76,7 @@ import com.mwmods.wardtube.util.PlaylistLinks
 import com.mwmods.wardtube.util.UrlUtils
 import com.mwmods.wardtube.web.BackgroundWebView
 import com.mwmods.wardtube.web.ErrorKind
+import com.mwmods.wardtube.web.MenuDownload
 import com.mwmods.wardtube.web.NativeBridge
 import com.mwmods.wardtube.web.PageEvents
 import com.mwmods.wardtube.web.PageScripts
@@ -125,8 +127,10 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
     }
     private lateinit var scripts: PageScripts
+    private lateinit var menuDownload: MenuDownload
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
+    private lateinit var subs: SubsController
 
     private val noisyReceiver = BecomingNoisyReceiver()
     private var errorSnackbar: Snackbar? = null
@@ -230,6 +234,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         webView.webChromeClient = chromeClient
         webView.webViewClient = WardTubeWebViewClient(adBlocker, scripts, this)
         webView.addJavascriptInterface(createBridge(), BRIDGE_NAME)
+        // The "Download video" row of YouTube's three-dots menu (only the browsing page has video cards).
+        menuDownload = MenuDownload(webView) { url, title -> if (!isDestroyed) startMenuDownload(url, title) }
+        menuDownload.install()
         scripts.install(webView)
         watchScrollDirection(webView)
 
@@ -244,6 +251,17 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             onModeChanged = { onPlayerModeChanged(it) },
         )
         updateBarColors()
+
+        // The Subscriptions tab: the app's own screen over YouTube's page (see SubsController).
+        subs = SubsController(
+            activity = this,
+            area = webArea,
+            browse = { webView },
+            night = createdNight,
+            enabled = { prefs.nativeSubs },
+            openUrl = { openUrl(it) },
+            onScrollDirection = { onPageScrolled(it) },
+        )
 
         menuController = MenuController(
             activity = this,
@@ -260,7 +278,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             onMinimize = { playerHost.minimize() },
             onAutoHideBarChanged = { if (!prefs.autoHideBar) setBarHidden(false) },
             pipAvailable = pipSupported,
-            onPipChanged = { updatePipParams() }
+            onPipChanged = { updatePipParams() },
+            onNativeSubsChanged = { subs.onPage(webView.url) }
         )
         menuController.setUp(findViewById<ActionMenuView>(R.id.menu_main))
 
@@ -308,9 +327,21 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private fun browseHomepage(): String =
         if (UrlUtils.isVideoUrl(prefs.homepage)) Prefs.DEFAULT_HOMEPAGE else prefs.homepage
 
+    /**
+     * A Short starts by itself, with its sound, when the app opens it (from the Subscriptions screen, a link, the
+     * player): the page is loaded without any tap inside it, and WebView's default rule keeps the sound off until the
+     * person taps the screen. The rule is lifted while a Short's page is the one on view (the player's WebView has it
+     * lifted for the same reason) and put back on every other page of the browsing WebView, so no other page starts to
+     * play by itself.
+     */
+    private fun allowAutoplayFor(url: String?) {
+        webView.settings.mediaPlaybackRequiresUserGesture = !UrlUtils.isShortsPage(url)
+    }
+
     private fun loadBrowse(url: String) {
         setBarHidden(false)
         browseLoaded = true
+        allowAutoplayFor(url)
         if (::playerHost.isInitialized) {
             playerHost.miniHidden = UrlUtils.isShortsPage(url)
             updatePipParams()
@@ -469,6 +500,10 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private inner class FullscreenHandler(private val target: () -> WebView?) :
         WardTubeChromeClient.FullscreenListener {
         override fun onFullscreenChanged(fullscreen: Boolean) = handleFullscreen(fullscreen, target())
+
+        // In the little window the page is not let into full screen (YouTube asks for it again when the window's shape
+        // changes, which put the landscape lock and the app's bars back inside the window).
+        override fun canEnterFullscreen(): Boolean = !pipUiOn && !isInPictureInPictureMode && !leavingForPip()
     }
 
     // ---- Setup ----
@@ -668,6 +703,19 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     /** When enterPictureInPictureMode was asked for: onPause must not pause the video that is about to be shown there. */
     private var pipAskedAt = 0L
 
+    /**
+     * What was true at the moment the user left the app (Home / Recents), before the window starts to shrink: the player's
+     * video was in the system's full screen, and it was playing. While the window shrinks, the page can leave full screen
+     * by itself (its viewport turns upright) BEFORE [onPictureInPictureModeChanged] arrives. [isFullscreen] is false by then,
+     * and the window used to be set up like one that came from the normal watch page: the box measured in full screen was
+     * kept, the page was not laid out again and a video the page paused was not started again. Whether that happened
+     * depended on the timing, so the window came out right only some of the times. It is remembered here, at the one
+     * moment that is certain.
+     */
+    private var playerFullscreenAtLeave = false
+    private var playingAtLeave = false
+    private var leftAppAt = 0L
+
     /** Android 12+: the system enters picture in picture by itself when the user goes Home (set through the params). */
     private var pipArmed = false
 
@@ -708,6 +756,26 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private fun markOwnLaunch() {
         ownLaunchUntil = SystemClock.uptimeMillis() + OWN_LAUNCH_MS
     }
+
+    /** Called as the user leaves the app: remembers what the window is about to be made from (see [playerFullscreenAtLeave]). */
+    private fun rememberStateAtLeave() {
+        playerFullscreenAtLeave = playerChrome?.isFullscreen == true
+        playingAtLeave = videoPlaying
+        leftAppAt = SystemClock.uptimeMillis()
+    }
+
+    private fun forgetStateAtLeave() {
+        playerFullscreenAtLeave = false
+        playingAtLeave = false
+        leftAppAt = 0L
+    }
+
+    /**
+     * The app was just left and the little window has not come yet: the page may not go back into full screen now (it asks
+     * again when the window's shape changes), which would put the landscape lock and the app's bars inside the window.
+     */
+    private fun leavingForPip(): Boolean =
+        !resumed && pipSupported && prefs.pipAuto && SystemClock.uptimeMillis() - leftAppAt < PIP_LEAVE_MEMORY_MS
 
     private fun canEnterPip(): Boolean = pipSupported && ::playerHost.isInitialized && playerHost.canPip
 
@@ -796,7 +864,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (isDestroyed || isFinishing || !::playerHost.isInitialized) return
         pipArmed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && prefs.pipAuto && videoPlaying && playerHost.canPip
         val ratio = pipRatio()
-        val sourceRect = playerHost.pipSourceRect(ratio.toFloat())
+        val sourceRect = pipSourceRect(ratio)
         val key = "$ratio|$videoPlaying|$pipArmed|$sourceRect"
         if (key == pipParamsKey) return
         pipParamsKey = key
@@ -807,6 +875,13 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
     }
 
+    /**
+     * Where the video is now, for the system's shrinking animation. None while the video is in the system's full screen:
+     * the player's own box is hidden behind it then, and its old place would crop the window to the wrong part.
+     */
+    private fun pipSourceRect(ratio: Rational): Rect? =
+        if (isFullscreen) null else playerHost.pipSourceRect(ratio.toFloat())
+
     /** Asks Android to shrink the app into the little window now. Returns false when that is not possible. */
     private fun enterPip(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !canEnterPip() || isInPictureInPictureMode) return false
@@ -814,7 +889,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             pipAskedAt = SystemClock.uptimeMillis()
             menuController.dismissSheet()
             val ratio = pipRatio()
-            val entered = enterPictureInPictureMode(buildPipParams(ratio, playerHost.pipSourceRect(ratio.toFloat())))
+            val entered = enterPictureInPictureMode(buildPipParams(ratio, pipSourceRect(ratio)))
             if (!entered) pipAskedAt = 0L
             entered
         } catch (e: Exception) {
@@ -837,17 +912,66 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         keepAwakeHandler.removeCallbacks(keepAwakePoll)
         keepAwakeHandler.post(keepAwakePoll)
         val fullscreen = isFullscreen
+        // The player's video is in the system's full screen (landscape): it is taken out of it and the player fills the
+        // window, the way it does from the normal watch page. Left in full screen, the window kept the landscape lock and
+        // the old full-screen size: the picture came out wrong, and the page's own full-screen changes stopped the video.
+        // The page may already have left full screen by itself while the window was coming (see
+        // [playerFullscreenAtLeave]): what was true when the user left decides, not only what is true now.
+        val leftRecently = SystemClock.uptimeMillis() - leftAppAt < PIP_LEAVE_MEMORY_MS
+        val playerWasFullscreen = playerChrome?.isFullscreen == true || (leftRecently && playerFullscreenAtLeave)
+        val playedAtLeave = leftRecently && playingAtLeave
+        forgetStateAtLeave()
+        val takeOver = playerWasFullscreen && playerHost.canPip
         // Nothing to show (no video, or a Short is on the page): the window is left as the app is.
         if (!fullscreen && !playerHost.canPip) return
+        val wasPlaying = videoPlaying || playedAtLeave
         pipUiOn = true
         menuController.dismissSheet()
         errorSnackbar?.dismiss()
         errorSnackbar = null
+        if (takeOver) {
+            exitFullscreen() // also gives the screen's rotation back (see handleFullscreen)
+            boxAspect = 0f // measured in full screen it is the screen's shape, not the player box's
+        }
         showChrome(false)
-        // A video in the system's full screen already fills the window by itself; otherwise the player takes it over.
-        if (!fullscreen) {
-            val screen = realDisplaySize()
-            playerHost.enterPip(screen.x, screen.y)
+        // A video of the browsing page in the system's full screen (a Short) already fills the window by itself;
+        // otherwise the player takes it over.
+        if (takeOver || !fullscreen) {
+            val screen = pipLayoutSize()
+            // After full screen the page is still leaving it: the player does not trust its first measures and lays
+            // the page out again (see PlayerHost.enterPip).
+            playerHost.enterPip(screen.x, screen.y, afterFullscreen = takeOver)
+        }
+        if (takeOver && wasPlaying) guardPipPlayback()
+    }
+
+    /**
+     * The page is laid out upright (the narrow side as the width) while it is in the little window, whatever way the
+     * screen was turned when the window came: laid out sideways, YouTube's page treats it as landscape and goes full screen.
+     */
+    private fun pipLayoutSize(): Point {
+        val screen = realDisplaySize()
+        return Point(minOf(screen.x, screen.y), maxOf(screen.x, screen.y))
+    }
+
+    /**
+     * Leaving full screen can stop the video (the page reacts to the change). The video was playing when the window
+     * came, so for a few seconds it is started again if it reports paused, unless the person pressed the window's button.
+     */
+    private fun guardPipPlayback() {
+        val enteredAt = SystemClock.uptimeMillis()
+        for (delay in PIP_RESUME_CHECKS_MS) {
+            keepAwakeHandler.postDelayed({
+                if (isDestroyed || !isInPictureInPictureMode || pipToggledAt >= enteredAt) return@postDelayed
+                PlayerController.queryState { state ->
+                    if (isDestroyed || !isInPictureInPictureMode || pipToggledAt >= enteredAt) return@queryState
+                    if (state != null && state.hasVideo && !state.playing) {
+                        PlayerController.play()
+                        videoPlaying = true
+                        updatePipParams()
+                    }
+                }
+            }, delay)
         }
     }
 
@@ -963,6 +1087,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     override fun onResume() {
         super.onResume()
         resumed = true
+        forgetStateAtLeave()
         com.mwmods.wardtube.util.CrashLog.showIfAny(this)
         // The system theme changed while the app was in the background (see onConfigurationChanged).
         if (isNight() != createdNight) {
@@ -1028,6 +1153,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        // Before the early returns below: Android 12+ enters the window by itself and never reaches enterPip().
+        if (pipSupported && !isInPictureInPictureMode && SystemClock.uptimeMillis() >= ownLaunchUntil) rememberStateAtLeave()
         if (!pipSupported || !prefs.pipAuto || isInPictureInPictureMode) return
         // Android also calls this when the app opens one of its own screens or a permission dialog: not leaving.
         if (SystemClock.uptimeMillis() < ownLaunchUntil) return
@@ -1061,6 +1188,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (isFinishing && !recreating) SleepTimer.cancel()
         if (::adBlocker.isInitialized) adBlocker.removeOnFiltersChanged(filtersListener)
         if (::playerHost.isInitialized) playerHost.close()
+        if (::subs.isInitialized) subs.release()
         PlaybackService.stop(this)
         PlayerController.detach(webView)
         (webView.parent as? ViewGroup)?.removeView(webView)
@@ -1083,9 +1211,17 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     override fun onPageStarted(url: String?) {
         errorSnackbar?.dismiss()
         errorSnackbar = null
+        allowAutoplayFor(url) // a Short reached by a tap on a link of YouTube's page loads as a new page too
+    }
+
+    override fun onPageCommitVisible(url: String?) {
+        if (::subs.isInitialized) subs.onPageShown(url)
     }
 
     override fun onPageChanged(url: String?) {
+        allowAutoplayFor(url ?: webView.url)
+        if (::menuDownload.isInitialized) menuDownload.injectNow()
+        if (::subs.isInitialized) subs.onPage(url ?: webView.url)
         if (::menuController.isInitialized) menuController.updateAdBlockTitle()
         updateDownloadButton(url ?: webView.url)
         val video = url?.takeIf { UrlUtils.isVideoUrl(it) }
@@ -1213,15 +1349,25 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private fun isListPage(url: String): Boolean =
         UrlUtils.isYouTubeUrl(url) && PlaylistLinks.analyze(url).kind == PlaylistLinks.Kind.LIST
 
-    private fun beginDownload(url: String) {
+    /**
+     * A video picked in the "Download video" row of YouTube's three-dots menu. It belongs to a card of the browsing page,
+     * so the player (which may hold another video, even a live one) is not asked about it, and the page's own title
+     * is not its name: the card's title is used when there is one.
+     */
+    private fun startMenuDownload(url: String, cardTitle: String?) {
+        beginDownload(url, knownTitle = cardTitle, fromBrowse = true)
+    }
+
+    private fun beginDownload(url: String, knownTitle: String? = null, fromBrowse: Boolean = false) {
         // The page title names the download in the Library while it waits in the queue.
         // A Short and a list page are on the browsing page, whatever the player may be holding.
-        val source = if (UrlUtils.isShortsPage(url) || isListPage(url)) webView else playerHost.webView ?: webView
-        val title = source.title.orEmpty()
-            .removeSuffix(" - YouTube")
-            .replace(Regex("^\\(\\d+\\)\\s*"), "") // YouTube prefixes "(3) " when there are notifications
-            .trim()
-            .takeUnless { it.isEmpty() || it.equals("YouTube", ignoreCase = true) }
+        val source = if (fromBrowse || UrlUtils.isShortsPage(url) || isListPage(url)) webView else playerHost.webView ?: webView
+        val title = knownTitle?.trim()?.takeUnless { it.isEmpty() }
+            ?: if (fromBrowse) null else source.title.orEmpty()
+                .removeSuffix(" - YouTube")
+                .replace(Regex("^\\(\\d+\\)\\s*"), "") // YouTube prefixes "(3) " when there are notifications
+                .trim()
+                .takeUnless { it.isEmpty() || it.equals("YouTube", ignoreCase = true) }
         if (Permissions.hasLegacyWrite(this)) {
             Downloader.chooseAndStart(this, url, appWindow, title)
         } else {
@@ -1317,6 +1463,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val PIP_MIN_ASPECT = 0.45f
         const val PIP_MAX_ASPECT = 2.35f
         const val PIP_ASK_WINDOW_MS = 1500L
+        const val PIP_LEAVE_MEMORY_MS = 8000L
+        val PIP_RESUME_CHECKS_MS = longArrayOf(600L, 1500L, 3000L)
         const val OWN_LAUNCH_MS = 1500L
     }
 }
