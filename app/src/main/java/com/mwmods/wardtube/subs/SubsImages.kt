@@ -9,9 +9,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
 import android.widget.ImageView
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.Collections
 import java.util.concurrent.Executors
 
 /**
@@ -31,11 +31,37 @@ object SubsImages {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
-    /** Addresses that gave no picture: not tried again until the app restarts. */
-    private val missing: MutableSet<String> = Collections.synchronizedSet(HashSet())
+    /**
+     * Addresses that gave no picture (YouTube answered "not found", or the bytes were no picture), with the time they were
+     * given up on: not tried again for [MISSING_MS]. A network failure (a timeout, a dropped connection, a server error) is
+     * no proof that the address has no picture, so it is never written here: it used to be, until the app restarted,
+     * and one bad moment of the network then left that picture out for good.
+     */
+    private val missing = HashMap<String, Long>()
+    private const val MISSING_MS = 3 * 60 * 1000L
+
+    private fun isMissing(address: String): Boolean =
+        synchronized(missing) {
+            val at = missing[address] ?: return false
+            if (System.currentTimeMillis() - at < MISSING_MS) return true
+            missing.remove(address)
+            false
+        }
+
+    private fun markMissing(address: String) {
+        synchronized(missing) {
+            if (missing.size > 800) missing.clear()
+            missing[address] = System.currentTimeMillis()
+        }
+    }
 
     private val executor = Executors.newFixedThreadPool(3) { task ->
         Thread(task, "wardtube-subs-image").apply { isDaemon = true }
+    }
+
+    /** A line of its own for the pictures of a sheet (the person is looking at it now), so they do not wait behind the screen's. */
+    private val urgentExecutor = Executors.newFixedThreadPool(2) { task ->
+        Thread(task, "wardtube-subs-image-now").apply { isDaemon = true }
     }
     private val main = Handler(Looper.getMainLooper())
 
@@ -43,7 +69,7 @@ object SubsImages {
      * Puts the picture at [url] into [view]; when that address gives nothing, [fallback] is tried. [width] is about the
      * size, in pixels, the picture is shown at: the picture is decoded no larger than needed for it.
      */
-    fun load(view: ImageView, url: String, fallback: String?, width: Int) {
+    fun load(view: ImageView, url: String, fallback: String?, width: Int, urgent: Boolean = false) {
         view.tag = url
         val cached = cache.get(url)
         if (cached != null) {
@@ -53,17 +79,28 @@ object SubsImages {
         view.setImageDrawable(null)
         if (url.isEmpty()) return
 
-        executor.execute {
+        (if (urgent) urgentExecutor else executor).execute {
             // The view was reused while this waited in line: nothing to do.
             if (view.tag != url) return@execute
             var bitmap: Bitmap? = null
             for (candidate in listOfNotNull(url, fallback)) {
-                if (candidate in missing) continue
-                // runCatching also catches an OutOfMemoryError: a missing picture is better than a crash.
-                bitmap = runCatching { fetch(candidate, width) }.getOrNull()
+                if (isMissing(candidate)) continue
+                var trouble = false
+                // Twice for a network failure. Anything thrown (an OutOfMemoryError too) is caught: a missing picture is
+                // better than a crash.
+                for (attempt in 0 until 2) {
+                    trouble = false
+                    try {
+                        bitmap = fetch(candidate, width)
+                    } catch (e: IOException) {
+                        trouble = true
+                    } catch (e: Throwable) {
+                        trouble = true
+                    }
+                    if (bitmap != null || !trouble) break
+                }
                 if (bitmap != null) break
-                if (missing.size > 800) missing.clear()
-                missing.add(candidate)
+                if (!trouble) markMissing(candidate)
             }
             val result = bitmap
             main.post {
@@ -81,7 +118,12 @@ object SubsImages {
         try {
             connection.connectTimeout = TIMEOUT_MS
             connection.readTimeout = TIMEOUT_MS
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+            val code = connection.responseCode
+            if (code != HttpURLConnection.HTTP_OK) {
+                // A server that is busy or failing may give the picture a moment later; any other answer is "no picture".
+                if (code >= 500 || code == 429 || code == 408) throw IOException("HTTP $code")
+                return null
+            }
             if (connection.contentLength > MAX_BYTES) return null
             val bytes = connection.inputStream.use { it.readBytes() }
             if (bytes.size > MAX_BYTES) return null

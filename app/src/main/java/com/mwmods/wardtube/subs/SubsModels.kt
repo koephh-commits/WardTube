@@ -27,6 +27,39 @@ data class SubsVideo(
     val live: Int = 0,
     /** How much of the video the signed-in account has watched, in percent (0: not watched, or YouTube did not say). */
     val watched: Int = 0,
+    /**
+     * Set when this is not a video but a post of a channel (see [SubsPost]). A post travels through the feed and the
+     * lists inside a SubsVideo so that it is ordered by age, hidden, saved on the phone and counted like a video: its
+     * [id] is the post's id, its [title] the start of its text, [published] YouTube's own "18 hours ago".
+     */
+    val post: SubsPost? = null,
+)
+
+/** A link inside the text of a post: the characters from [start] to [end] (not included) open [url]. */
+data class PostLink(val start: Int, val end: Int, val url: String)
+
+/** One choice of a poll: its words and its picture (both may be empty, not both at once). */
+data class PostChoice(val text: String, val image: String = "")
+
+/**
+ * A post of a channel (what YouTube calls a community post), as its card shows it: the words (with their [links]), then
+ * what is attached to them, which is pictures, a poll or a video. [likes] and [comments] are YouTube's own texts
+ * ("41", "1.2K"), or empty. Every address is https.
+ */
+data class SubsPost(
+    val text: String,
+    val links: List<PostLink> = emptyList(),
+    /** The round picture of the channel that wrote it (empty: the one of the channels' strip is used). */
+    val avatar: String = "",
+    val images: List<String> = emptyList(),
+    val choices: List<PostChoice> = emptyList(),
+    /** The poll's "1K votes" text, or empty. */
+    val votes: String = "",
+    /** A video attached to the post (empty when there is none) and its title. */
+    val videoId: String = "",
+    val videoTitle: String = "",
+    val likes: String = "",
+    val comments: String = "",
 )
 
 /** The chips under the strip of channels, in the order they are shown (the position is the value). */
@@ -36,6 +69,7 @@ object SubsFilter {
     const val VIDEOS = 2
     const val SHORTS = 3
     const val LIVE = 4
+    const val POSTS = 5
 }
 
 /**
@@ -55,6 +89,8 @@ class SubsPage(
     val apiKey: String?,
     val context: String?,
     val chips: List<SubsChip> = emptyList(),
+    /** What the answer held, in a few words (for the note under an empty list; see SubsRepository.describe). */
+    val note: String = "",
 )
 
 /** What is kept on the phone between runs, so the screen opens at once and refreshes in the background. */

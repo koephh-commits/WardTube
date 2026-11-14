@@ -770,12 +770,100 @@
     hideOpenApp();
   });
 
+  // ---- "Open app" row in YouTube's menus -------------------------------------
+  // The menu that a long press on a Short opens (and some other menus of the page) has an "Open app" row, which only
+  // sends the person out of the app. The row is found by its label (the same list as the button above, plus the
+  // English and Arabic wordings that name the YouTube app) and hidden; the other rows stay as they are.
+
+  var MENU_ROWS = 'ytm-menu-service-item-renderer, ytm-menu-navigation-item-renderer, yt-list-item-view-model, [role="menuitem"]';
+  var MENU_SHEETS = 'ytm-bottom-sheet-renderer, bottom-sheet-layout, ytm-menu-popup-renderer, yt-contextual-sheet-layout, ' +
+    'yt-sheet-view-model, [role="dialog"], [role="menu"]';
+  var MENU_ANY = MENU_ROWS + ', ' + MENU_SHEETS;
+
+  function isOpenAppRow(text) {
+    var t = normText(text);
+    if (!t || t.length > 40) return false;
+    if (OPEN_APP_TEXTS.indexOf(t) >= 0) return true;
+    if (/^open (in )?(the )?(youtube )?app$/.test(t)) return true; // "Open in YouTube app", "Open the app" ...
+    // Arabic: the words for "open" and "app" together in one short label (e.g. "open in the YouTube app").
+    return t.indexOf('\u0641\u062a\u062d') >= 0 && t.indexOf('\u062a\u0637\u0628\u064a\u0642') >= 0;
+  }
+
+  function hideNode(node) {
+    node.setAttribute('data-wt-open-app', '1');
+    node.style.setProperty('display', 'none', 'important');
+  }
+
+  function hideOpenAppRows() {
+    try {
+      var rows = document.querySelectorAll(MENU_ROWS);
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        if (row.getAttribute('data-wt-open-app') || row.closest('[data-wt-open-app]')) continue;
+        if (!isOpenAppRow(row.textContent) && !isOpenAppRow(row.getAttribute('aria-label'))) continue;
+        var target = row; // a row can be a custom element wrapped in another one: the outer one goes
+        while (target.parentElement && target.parentElement.matches(MENU_ROWS)) target = target.parentElement;
+        hideNode(target);
+      }
+      // A row of a kind this does not know: a button or link inside an open menu that says it.
+      var sheets = document.querySelectorAll(MENU_SHEETS);
+      for (var k = 0; k < sheets.length; k++) {
+        var sheet = sheets[k];
+        var els = sheet.querySelectorAll(CLICKABLE);
+        for (var j = 0; j < els.length; j++) {
+          var el = els[j];
+          if (el.getAttribute('data-wt-open-app') || el.closest('[data-wt-open-app]')) continue;
+          if (!isOpenAppRow(el.textContent) && !isOpenAppRow(el.getAttribute('aria-label'))) continue;
+          var t2 = el; // the wrappers go with it as long as they hold nothing but this one button
+          while (t2.parentElement && t2.parentElement !== sheet) {
+            var p = t2.parentElement;
+            if (p.querySelectorAll(CLICKABLE).length > 1 || !isOpenAppRow(p.textContent)) break;
+            t2 = p;
+          }
+          hideNode(t2);
+        }
+      }
+    } catch (e) {}
+  }
+
+  whenRoot(function () {
+    var queued = false;
+    var lastRun = 0;
+    // Before the next paint where it can be (so the row is not seen), but not more than every 100 ms.
+    function run() {
+      if (!queued) return;
+      queued = false;
+      lastRun = Date.now();
+      hideOpenAppRows();
+    }
+    function queue() {
+      if (queued) return;
+      queued = true;
+      var wait = Math.max(0, 100 - (Date.now() - lastRun));
+      if (wait === 0) requestAnimationFrame(run);
+      setTimeout(run, wait === 0 ? 50 : wait);
+    }
+    // Only a change inside a menu, or one that brings a menu in, is looked at.
+    new MutationObserver(function (records) {
+      for (var i = 0; i < records.length && i < 200; i++) {
+        var r = records[i], t = r.target;
+        if (t && t.nodeType === 1 && t.closest && t.closest(MENU_ANY)) { queue(); return; }
+        var add = r.addedNodes;
+        for (var j = 0; j < add.length; j++) {
+          var n = add[j];
+          if (n.nodeType === 1 && (n.matches(MENU_ANY) || n.querySelector(MENU_ANY))) { queue(); return; }
+        }
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    hideOpenAppRows();
+  });
+
   // ---- Timer --------------------------------------------------------------
 
   var ticks = 0;
   setInterval(function () {
     ticks++;
-    if (ticks % 5 === 0) hideOpenApp();
+    if (ticks % 5 === 0) { hideOpenApp(); hideOpenAppRows(); }
     skipAd();
     autoUnmute();
     keepTop();
@@ -786,7 +874,36 @@
 
   // ---- Public API ---------------------------------------------------------
 
+  /**
+   * The video the person is looking at. A Short's page holds several <video> elements (the neighbouring Shorts are kept
+   * ready, some of them playing or looping out of sight), so the first one is often not the one on screen. On a Short:
+   * the active reel's video, else the one with the most area inside the window, else the page's main one. Elsewhere
+   * it is the page's main video, as before. The app reads the play / pause state from this one (screen stays awake only
+   * while it plays) and sends play / pause to it.
+   */
+  function currentVideo() {
+    if (!onShorts()) return mainVideo();
+    var active = document.querySelector(ACTIVE_REEL);
+    var v = active && active.querySelector('video');
+    if (v) return v;
+    var all = document.querySelectorAll('video');
+    var w = window.innerWidth || 0, h = window.innerHeight || 0;
+    var best = null, bestArea = 0;
+    for (var i = 0; i < all.length; i++) {
+      var r = all[i].getBoundingClientRect();
+      var vw = Math.min(r.right, w) - Math.max(r.left, 0);
+      var vh = Math.min(r.bottom, h) - Math.max(r.top, 0);
+      var area = vw > 0 && vh > 0 ? vw * vh : 0;
+      if (area > bestArea) { best = all[i]; bestArea = area; }
+    }
+    return best || mainVideo();
+  }
+
   window.__wardtube = {
+    /** The video on view (see currentVideo). */
+    video: function () {
+      try { return currentVideo(); } catch (e) { return null; }
+    },
     /** Next (step > 0) or previous video, for the notification buttons. */
     skip: function (step) {
       return step > 0 ? skipNext() : skipPrevious();

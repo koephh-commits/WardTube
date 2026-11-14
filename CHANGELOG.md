@@ -1,5 +1,209 @@
 # Changelog
 
+## 2.6.103
+- Fixed: **posts were slow to come and rare in "All content", and Shorts were rare in it too.**
+  - Posts, why they were rare: "All content" and "Today" put posts among the videos only from YouTube's own Posts list. When
+    that list gave none (the case that 2.6.100 met), the channels' own posts tabs were read only for the Posts chip, so
+    "All content" never had a post. Now, when YouTube's own list gives none, the same channels' posts are read for "All
+    content" and "Today" too (the first 4 batches of 8 channels on their own, then 1 batch more every time the end of the
+    list is reached, 12 at most between two feed refreshes), and they stand among the videos by their age. When YouTube's own
+    list works, its next pages (3 at most) are read on their own until they reach as far back as the feed does (before,
+    only at the end of the list), so posts are spread along the whole list and not only at its top.
+  - Posts, why they were slow, in `SubsController.kt`:
+    - A batch showed nothing until **all** of its 8 channels had answered (one slow channel, up to 12 s, held the other
+      seven). Each channel's answer now goes into the list as it comes (the list is redrawn at most every 0.6 s).
+    - The channels' posts shared 4 threads with the feed, the chips and the playlists. They now have a pool of 5 threads
+      of their own (`postsPool`).
+    - Most channels have no posts tab, and each one cost a whole page to find that out. What was learned is kept for 3 days
+      (`subs_state`: `posts_no`, `posts_yes`): the channels with posts are read first, the ones without are skipped. A "no"
+      is trusted only after some channel in the same run gave posts, so a reading that fails as a whole (a page of another
+      shape) can never mark every channel as "no posts".
+    - Every feed refresh threw the posts away and read all channels again from an empty list. The posts on view now stay
+      until the new reading brings its own, and YouTube's own Posts chip, once it answered with no posts, is not asked
+      again for 30 minutes (it cost a request at every refresh).
+    - A feed refresh that arrived while the Posts chip's first request was in flight left `postsLoading` true for good
+      (the answer was dropped as old); it is cleared now.
+  - Shorts: the feed holds Shorts only in a few shelves, and "All content" listed only those, so its rows of Shorts ended
+    after the first screens. "All content" now also reads YouTube's own list of Shorts (the one the Shorts chip uses),
+    puts them after the feed's own Shorts in its rows, and reads on (the next pages) while the rows lack Shorts for the
+    videos loaded so far. The Shorts chip opens at once, its list being read already. The list no longer jumps to its top
+    when that list arrives under "All content" (`toTop` only for the Shorts chip).
+
+## 2.6.102
+- Fixed: **the pictures of the playlists in the "Save to…" sheet showed the first time and not the next times.**
+  - Cause: a playlist's picture address is kept after the first read, and from then on it is handed to the sheet *while its
+    rows are still being built*, before the sheet is shown. The row's callback only loaded the picture
+    `if (dialog.isShowing)`, which was false at that moment, so every later opening dropped the picture (the first opening
+    got it later, through the network, when the sheet was already showing). `SubsPlaylistSheet.kt` no longer gates on that.
+  - `SubsImages.kt`: an address that failed was written in the "missing" list until the app restarted, whatever the reason,
+    so one bad moment of the network lost that picture for good (the feed's thumbnails and avatars too). Now only a
+    definite "no picture" (not found, not an image) is remembered, and only for 3 minutes; a timeout, a dropped
+    connection or a server error (5xx, 429, 408) is tried once more at once and is never remembered.
+  - `SubsImages.load(..., urgent = true)`: the sheet's pictures have two threads of their own, so they no longer wait behind
+    the screen's thumbnails.
+  - `SubsController.kt`: a playlist whose page gave no picture is asked again after 2 minutes (it was kept empty until the
+    app closed), and a failed request is repeated once after 1.5 s.
+  - A playlist without a picture now shows a tile with a list icon (the old placeholder was the colour of the sheet itself
+    at night, so a missing picture looked like an empty hole). The names and "خاصة" lines stand at the start of the row
+    (the right in Arabic) even when a name is in Latin letters ("M", "TikTok Songs" stood at the left).
+
+## 2.6.101
+- Changed: **the "مستوى العرض" (Visibility) menu of a new playlist now looks like YouTube's own**: a sheet rising from the
+  bottom (instead of the plain grey list dialog) with the title and a thin line, then the three choices in YouTube's
+  order, each with its icon, its name and what it means, and a tick at the end of the chosen one's row:
+  - علنية (globe): "يمكن للجميع البحث عن قائمة التشغيل وعرضها"
+  - غير مدرجة (link): "يمكن لأيّ مستخدم لديه الرابط عرض المحتوى"
+  - خاصة (lock): "لا يستطيع أحد سواك عرض قائمة التشغيل"
+  A tap picks and closes it; the keyboard is put away before it rises. New: `askPrivacy` in `SubsPlaylistSheet.kt`,
+  `ic_link_24dp.xml`, `ic_lock_24dp.xml` and the three `subsPrivacy*Hint` strings (Arabic and English).
+- Changed: the Arabic names of two visibility levels follow YouTube's: "عامة" is now "علنية" and "غير مُدرَجة" is "غير مدرجة"
+  (also in the rows of the "Save to…" sheet).
+
+## 2.6.100
+- Fixed: **the Posts chip of the Subscriptions screen showed "لا توجد منشورات حديثة"** even though channels have posts.
+  When YouTube's own list of posts could not be read (the chip's answer held no post the app knew the shape of), the
+  chip fell back to the posts that the *feed* carries, and the feed carries none, so the list stayed empty. Now:
+  - `SubsRepository.kt`: any object under a key that says "post" and carrying a `postId` is read as a post (YouTube renames
+    its renderers now and then), and a post's text is also looked for under `content` and `text`. A chip's answer now
+    comes with a short note of what it held (`SubsPage.note`: items, lockups, shorts, posts, and the keys that say "post").
+  - `SubsController.kt`: when YouTube's own list gives no posts, the Posts chip lists **the posts tab of the channels
+    themselves**, 8 channels at a time (the strip's order), put together newest first. It is **endless**: scrolling to
+    the end reads the next channels, and, when every channel was read, the next page of the channels whose last post
+    read is the newest. It stops only when the channels have no more (or after 15 batches in a row with nothing new,
+    until the next tap on the chip). A pull-to-refresh gives YouTube's own list another chance first.
+  - The Posts list can hold 3000 posts (was 1000).
+  - When the list stays empty, the note under "لا توجد منشورات حديثة" now tells what the Posts chip's answers held and how
+    many channels were read, instead of the numbers of the feed page (which said "posts 0" whatever the chip did).
+
+## 2.6.99
+- Fixed: **the build failed** in `MainActivity.kt` (`No value passed for parameter 'onDownload'`, `Cannot infer type for this
+  parameter`). Since 2.6.96 `MenuDownload` has a second callback, `onDownloadCurrent`, as its last parameter, so the
+  trailing lambda of `MenuDownload(webView) { url, title -> ... }` went to that one (it takes only a url) and `onDownload` got
+  nothing. The call now names the parameter: `MenuDownload(webView, onDownload = { url, title -> ... })`, the way the player
+  WebView's call already did.
+- Fixed: **the screen now turns off by itself when the video is paused**, in full screen and on a Short. Before, it stayed
+  on for as long as the video was paused.
+  - `MainActivity.kt`: the screen was kept on whenever the video was in full screen, playing or not (`isFullscreen ||`
+    in the poll, and `setKeepScreenOn(fullscreen)` when full screen opened or closed). Now only a playing video keeps it
+    on. Opening or closing full screen asks the player at once (`refreshKeepAwake`) instead of waiting for the next poll.
+  - On a Short, the app read the play / pause state from the page's *first* `<video>`, and a Short's page holds several
+    (the neighbouring Shorts are kept ready, some playing or looping out of sight). If that one kept playing, the video
+    on screen could be paused and the app still thought it played. `wardtube.js` has a new `__wardtube.video()` (the
+    active reel's video, else the one with the most area in the window; any other page: the main video as before),
+    and `PlayerController.kt` uses it for the state and for play / pause / seek.
+  - Not built and not run on a phone, and not tried against live YouTube: the Short's real markup may differ from what is
+    matched (the fallback is the video with the most area in view, which does not depend on the markup).
+
+## 2.6.97
+- Changed: **the "Open app" row is hidden in YouTube's menus**, the one that a long press on a Short opens (and any other
+  menu of the page that has it). Before, only the "Open app" button of the top bar was hidden. The other rows of the menu
+  stay as they are.
+  - `assets/wardtube/wardtube.js` (`hideOpenAppRows`): a menu row is hidden when its label is one of the "Open app" labels
+    of the top-bar button (the same list), or says "open (in) (the) (YouTube) app" in English, or has the Arabic words for
+    "open" and "app" together in a short label (e.g. "فتح في تطبيق يوتيوب"). Rows of YouTube's own kinds are found first
+    (`ytm-menu-service-item-renderer`, `ytm-menu-navigation-item-renderer`, `yt-list-item-view-model`, `role="menuitem"`),
+    then any button or link inside an open menu; the wrappers go with it as long as they hold nothing else.
+  - Only a change inside a menu, or one that brings a menu in, is looked at, and the row is hidden before the next paint (at
+    most every 100 ms), so it is not seen even for a moment. The slow timer looks again every 1.5 s as a last resort.
+  - `base.css`: `[data-wt-open-app]` stays `display: none`, so the row does not come back if YouTube clears the inline
+    style when it redraws it.
+  - Tried on a stand-in menu in a desktop Chromium (three kinds of rows, a label that arrives after the row, English,
+    French and Arabic labels, a menu without the row, a second opening): the row goes, the others stay. Not built and not
+    run on a phone, and not tried against live YouTube: the menu's real wording or markup may differ from what is matched.
+
+## 2.6.96
+- Added: **a download entry in the three dots under the video of the watch page** (the row with like, dislike, share ...).
+  The three dots open YouTube's menu (Save, Report ...) and **"Download video"** is now its first row, with the look of
+  the others. A tap runs the same flow as the download button of the bottom bar (a live video is told so first, the
+  format window follows, then the Library). The same row is now in the three dots of the videos listed under the player.
+  - If the row has no three dots (or their menu could not take the row), **the row gets a "Download" button of its own**,
+    after its last button, with the size, colours, corners and spacing copied from the buttons beside it.
+  - If neither can be built (no bridge, the row of buttons is not found, an error, nothing visible), **nothing is shown**
+    and the bottom bar's download button stays the way to download. A half-built row or button is never left on the page.
+  - Why it was missing: `menu-download.js` ran only in the browsing WebView; the watch page lives in the player WebView,
+    which did not have it. `MainActivity.createPlayerWebView` now installs a `MenuDownload` on it with each player
+    (`onPageChanged` of the player injects it by hand on a WebView too old for document-start scripts).
+  - `assets/wardtube/menu-download.js`: finds the row from the like button (its tag names, or `aria-pressed`, whatever the
+    language, and it must be below the video, so the player's controls and the top bar are never taken for it), then
+    the three dots in it (inside YouTube's menu element, or a label that says "more", or a last button drawn as three
+    dots). The video is the one in the address (`/watch?v=`), read again at the tap. A tap on any other button of the
+    page (share, save ...) gets no row. In the menu, the rows of an open sheet are tried before any other row.
+  - `web/MenuDownload.kt`: new bridge method `downloadCurrent(kind, id)` (the address is built by the app from the
+    11-character id, as for `download`) and the `onDownloadCurrent` callback.
+  - Tried on a stand-in watch page in a desktop Chromium (menu with the three dots, row without them, a menu that cannot
+    take the row, no bridge, no row, another page, the share sheet, a card's three dots, a move to another video): all as
+    described. Not built and not run on a phone, and not tried against live YouTube: its real markup may differ from the
+    stand-in, and then the button or the row simply does not show.
+
+## 2.6.95
+- Changed: **"Save to playlist" (the three dots of a video or a Short on the Subscriptions screen) now opens YouTube's own
+  kind of sheet** instead of a plain list of tick boxes: a dark card rising from the bottom with the account's playlists
+  ("Watch later" first), each with its picture, its name, who can see it (Private / Public / Unlisted) and a bookmark that
+  is filled when the video is already in it. A tap on a row puts the video in, or takes it out, at once (a failed tap puts
+  the bookmark back).
+  - Added: **"New playlist"**, a button under the list. It asks for a title and the visibility (private to begin with),
+    "Create" is off until a title is typed, and the card closes only with its two buttons. The playlist is made with the
+    video already in it (`playlist/create`), then the sheet closes.
+  - The pictures: taken from YouTube's answer when it carries them, else each playlist's first video picture is asked for
+    in the background (`browse` of `VL<playlist id>`) and kept until the app closes; a row shows a plain tile meanwhile.
+  - New: `SubsPlaylistSheet`, `SubsRepository.createPlaylist` / `fetchPlaylistThumb`, `PlaylistOption.privacy` / `thumb`,
+    `SubsPalette.button`, the filled bookmark icon and nine strings (English and Arabic); the "Done" string went.
+  - Not built on a phone, and not tried against live YouTube: the playlist creation and the picture requests are the
+    parts that depend on YouTube's answers.
+
+## 2.6.94
+- Added: **the three dots on the Shorts of the Subscriptions screen.** Every Short card (in the Shorts rows of "All content"
+  and in the two columns of the Shorts chip) now has the three dots at its top corner on the end side (the left in
+  Arabic), like the long videos' cards and like the YouTube app's. They open the same menu as a video's: **Watch later**,
+  **Save to playlist**, **Download**, **Share** and **Hide** (**Unsubscribe** too when the feed told which channel the
+  Short belongs to). A tap on the dots does not open the Short.
+  - Changed: `SubsScreen.buildShortCard` / `bindShort` (the dots button and a light shade behind it, so the white dots show
+    over a bright picture); the menu itself (`SubsController.onVideoMenu`) is unchanged, it already worked for a Short.
+  - Not built on a phone.
+
+## 2.6.93
+- Added: **a "Posts" chip on the Subscriptions screen, and posts in "All content" and "Today".** The chip stands last in the
+  bar (after Live, as in the YouTube app) and lists the posts of the channels you subscribe to, newest first, drawn as
+  YouTube draws them: the channel's picture, its name and the age of the post, the words, what is attached (a picture, a
+  poll with its picture choices and its votes, or a video), then the likes and the comments. Links in the words are
+  coloured and open (a video plays, a YouTube page opens in the app, another site goes to the phone's browser); a tap
+  anywhere else on the card opens the post's own page. The three dots offer **Share**, **Unsubscribe** and **Hide**.
+  - "All content" now shows everything: videos, Shorts (in their rows) and posts, in order of age. "Today" lists the posts
+    of the last day with the videos. With a channel chosen, "All content" is its videos, posts and Shorts (read one tab
+    after the other, the videos first); "Posts" is its posts tab.
+  - Where the posts come from: the feed pages themselves (they carry posts as `backstagePostRenderer` / `postRenderer`),
+    and YouTube's own Posts chip, read the way the Shorts chip is (the chip named like "Posts" in any of eleven languages,
+    else the sixth one; its answer counts only if it is nearly all posts, so a wrong guess shows nothing wrong). Its list
+    goes on with its own next page; "All content" reads on in it as the feed goes deeper, and shows only the posts as old
+    as the videos loaded so far, so the order stays true. With no usable chip, the Posts chip lists the posts of the feed.
+  - Kept on the phone with the rest of the feed (new `po` field of `subscriptions.json`; an older file loads as before);
+    hidden posts are remembered like hidden videos (their ids are longer: the 11-character filter became "at least 11").
+  - New: `SubsPost`, `PostLink`, `PostChoice` and `SubsVideo.post` (a post travels in a `SubsVideo`, so ordering, hiding
+    and saving needed no second path), `SubsFilter.POSTS`, `SubsListener.onLink`, `SubsRepository.mostlyPosts`, the
+    post card in `SubsScreen`, two icons and three strings (English and Arabic). The streams-only tab check became
+    `tabOpen(node, tab)`, which also knows the posts tab.
+  - The empty screen of the Posts chip shows the page diagnostic (the new `posts N` count) like "All content" does.
+  - Not built on a phone. The reading of posts, their saving and the tab check were run on the JVM against sample data in
+    the shape of the posts in the screenshots (a poll with picture choices and a link, a picture post, a post with a video);
+    YouTube's real pages were not available to test against.
+
+## 2.6.92
+- Added: **the three dots on the videos of the Subscriptions screen**, with a menu like the YouTube app's. The dots stand
+  at the end of the title row of each video card (the left in Arabic) and open a rounded card beside them (dark grey at
+  night, white by day) over a light dim; a tap outside it or the back button closes it.
+  - Rows: **Save to Watch later**, **Save to playlist** (the account's playlists with a tick on those that already hold the
+    video; a tap adds or takes it out at once), **Download** (the app's usual download flow), **Share** (the phone's share
+    sheet with the `youtu.be` link), **Unsubscribe** (asks first; the channel leaves the strip and its videos leave the
+    lists) and **Hide** (the video leaves the lists at once, with an "Undo" bar).
+  - Watch later, the playlists and Unsubscribe call YouTube's own API (`youtubei/v1`) with the WebView's cookies, the same
+    way the screen already reads the feed (`SubsRepository.postApi`, new `ApiAccess`). "Hide" is kept on the phone only
+    (per account, up to 1000 videos): YouTube is not told, so the video stays in YouTube's own page and app.
+  - Not in this version: "Play on another device" (needs Google's Cast library, which an F-Droid app cannot carry) and the
+    two queue rows (the app has no queue yet). Shorts tiles have no dots yet.
+  - New: `SubsVideoMenu`, `SubsListener.onVideoMenu`, `SubsPalette.menu`; `SubsController` takes `onDownload` and `onShare`
+    from `MainActivity` (`shareLink`). Four icons and 18 strings (English and Arabic).
+  - Not built or run on a phone.
+
 ## 2.6.91
 - Fixed: **hiding the bottom bar while scrolling did not work on the Subscriptions screen** (the bar did not hide when the
   list was scrolled, and a bar that was already hidden did not come back).

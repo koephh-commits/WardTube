@@ -128,6 +128,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
     private lateinit var scripts: PageScripts
     private lateinit var menuDownload: MenuDownload
+
+    /** The same for the player WebView (the watch page): made again with each player, null while there is none. */
+    private var playerMenuDownload: MenuDownload? = null
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
     private lateinit var subs: SubsController
@@ -234,8 +237,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         webView.webChromeClient = chromeClient
         webView.webViewClient = WardTubeWebViewClient(adBlocker, scripts, this)
         webView.addJavascriptInterface(createBridge(), BRIDGE_NAME)
-        // The "Download video" row of YouTube's three-dots menu (only the browsing page has video cards).
-        menuDownload = MenuDownload(webView) { url, title -> if (!isDestroyed) startMenuDownload(url, title) }
+        // The "Download video" row of YouTube's three-dots menu on the browsing page (the player WebView has its own,
+        // made with each player: see createPlayerWebView).
+        menuDownload = MenuDownload(
+            webView,
+            onDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
+        )
         menuDownload.install()
         scripts.install(webView)
         watchScrollDirection(webView)
@@ -261,6 +268,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             enabled = { prefs.nativeSubs },
             openUrl = { openUrl(it) },
             onScrollDirection = { onPageScrolled(it) },
+            onDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
+            onShare = { link, title -> if (!isDestroyed) shareLink(link, title) },
         )
 
         menuController = MenuController(
@@ -415,6 +424,13 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         view.webChromeClient = chrome
         view.webViewClient = WardTubeWebViewClient(adBlocker, playerScripts, PlayerPageEvents())
         view.addJavascriptInterface(createBridge(), BRIDGE_NAME)
+        // The "Download video" row of the three dots under the video (and of the cards of the list below it). It runs
+        // the flow of the bottom bar's download button, so a live video is told so instead of failing later.
+        playerMenuDownload = MenuDownload(
+            view,
+            onDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
+            onDownloadCurrent = { url -> if (!isDestroyed) startDownloadFlow(url) },
+        ).also { it.install() }
         view.keepVisible = prefs.backgroundPlay
         playerNavigatedAwayFrom = null
         playerScripts.install(view)
@@ -422,6 +438,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     private fun releasePlayerWebView(view: BackgroundWebView) {
+        playerMenuDownload = null
         playerScripts.forget()
         playerChrome?.exitFullscreen()
         playerChrome = null
@@ -467,6 +484,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private inner class PlayerPageEvents : PageEvents {
 
         override fun onPageChanged(url: String?) {
+            playerMenuDownload?.injectNow() // only a WebView too old to run the script at the start of a page needs this
             if (url == null || !UrlUtils.isYouTubeUrl(url)) return
             if (UrlUtils.isVideoUrl(url)) {
                 playerNavigatedAwayFrom = null
@@ -1041,12 +1059,22 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             // The small picture-in-picture window is visible but paused (not resumed): it needs the same upkeep.
             if (!resumed && !isInPictureInPictureMode) return
             PlayerController.queryState { state ->
-                setKeepScreenOn(isFullscreen || state?.playing == true)
+                // Awake only while the video really plays: a paused video (full screen or not) lets the screen time out.
+                setKeepScreenOn(state?.playing == true)
                 if (state != null && playerHost.mode == PlayerHost.Mode.MINI) playerHost.onPlaybackState(state.playing)
                 onVideoState(state)
             }
             val fast = playerHost.mode == PlayerHost.Mode.MINI || isInPictureInPictureMode
             keepAwakeHandler.postDelayed(this, if (fast) 1000L else 3000L)
+        }
+    }
+
+    /** Asks the player now (not at the next poll) and sets the screen flag from the answer. */
+    private fun refreshKeepAwake() {
+        if (!resumed && !isInPictureInPictureMode) return
+        PlayerController.queryState { state ->
+            // The answer may come after the activity left the screen: it must not set the flag again then.
+            if (resumed || isInPictureInPictureMode) setKeepScreenOn(state?.playing == true)
         }
     }
 
@@ -1308,7 +1336,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private fun handleFullscreen(fullscreen: Boolean, target: WebView?) {
         appWindow.visibility = if (fullscreen) View.GONE else View.VISIBLE
         val controller = WindowCompat.getInsetsController(window, window.decorView)
-        setKeepScreenOn(fullscreen)
+        refreshKeepAwake() // full screen no longer keeps the screen on by itself: only a playing video does
         // Fullscreen locks to landscape like the YouTube app: it flips between the two landscape sides
         // with the sensor (even when the system auto-rotate toggle is off) and holding the phone upright
         // does not rotate it back to portrait.
@@ -1350,12 +1378,23 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         UrlUtils.isYouTubeUrl(url) && PlaylistLinks.analyze(url).kind == PlaylistLinks.Kind.LIST
 
     /**
-     * A video picked in the "Download video" row of YouTube's three-dots menu. It belongs to a card of the browsing page,
+     * A video picked in the "Download video" row of YouTube's three-dots menu. It belongs to a card of the browsing page
+     * (or of the list under the video in the player),
      * so the player (which may hold another video, even a live one) is not asked about it, and the page's own title
      * is not its name: the card's title is used when there is one.
      */
     private fun startMenuDownload(url: String, cardTitle: String?) {
         beginDownload(url, knownTitle = cardTitle, fromBrowse = true)
+    }
+
+    /** The phone's share sheet with a video's link (the "Share" row of the Subscriptions screen's menu). */
+    private fun shareLink(link: String, title: String) {
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_SUBJECT, title)
+            .putExtra(Intent.EXTRA_TEXT, link)
+        markOwnLaunch() // the share sheet is the app's own launch: it must not send the playing video to picture in picture
+        startActivity(Intent.createChooser(send, getString(R.string.share_with)))
     }
 
     private fun beginDownload(url: String, knownTitle: String? = null, fromBrowse: Boolean = false) {

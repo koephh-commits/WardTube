@@ -1,0 +1,1 @@
+Added: "Download video" in the three dots under the video on the watch page (or a download button in the row of buttons if the three dots are not there).

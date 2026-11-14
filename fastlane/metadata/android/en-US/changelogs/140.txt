@@ -1,0 +1,1 @@
+Added: the three dots on the Shorts of the Subscriptions screen, with the same menu as the long videos (watch later, save to playlist, download, share, hide).

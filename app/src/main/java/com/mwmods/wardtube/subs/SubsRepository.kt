@@ -34,6 +34,9 @@ object SubsRepository {
 
     const val SITE = "https://www.youtube.com"
 
+    /** The phone's version of YouTube's site: the pages the app opens in its browsing WebView (a post, a link of a post). */
+    const val MOBILE_SITE = "https://m.youtube.com"
+
     private const val CHANNELS_PAGE = "$SITE/feed/channels"
     private const val BROWSE_API = "$SITE/youtubei/v1/browse"
     private const val RSS = "$SITE/feeds/videos.xml?channel_id="
@@ -229,12 +232,214 @@ object SubsRepository {
         return if (parts.isEmpty()) null else parts.joinToString(" ")
     }
 
+    // ---- Actions of the video menu (YouTube's own API, signed in with the WebView's cookies) ----
+
+    /** What a request to YouTube's own API needs: the page's key and its client context (JSON text). */
+    class ApiAccess(val key: String, val context: String)
+
+    /**
+     * One playlist of the account, as the "Save to" list shows it: [contains] is true when the video is already in it,
+     * [privacy] is YouTube's PRIVATE, PUBLIC or UNLISTED ("" when it did not say) and [thumb] the https address of the
+     * playlist's picture ("" when the answer carried none: the sheet then asks [fetchPlaylistThumb]).
+     */
+    class PlaylistOption(
+        val id: String,
+        val title: String,
+        val contains: Boolean,
+        val privacy: String = "",
+        val thumb: String = "",
+    )
+
+    /** The access taken from a page that was already read, or null when it carried none. */
+    fun accessOf(page: SubsPage?): ApiAccess? {
+        val source = page ?: return null
+        val key = source.apiKey ?: return null
+        val context = source.context ?: return null
+        return ApiAccess(key, context)
+    }
+
+    /** Reads the key and the context from YouTube's own page of subscriptions (used when no page was read yet). */
+    fun fetchApiAccess(cookie: String): ApiAccess {
+        val html = httpGet(CHANNELS_PAGE, cookie, "en")
+        val key = API_KEY.find(html)?.groupValues?.get(1) ?: throw Failure("no key")
+        val context = objectAfter(html, "\"INNERTUBE_CONTEXT\"") ?: throw Failure("no context")
+        return ApiAccess(key, context)
+    }
+
+    /** Sends [extra] (the fields of the request) with the page's context to `youtubei/v1/<path>` and returns the answer. */
+    private fun postApi(path: String, access: ApiAccess, extra: JSONObject, cookie: String): JSONObject {
+        val body = JSONObject()
+        body.put("context", JSONObject(access.context))
+        val names = extra.keys()
+        while (names.hasNext()) {
+            val name = names.next()
+            body.put(name, extra.get(name))
+        }
+        val connection = URL("$SITE/youtubei/v1/$path?key=${access.key}&prettyPrint=false").openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = TIMEOUT_MS
+            connection.readTimeout = TIMEOUT_MS
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("User-Agent", USER_AGENT)
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Cookie", cookie)
+            connection.setRequestProperty("Origin", SITE)
+            connection.setRequestProperty("X-Origin", SITE)
+            connection.setRequestProperty("X-Goog-AuthUser", "0")
+            authorization(cookie)?.let { connection.setRequestProperty("Authorization", it) }
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) throw Failure("HTTP ${connection.responseCode}")
+            return JSONObject(readText(connection.inputStream))
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /**
+     * Adds a video to a playlist of the account, or takes it out ([add] false). [playlistId] "WL" is "Watch later".
+     * True when YouTube says it was done.
+     */
+    fun editPlaylist(access: ApiAccess, playlistId: String, videoId: String, add: Boolean, cookie: String): Boolean {
+        val action = JSONObject()
+        if (add) {
+            action.put("action", "ACTION_ADD_VIDEO")
+            action.put("addedVideoId", videoId)
+        } else {
+            action.put("action", "ACTION_REMOVE_VIDEO_BY_VIDEO_ID")
+            action.put("removedVideoId", videoId)
+        }
+        val extra = JSONObject()
+        extra.put("playlistId", playlistId)
+        extra.put("actions", JSONArray().put(action))
+        val answer = postApi("browse/edit_playlist", access, extra, cookie)
+        return answer.optString("status") == "STATUS_SUCCEEDED"
+    }
+
+    /** The playlists of the account ("Watch later" too), each marked with whether it already holds [videoId]. */
+    fun fetchPlaylists(access: ApiAccess, videoId: String, cookie: String): List<PlaylistOption> {
+        val extra = JSONObject()
+        extra.put("videoIds", JSONArray().put(videoId))
+        extra.put("excludeWatchLater", false)
+        val answer = postApi("playlist/get_add_to_playlist", access, extra, cookie)
+        val found = ArrayList<PlaylistOption>()
+        collectPlaylists(answer, found)
+        if (found.isEmpty()) throw Failure("no playlists")
+        return found
+    }
+
+    private fun collectPlaylists(node: Any?, out: MutableList<PlaylistOption>) {
+        when (node) {
+            is JSONObject -> {
+                val option = node.optJSONObject("playlistAddToOptionRenderer")
+                if (option != null) {
+                    val id = option.optString("playlistId")
+                    val title = textOf(option.opt("title"))
+                    if (id.isNotEmpty() && title.isNotEmpty() && out.none { it.id == id }) {
+                        out.add(
+                            PlaylistOption(
+                                id,
+                                title,
+                                option.optString("containsSelectedVideos") == "ALL",
+                                option.optString("privacy"),
+                                firstThumbnail(option),
+                            )
+                        )
+                    }
+                }
+                val keys = node.keys()
+                while (keys.hasNext()) collectPlaylists(node.opt(keys.next()), out)
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) collectPlaylists(node.opt(i), out)
+            }
+        }
+    }
+
+    /** The first picture ({"thumbnails": [...]}) found anywhere inside [node], or "" when there is none. */
+    private fun firstThumbnail(node: Any?): String {
+        when (node) {
+            is JSONObject -> {
+                val own = bestImage(node)
+                if (own.isNotEmpty()) return own
+                val keys = node.keys()
+                while (keys.hasNext()) {
+                    val found = firstThumbnail(node.opt(keys.next()))
+                    if (found.isNotEmpty()) return found
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    val found = firstThumbnail(node.opt(i))
+                    if (found.isNotEmpty()) return found
+                }
+            }
+        }
+        return ""
+    }
+
+    /** The first video id (11 characters) found anywhere inside [node], or "". */
+    private fun firstVideoId(node: Any?): String {
+        when (node) {
+            is JSONObject -> {
+                val own = node.optString("videoId")
+                if (own.length == 11) return own
+                val keys = node.keys()
+                while (keys.hasNext()) {
+                    val found = firstVideoId(node.opt(keys.next()))
+                    if (found.isNotEmpty()) return found
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    val found = firstVideoId(node.opt(i))
+                    if (found.isNotEmpty()) return found
+                }
+            }
+        }
+        return ""
+    }
+
+    /**
+     * The picture of a playlist, the way YouTube shows it: the picture of its first video ("" when the playlist is empty
+     * or its page gave no video). Used for the playlists whose "Save to" answer carried no picture.
+     */
+    fun fetchPlaylistThumb(access: ApiAccess, playlistId: String, cookie: String): String {
+        val extra = JSONObject()
+        extra.put("browseId", "VL$playlistId")
+        val id = firstVideoId(postApi("browse", access, extra, cookie))
+        return if (id.isEmpty()) "" else "https://i.ytimg.com/vi/$id/mqdefault.jpg"
+    }
+
+    /**
+     * Makes a new playlist of the account called [title] ([privacy]: PRIVATE, PUBLIC or UNLISTED) with [videoId] in it,
+     * and returns its id. Throws when YouTube does not answer with the new playlist's id.
+     */
+    fun createPlaylist(access: ApiAccess, title: String, privacy: String, videoId: String, cookie: String): String {
+        val extra = JSONObject()
+        extra.put("title", title)
+        extra.put("privacyStatus", privacy)
+        extra.put("videoIds", JSONArray().put(videoId))
+        val id = postApi("playlist/create", access, extra, cookie).optString("playlistId")
+        if (id.isEmpty()) throw Failure("playlist not created")
+        return id
+    }
+
+    /** Takes the account off a channel's subscribers. Throws when YouTube does not answer with success. */
+    fun unsubscribe(access: ApiAccess, channelId: String, cookie: String) {
+        val extra = JSONObject()
+        extra.put("channelIds", JSONArray().put(channelId))
+        extra.put("params", "CgIIAhgA")
+        postApi("subscription/unsubscribe", access, extra, cookie)
+    }
+
     // ---- The videos (from YouTube's own pages) ----
 
     private class Stats {
         var renderers = 0
         var lockups = 0
         var shorts = 0
+        var posts = 0
 
         /**
          * Every other continuation command found in the page (filter chips, menus...). The list's own token is the one
@@ -252,25 +457,28 @@ object SubsRepository {
         fetchChannelTab(cookie, lang, channel, "videos")
 
     /**
-     * One tab of a channel's page: "videos", "shorts" or "streams" (its live streams, past ones too: they are marked
-     * as live type 3 so the Live chip lists them). A channel with no live streams has no such tab; the page then comes
-     * with another tab open and the answer is an empty page (see [streamsTabOpen]).
+     * One tab of a channel's page: "videos", "shorts", "posts" or "streams" (its live streams, past ones too: they are
+     * marked as live type 3 so the Live chip lists them). A channel with no live streams (or no posts) has no such tab;
+     * the page then comes with another tab open and the answer is an empty page (see [tabOpen]). A tab lists only its
+     * own kind: the posts tab only posts, the other tabs no posts (a shelf of them can stand in a channel's page).
      */
     fun fetchChannelTab(cookie: String, lang: String, channel: SubsChannel, tab: String): SubsPage {
-        val page = fetchPage("$SITE/channel/${channel.id}/$tab?hl=$lang", cookie, lang, channel, onlyStreams = tab == "streams")
-        if (tab != "streams") return page
-        val marked = page.videos.map { if (it.live == 0 && !it.short) it.copy(live = 3) else it }
+        val expected = if (tab == "streams" || tab == "posts") tab else null
+        val page = fetchPage("$SITE/channel/${channel.id}/$tab?hl=$lang", cookie, lang, channel, expectTab = expected)
+        val own = if (tab == "posts") page.videos.filter { it.post != null } else page.videos.filter { it.post == null }
+        val marked = if (tab == "streams") own.map { if (it.live == 0 && !it.short) it.copy(live = 3) else it } else own
         return SubsPage(marked, page.token, page.apiKey, page.context)
     }
 
     /**
-     * Whether the tab that is open in a channel's page data is its live streams tab: the `tabRenderer` marked
-     * `selected`, whose address ends with "/streams" or whose `params` are the streams tab's. Null when the data lists
-     * no open tab at all (a shape this code does not know): the caller then takes the page as it is.
+     * Whether the tab that is open in a channel's page data is the one named [tab] ("streams" or "posts"): the
+     * `tabRenderer` marked `selected`, whose address ends with the tab's name (the posts tab's address says "posts" or,
+     * in the older pages, "community") or whose `params` are the streams tab's. Null when the data lists no open tab at
+     * all (a shape this code does not know): the caller then takes the page as it is.
      */
-    private fun streamsTabOpen(node: Any?): Boolean? {
+    private fun tabOpen(node: Any?, tab: String): Boolean? {
         if (node is JSONArray) {
-            for (i in 0 until node.length()) streamsTabOpen(node.opt(i))?.let { return it }
+            for (i in 0 until node.length()) tabOpen(node.opt(i), tab)?.let { return it }
             return null
         }
         if (node !is JSONObject) return null
@@ -285,9 +493,14 @@ object SubsRepository {
                 val url = endpoint.optJSONObject("commandMetadata")?.optJSONObject("webCommandMetadata")?.optString("url").orEmpty()
                 val params = endpoint.optJSONObject("browseEndpoint")?.optString("params").orEmpty()
                 if (url.isEmpty() && params.isEmpty()) return null
-                return url.substringBefore('?').trimEnd('/').endsWith("/streams") || params.startsWith(STREAMS_PARAMS)
+                val path = url.substringBefore('?').trimEnd('/')
+                return if (tab == "posts") {
+                    path.endsWith("/posts") || path.endsWith("/community")
+                } else {
+                    path.endsWith("/$tab") || params.startsWith(STREAMS_PARAMS)
+                }
             }
-            streamsTabOpen(value)?.let { return it }
+            tabOpen(value, tab)?.let { return it }
         }
         return null
     }
@@ -300,7 +513,7 @@ object SubsRepository {
         cookie: String,
         lang: String,
         owner: SubsChannel?,
-        onlyStreams: Boolean = false,
+        expectTab: String? = null,
     ): SubsPage {
         val html = httpGet(address, cookie, lang)
         val data = initialData(html)
@@ -308,10 +521,10 @@ object SubsRepository {
             diag = "page ${html.length / 1024}KB without data"
             throw Failure("no page data")
         }
-        // A channel with no live streams has no streams tab: YouTube answers the address with the channel's first tab
-        // instead, full of ordinary videos, which must not be taken for streams.
-        if (onlyStreams && streamsTabOpen(data) == false) {
-            diag = "page ${html.length / 1024}KB: no streams tab"
+        // A channel with no live streams (or no posts) has no such tab: YouTube answers the address with the channel's
+        // first tab instead, full of ordinary videos, which must not be taken for streams.
+        if (expectTab != null && tabOpen(data, expectTab) == false) {
+            diag = "page ${html.length / 1024}KB: no $expectTab tab"
             return SubsPage(emptyList(), null, null, null)
         }
         val stats = Stats()
@@ -319,7 +532,7 @@ object SubsRepository {
         val tokens = ArrayList<String>()
         collectVideos(data, videos, HashSet(), tokens, stats)
         diag = "page ${html.length / 1024}KB: videoRenderer ${stats.renderers}, lockup ${stats.lockups}, " +
-            "shorts ${stats.shorts}, videos ${videos.size}"
+            "shorts ${stats.shorts}, posts ${stats.posts}, videos ${videos.size}"
         val result = if (owner == null) videos else videos.map { it.copy(channelId = owner.id, channelName = owner.name) }
         // The feed's page carries the filter chips ("All", "Today", "Videos", "Shorts"...); a channel's page has none that matter.
         val chips = ArrayList<SubsChip>()
@@ -366,6 +579,9 @@ object SubsRepository {
     /** True when [videos] are (nearly) all Shorts: the answer of the Shorts chip, not of another one. */
     fun mostlyShorts(videos: List<SubsVideo>): Boolean = videos.isNotEmpty() && videos.count { it.short } * 5 >= videos.size * 4
 
+    /** True when [videos] are (nearly) all posts: the answer of the Posts chip, not of another one. */
+    fun mostlyPosts(videos: List<SubsVideo>): Boolean = videos.isNotEmpty() && videos.count { it.post != null } * 5 >= videos.size * 4
+
     /** The page after [page] (its videos only), through a continuation request. */
     fun fetchMore(page: SubsPage, cookie: String): SubsPage {
         val token = page.token ?: throw Failure("no continuation")
@@ -376,15 +592,40 @@ object SubsRepository {
         val tokens = ArrayList<String>()
         val stats = Stats()
         collectVideos(data, videos, HashSet(), tokens, stats)
-        return SubsPage(videos, tokens.lastOrNull() ?: stats.loose.lastOrNull(), apiKey, context)
+        val note = "items ${videos.size}, lockup ${stats.lockups}, shorts ${stats.shorts}, posts ${stats.posts}, " +
+            "post keys ${postKeys(data).joinToString(",").ifEmpty { "-" }}"
+        return SubsPage(videos, tokens.lastOrNull() ?: stats.loose.lastOrNull(), apiKey, context, note = note)
+    }
+
+    /** The names (up to a few) of the keys of [data] that say "post": shows what shape YouTube gave posts when none was read. */
+    private fun postKeys(data: Any?): Set<String> {
+        val out = LinkedHashSet<String>()
+        collectPostKeys(data, out)
+        return out
+    }
+
+    private fun collectPostKeys(node: Any?, out: MutableSet<String>) {
+        if (out.size >= 8) return
+        if (node is JSONArray) {
+            for (i in 0 until node.length()) collectPostKeys(node.opt(i), out)
+            return
+        }
+        if (node !is JSONObject) return
+        val keys = node.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (key.contains("post", ignoreCase = true) && key != "postId") out.add(key)
+            collectPostKeys(node.opt(key), out)
+        }
     }
 
     /**
      * Collects the videos in the order they stand in the page, and the list's continuation tokens (the ones inside a
      * `continuationItemRenderer`; any other continuation command goes to [Stats.loose]). Two shapes of video are
      * known: the long-standing `videoRenderer` and the newer `lockupViewModel`. Shorts come in their own shapes
-     * (`reelItemRenderer`, `shortsLockupViewModel`) and are kept, marked as Shorts; playlists and anything else are
-     * left out.
+     * (`reelItemRenderer`, `shortsLockupViewModel`) and are kept, marked as Shorts; so are posts of channels (the
+     * long-standing `backstagePostRenderer` and the newer `postRenderer`), as a [SubsVideo] that carries a [SubsPost];
+     * playlists and anything else are left out.
      */
     private fun collectVideos(
         node: Any?,
@@ -423,6 +664,12 @@ object SubsRepository {
                     val video = (value as? JSONObject)?.let { shortFromLockup(it) }
                     if (video != null && seen.add(video.id)) out.add(video)
                 }
+                "backstagePostRenderer", "postRenderer" -> {
+                    // Not searched inside: a video attached to a post is a part of the post, not a video of the feed.
+                    stats.posts++
+                    val video = (value as? JSONObject)?.let { postFromRenderer(it) }
+                    if (video != null && seen.add(video.id)) out.add(video)
+                }
                 "continuationItemRenderer" -> {
                     // The list's own "load more" item, the last one of its page: its token is the next page of videos.
                     val token = findText(value, "token") { it.isNotEmpty() }
@@ -434,7 +681,17 @@ object SubsRepository {
                     val token = (value as? JSONObject)?.optString("token").orEmpty()
                     if (token.isNotEmpty()) stats.loose.add(token)
                 }
-                else -> collectVideos(value, out, seen, tokens, stats)
+                else -> {
+                    // YouTube renames its renderers now and then: any other object that carries a post's own id under a
+                    // key that says "post" is a post too (its fields are read on their own, see [postFromRenderer]).
+                    if (value is JSONObject && key.contains("post", ignoreCase = true) && value.optString("postId").isNotEmpty()) {
+                        stats.posts++
+                        val video = postFromRenderer(value)
+                        if (video != null && seen.add(video.id)) out.add(video)
+                    } else {
+                        collectVideos(value, out, seen, tokens, stats)
+                    }
+                }
             }
         }
     }
@@ -509,6 +766,163 @@ object SubsRepository {
             views = overlay?.optJSONObject("secondaryText")?.optString("content").orEmpty(),
             short = true,
         )
+    }
+
+    // ---- The posts of channels ----
+
+    /** The most pictures and poll choices of a post that are kept (a post with more shows these). */
+    private const val MAX_POST_IMAGES = 10
+    private const val MAX_POST_CHOICES = 8
+
+    /**
+     * A post of a channel (`backstagePostRenderer`, or `postRenderer` in the newer feeds; both carry the same fields) as
+     * a [SubsVideo] holding a [SubsPost]. Every field is read on its own and may be missing: a post is dropped only
+     * when it has no id or nothing at all to show.
+     */
+    private fun postFromRenderer(o: JSONObject): SubsVideo? {
+        val id = o.optString("postId")
+        if (id.isEmpty()) return null
+
+        val author = o.opt("authorText")
+        val channelId = findText(author, "browseId") { CHANNEL_ID.matches(it) }
+            ?: findText(o.opt("authorEndpoint"), "browseId") { CHANNEL_ID.matches(it) }.orEmpty()
+        // `contentText` in both known shapes; a renamed field is looked for under its likeliest other names.
+        val (text, links) = postText(o.opt("contentText") ?: o.opt("content") ?: o.opt("text"))
+
+        val attachment = o.opt("backstageAttachment")
+        val images = ArrayList<String>()
+        collectPostImages(attachment, images)
+
+        val choices = ArrayList<PostChoice>()
+        var votes = ""
+        val poll = findObject(attachment, "pollRenderer")
+        if (poll != null) {
+            val list = poll.optJSONArray("choices")
+            if (list != null) {
+                for (i in 0 until minOf(list.length(), MAX_POST_CHOICES)) {
+                    val choice = list.optJSONObject(i) ?: continue
+                    val words = textOf(choice.opt("text"))
+                    val picture = bestImage(choice.optJSONObject("image"))
+                    if (words.isNotEmpty() || picture.isNotEmpty()) choices.add(PostChoice(words, picture))
+                }
+            }
+            votes = textOf(poll.opt("totalVotes"))
+        }
+
+        val attached = findObject(attachment, "videoRenderer")
+        val videoId = attached?.optString("videoId").orEmpty().takeIf { it.length == 11 }.orEmpty()
+        val videoTitle = if (videoId.isEmpty()) "" else textOf(attached?.opt("title"))
+
+        if (text.isEmpty() && images.isEmpty() && choices.isEmpty() && videoId.isEmpty()) return null
+
+        // The counts: the post's own `voteCount`, else the like button's text; the comments are the reply button's text.
+        val buttons = o.optJSONObject("actionButtons")?.optJSONObject("commentActionButtonsRenderer")
+        var likes = textOf(o.opt("voteCount"))
+        if (likes.isEmpty()) {
+            likes = textOf(buttons?.optJSONObject("likeButton")?.optJSONObject("toggleButtonRenderer")?.opt("defaultText"))
+        }
+        val comments = textOf(buttons?.optJSONObject("replyButton")?.optJSONObject("buttonRenderer")?.opt("text"))
+
+        return SubsVideo(
+            id = id,
+            title = text.replace('\n', ' ').take(100),
+            channelId = channelId,
+            channelName = textOf(author),
+            published = textOf(o.opt("publishedTimeText")),
+            post = SubsPost(
+                text = text,
+                links = links,
+                avatar = bestImage(o.optJSONObject("authorThumbnail")),
+                images = images,
+                choices = choices,
+                votes = votes,
+                videoId = videoId,
+                videoTitle = videoTitle,
+                likes = likes,
+                comments = comments,
+            ),
+        )
+    }
+
+    /** The words of a post as one text, and where its links stand in it (a link's own text is often cut short by YouTube). */
+    private fun postText(value: Any?): Pair<String, List<PostLink>> {
+        if (value is String) return Pair(value, emptyList())
+        if (value !is JSONObject) return Pair("", emptyList())
+        val simple = value.optString("simpleText")
+        if (simple.isNotEmpty()) return Pair(simple, emptyList())
+        val runs = value.optJSONArray("runs") ?: return Pair("", emptyList())
+        val text = StringBuilder()
+        val links = ArrayList<PostLink>()
+        for (i in 0 until runs.length()) {
+            val run = runs.optJSONObject(i) ?: continue
+            val piece = run.optString("text")
+            val url = linkOf(run.optJSONObject("navigationEndpoint"))
+            if (url.isNotEmpty() && piece.isNotEmpty()) links.add(PostLink(text.length, text.length + piece.length, url))
+            text.append(piece)
+        }
+        // Only the end is trimmed, so the places of the links (counted from the start) stay true.
+        val whole = text.toString().trimEnd()
+        return Pair(whole, links.filter { it.end <= whole.length })
+    }
+
+    /** Where a link of a post's text goes: an https address, or "" when it is none the app can open. */
+    private fun linkOf(endpoint: JSONObject?): String {
+        if (endpoint == null) return ""
+        var url = endpoint.optJSONObject("urlEndpoint")?.optString("url").orEmpty().trim()
+        if (url.isEmpty()) {
+            url = endpoint.optJSONObject("commandMetadata")?.optJSONObject("webCommandMetadata")?.optString("url").orEmpty().trim()
+        }
+        if (url.startsWith("//")) url = "https:$url"
+        if (url.startsWith("/")) url = MOBILE_SITE + url
+        if (!url.startsWith("https://") && !url.startsWith("http://")) return ""
+        // YouTube sends a link to another site through its own redirect page: the site itself is the address.
+        val uri = android.net.Uri.parse(url)
+        val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+        if ((host == "youtube.com" || host.endsWith(".youtube.com")) && uri.path == "/redirect") {
+            val target = uri.getQueryParameter("q").orEmpty()
+            if (target.startsWith("https://") || target.startsWith("http://")) return target
+        }
+        return url.replaceFirst("://www.youtube.com", "://m.youtube.com")
+    }
+
+    /** The pictures attached to a post (`backstageImageRenderer`, one or several), the largest size of each. */
+    private fun collectPostImages(node: Any?, out: MutableList<String>) {
+        if (node is JSONArray) {
+            for (i in 0 until node.length()) collectPostImages(node.opt(i), out)
+            return
+        }
+        if (node !is JSONObject) return
+        val keys = node.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val value = node.opt(key)
+            if (key == "backstageImageRenderer" && value is JSONObject) {
+                val url = bestImage(value.optJSONObject("image"))
+                if (url.isNotEmpty() && url !in out && out.size < MAX_POST_IMAGES) out.add(url)
+            } else {
+                collectPostImages(value, out)
+            }
+        }
+    }
+
+    /** The first object stored under [key] anywhere inside [node], or null. */
+    private fun findObject(node: Any?, key: String): JSONObject? {
+        if (node is JSONObject) {
+            val keys = node.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                val v = node.opt(k)
+                if (k == key && v is JSONObject) return v
+                val found = findObject(v, key)
+                if (found != null) return found
+            }
+        } else if (node is JSONArray) {
+            for (i in 0 until node.length()) {
+                val found = findObject(node.opt(i), key)
+                if (found != null) return found
+            }
+        }
+        return null
     }
 
     /** What marks a live stream in a video's badges and picture overlays (the different shapes YouTube uses). */
@@ -735,6 +1149,7 @@ object SubsRepository {
                         o.getString("i"), o.getString("t"), o.getString("c"), o.getString("h"),
                         o.optString("d"), o.optString("p"), o.optString("w"), o.optLong("pm"), o.optLong("vc", -1L),
                         short = o.optBoolean("sh"), live = o.optInt("lv"), watched = o.optInt("wp"),
+                        post = o.optJSONObject("po")?.let { postFromJson(it) },
                     )
                 )
             }
@@ -755,12 +1170,12 @@ object SubsRepository {
         }
         val videoArray = JSONArray()
         for (v in snapshot.videos) {
-            videoArray.put(
-                JSONObject().put("i", v.id).put("t", v.title).put("c", v.channelId).put("h", v.channelName)
-                    .put("d", v.duration).put("p", v.published).put("w", v.views)
-                    .put("pm", v.publishedMs).put("vc", v.viewCount)
-                    .put("sh", v.short).put("lv", v.live).put("wp", v.watched)
-            )
+            val entry = JSONObject().put("i", v.id).put("t", v.title).put("c", v.channelId).put("h", v.channelName)
+                .put("d", v.duration).put("p", v.published).put("w", v.views)
+                .put("pm", v.publishedMs).put("vc", v.viewCount)
+                .put("sh", v.short).put("lv", v.live).put("wp", v.watched)
+            v.post?.let { entry.put("po", postToJson(it)) }
+            videoArray.put(entry)
         }
         root.put("c", channelArray)
         root.put("v", videoArray)
@@ -771,6 +1186,46 @@ object SubsRepository {
             file.delete()
             temp.renameTo(file)
         }
+    }
+
+    private fun postToJson(p: SubsPost): JSONObject {
+        val links = JSONArray()
+        for (l in p.links) links.put(JSONArray().put(l.start).put(l.end).put(l.url))
+        val images = JSONArray()
+        for (url in p.images) images.put(url)
+        val choices = JSONArray()
+        for (c in p.choices) choices.put(JSONObject().put("t", c.text).put("i", c.image))
+        return JSONObject().put("t", p.text).put("l", links).put("a", p.avatar).put("im", images).put("ch", choices)
+            .put("v", p.votes).put("vi", p.videoId).put("vt", p.videoTitle).put("lk", p.likes).put("cm", p.comments)
+    }
+
+    private fun postFromJson(o: JSONObject): SubsPost {
+        val links = ArrayList<PostLink>()
+        val linkArray = o.optJSONArray("l")
+        if (linkArray != null) {
+            for (i in 0 until linkArray.length()) {
+                val l = linkArray.optJSONArray(i) ?: continue
+                links.add(PostLink(l.optInt(0), l.optInt(1), l.optString(2)))
+            }
+        }
+        val images = ArrayList<String>()
+        val imageArray = o.optJSONArray("im")
+        if (imageArray != null) {
+            for (i in 0 until imageArray.length()) images.add(imageArray.optString(i))
+        }
+        val choices = ArrayList<PostChoice>()
+        val choiceArray = o.optJSONArray("ch")
+        if (choiceArray != null) {
+            for (i in 0 until choiceArray.length()) {
+                val c = choiceArray.optJSONObject(i) ?: continue
+                choices.add(PostChoice(c.optString("t"), c.optString("i")))
+            }
+        }
+        return SubsPost(
+            text = o.optString("t"), links = links, avatar = o.optString("a"), images = images, choices = choices,
+            votes = o.optString("v"), videoId = o.optString("vi"), videoTitle = o.optString("vt"),
+            likes = o.optString("lk"), comments = o.optString("cm"),
+        )
     }
 
     fun clear(context: Context) {

@@ -11,8 +11,12 @@ import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.icu.text.CompactDecimalFormat
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.TextPaint
 import android.text.TextUtils
 import android.text.format.DateUtils
+import android.text.style.ClickableSpan
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -36,6 +40,7 @@ private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 private const val ROW_CARD = 0
 private const val ROW_SHELF = 1
 private const val ROW_TILE = 2
+private const val ROW_POST = 3
 
 /** A row of Shorts goes after the third video, then after every sixth one; a row holds this many Shorts. */
 private const val SHELF_SIZE = 8
@@ -45,6 +50,9 @@ private const val DRAG_THRESHOLD_DP = 24f
 
 /** The width of the "All" button at the end of the strip of channels. */
 private const val ALL_WIDTH_DP = 64
+
+/** A post's words show this many lines at most (the rest is on the post's own page, one tap away). */
+private const val POST_MAX_LINES = 12
 
 /** How many times the strip may be put back at its first channel by the layout listener (a guard against a loop). */
 private const val MAX_PIN_CORRECTIONS = 8
@@ -56,11 +64,17 @@ interface SubsListener {
 
     fun onVideo(video: SubsVideo)
 
+    /** The three dots of a video's card were tapped: [anchor] is the button, the menu opens beside it. */
+    fun onVideoMenu(video: SubsVideo, anchor: View)
+
     /** "Go to channel": the channel's own page. */
     fun onOpenChannel(channel: SubsChannel)
 
     /** The "All" button beside the strip: YouTube's page that lists every subscription. */
     fun onOpenAllChannels()
+
+    /** A link inside a post's text, or the video attached to a post, was tapped. */
+    fun onLink(url: String)
 
     /** A chip was chosen (one of [SubsFilter]). */
     fun onFilter(filter: Int)
@@ -86,6 +100,15 @@ class SubsPalette(night: Boolean) {
     val chip: Int = if (night) 0xFF272727.toInt() else 0xFFF2F2F2.toInt()
     val placeholder: Int = if (night) 0xFF212121.toInt() else 0xFFE5E5E5.toInt()
     val accent: Int = if (night) 0xFF3EA6FF.toInt() else 0xFF065FD4.toInt()
+
+    /** The thin border of a poll's choice. */
+    val outline: Int = if (night) 0xFF3F3F3F.toInt() else 0xFFCCCCCC.toInt()
+
+    /** The card of the three-dots menu (YouTube's own: a dark grey card at night, white by day). */
+    val menu: Int = if (night) 0xFF212121.toInt() else 0xFFFFFFFF.toInt()
+
+    /** The pill button on the card of the playlists sheet ("New playlist"): a step lighter than the card. */
+    val button: Int = if (night) 0xFF3F3F3F.toInt() else 0xFFF2F2F2.toInt()
 }
 
 /**
@@ -129,6 +152,7 @@ class SubsScreen(
     private val chipAdapter = ChipAdapter()
     private val chipLabels = intArrayOf(
         R.string.subsChipAll, R.string.subsChipToday, R.string.subsChipVideos, R.string.subsChipShorts, R.string.subsChipLive,
+        R.string.subsChipPosts,
     )
     private val refresh = SwipeRefreshLayout(context)
     private val list = RecyclerView(context)
@@ -407,7 +431,13 @@ class SubsScreen(
         val empty = listAdapter.itemCount == 0
         spinner.visibility = if (empty && loading) View.VISIBLE else View.GONE
         emptyText.visibility = if (empty && !loading) View.VISIBLE else View.GONE
-        val base = context.getString(if (filter == SubsFilter.LIVE) R.string.subsEmptyLive else R.string.subsEmpty)
+        val base = context.getString(
+            when (filter) {
+                SubsFilter.LIVE -> R.string.subsEmptyLive
+                SubsFilter.POSTS -> R.string.subsEmptyPosts
+                else -> R.string.subsEmpty
+            }
+        )
         emptyText.text = if (diagnostic.isEmpty()) base else base + "\n\n" + diagnostic
     }
 
@@ -426,7 +456,11 @@ class SubsScreen(
         class Card(val video: SubsVideo) : Row()
         class Shelf(val shorts: List<SubsVideo>) : Row()
         class Tile(val video: SubsVideo) : Row()
+        class Post(val video: SubsVideo) : Row()
     }
+
+    /** A post is drawn as a post's card, any other video as a video's card. */
+    private fun cardOf(video: SubsVideo): Row = if (video.post != null) Row.Post(video) else Row.Card(video)
 
     /** True when a row of Shorts goes after the video at [index] (counting from 0). */
     private fun shelfAfter(index: Int): Boolean = index == 2 || (index > 2 && (index - 2) % 6 == 0)
@@ -434,12 +468,12 @@ class SubsScreen(
     private fun buildRows(videos: List<SubsVideo>): List<Row> {
         if (filter == SubsFilter.SHORTS) return videos.filter { it.short }.map { Row.Tile(it) }
         val normal = videos.filter { !it.short }
-        if (filter != SubsFilter.ALL) return normal.map { Row.Card(it) }
+        if (filter != SubsFilter.ALL) return normal.map { cardOf(it) }
         val shorts = videos.filter { it.short }
         val rows = ArrayList<Row>(normal.size + 4)
         var next = 0
         for ((index, video) in normal.withIndex()) {
-            rows.add(Row.Card(video))
+            rows.add(cardOf(video))
             if (next < shorts.size && shelfAfter(index)) {
                 rows.add(Row.Shelf(shorts.subList(next, minOf(next + SHELF_SIZE, shorts.size)).toList()))
                 next += SHELF_SIZE
@@ -459,6 +493,16 @@ class SubsScreen(
         shape.setColor(color)
         shape.cornerRadius = radius
         return shape
+    }
+
+    /** The round touch feedback of the phone's theme (a plain background where the theme has none). */
+    private fun rippleBackground(): android.graphics.drawable.Drawable? {
+        val attrs = context.obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackgroundBorderless))
+        try {
+            return attrs.getDrawable(0)
+        } finally {
+            attrs.recycle()
+        }
     }
 
     private fun oval(color: Int, stroke: Int): GradientDrawable {
@@ -585,6 +629,7 @@ class SubsScreen(
         val avatar: ImageView,
         val title: TextView,
         val meta: TextView,
+        val more: ImageView,
     ) : RecyclerView.ViewHolder(root)
 
     private class ShortHolder(
@@ -592,6 +637,7 @@ class SubsScreen(
         val thumb: ImageView,
         val title: TextView,
         val views: TextView,
+        val more: ImageView,
     ) : RecyclerView.ViewHolder(root)
 
     /** A row of Shorts in the list: its own sideways list of Shorts under a title. */
@@ -614,12 +660,14 @@ class SubsScreen(
                 is Row.Card -> ROW_CARD
                 is Row.Shelf -> ROW_SHELF
                 is Row.Tile -> ROW_TILE
+                is Row.Post -> ROW_POST
             }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
             when (viewType) {
                 ROW_SHELF -> buildShelfItem()
                 ROW_TILE -> buildShortCard(MATCH, tileHeight)
+                ROW_POST -> buildPostItem()
                 else -> buildVideoItem()
             }
 
@@ -628,6 +676,7 @@ class SubsScreen(
                 is Row.Card -> bindCard(holder as CardHolder, row.video, avatars)
                 is Row.Shelf -> (holder as ShelfHolder).shorts.submit(row.shorts)
                 is Row.Tile -> bindShort(holder as ShortHolder, row.video)
+                is Row.Post -> bindPost(holder as PostHolder, row.video, avatars)
             }
         }
     }
@@ -674,6 +723,7 @@ class SubsScreen(
         val avatar = avatars[video.channelId] ?: avatars[video.channelName] ?: ""
         SubsImages.load(holder.avatar, avatar, null, dp(48))
         holder.itemView.setOnClickListener { listener.onVideo(video) }
+        holder.more.setOnClickListener { listener.onVideoMenu(video, it) }
     }
 
     private fun bindShort(holder: ShortHolder, video: SubsVideo) {
@@ -689,6 +739,7 @@ class SubsScreen(
             screenWidth / 2,
         )
         holder.itemView.setOnClickListener { listener.onVideo(video) }
+        holder.more.setOnClickListener { listener.onVideoMenu(video, it) }
     }
 
     private fun buildVideoItem(): CardHolder {
@@ -743,8 +794,315 @@ class SubsScreen(
         textParams.marginStart = dp(12)
         info.addView(texts, textParams)
 
+        // The three dots, at the end of the row (the left in Arabic) like YouTube's. The button is bigger than its
+        // picture so a finger finds it, and it pulls into the row's padding so the dots sit at the screen's edge.
+        val more = ImageView(context)
+        more.setImageResource(R.drawable.ic_more_vert_24dp)
+        more.imageTintList = ColorStateList.valueOf(palette.text)
+        more.contentDescription = context.getString(R.string.subsMenuMore)
+        more.scaleType = ImageView.ScaleType.CENTER
+        more.isClickable = true
+        more.background = rippleBackground()
+        val moreParams = LinearLayout.LayoutParams(dp(40), dp(40))
+        moreParams.marginStart = dp(4)
+        moreParams.marginEnd = -dp(8)
+        moreParams.topMargin = -dp(8)
+        info.addView(more, moreParams)
+
         card.addView(info, LinearLayout.LayoutParams(MATCH, WRAP))
-        return CardHolder(card, thumb, duration, progress, avatar, title, meta)
+        return CardHolder(card, thumb, duration, progress, avatar, title, meta, more)
+    }
+
+    // ---- The posts ----
+
+    /** A count under a post (likes, comments): its small picture and its text. */
+    private class CountView(val group: LinearLayout, val label: TextView)
+
+    private class PostHolder(
+        root: View,
+        val avatar: ImageView,
+        val name: TextView,
+        val time: TextView,
+        val more: ImageView,
+        val text: TextView,
+        /** What is attached to the post (pictures, a poll, a video): filled again for every post the card shows. */
+        val media: LinearLayout,
+        val actions: View,
+        val likes: CountView,
+        val comments: CountView,
+    ) : RecyclerView.ViewHolder(root)
+
+    /**
+     * A post's card, like YouTube's: the channel's picture with its name and the age of the post (and the three dots),
+     * the words (links in the accent colour), what is attached to them, then the likes and the comments. A tap on it
+     * opens the post's page; a tap on a link in its words opens that link.
+     */
+    private fun buildPostItem(): PostHolder {
+        val card = LinearLayout(context)
+        card.orientation = LinearLayout.VERTICAL
+        card.layoutParams = RecyclerView.LayoutParams(MATCH, WRAP)
+
+        val head = LinearLayout(context)
+        head.orientation = LinearLayout.HORIZONTAL
+        head.gravity = Gravity.CENTER_VERTICAL
+        head.setPadding(dp(12), dp(12), dp(12), dp(8))
+        val avatar = roundPicture()
+        head.addView(avatar, LinearLayout.LayoutParams(dp(40), dp(40)))
+
+        val names = LinearLayout(context)
+        names.orientation = LinearLayout.VERTICAL
+        val name = TextView(context)
+        name.textSize = 15f
+        name.typeface = Typeface.DEFAULT_BOLD
+        name.maxLines = 1
+        name.ellipsize = TextUtils.TruncateAt.END
+        name.setTextColor(palette.text)
+        val time = TextView(context)
+        time.textSize = 12f
+        time.maxLines = 1
+        time.setTextColor(palette.secondary)
+        names.addView(name, LinearLayout.LayoutParams(MATCH, WRAP))
+        names.addView(time, LinearLayout.LayoutParams(MATCH, WRAP))
+        val namesParams = LinearLayout.LayoutParams(0, WRAP, 1f)
+        namesParams.marginStart = dp(12)
+        head.addView(names, namesParams)
+
+        // The three dots, at the end of the row, as on a video's card.
+        val more = ImageView(context)
+        more.setImageResource(R.drawable.ic_more_vert_24dp)
+        more.imageTintList = ColorStateList.valueOf(palette.text)
+        more.contentDescription = context.getString(R.string.subsMenuMore)
+        more.scaleType = ImageView.ScaleType.CENTER
+        more.isClickable = true
+        more.background = rippleBackground()
+        val moreParams = LinearLayout.LayoutParams(dp(40), dp(40))
+        moreParams.marginStart = dp(4)
+        moreParams.marginEnd = -dp(8)
+        head.addView(more, moreParams)
+        card.addView(head, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        val text = TextView(context)
+        text.textSize = 15f
+        text.maxLines = POST_MAX_LINES
+        text.ellipsize = TextUtils.TruncateAt.END
+        text.setTextColor(palette.text)
+        text.setLineSpacing(0f, 1.1f)
+        text.setPadding(dp(16), dp(4), dp(16), dp(12))
+        // The words take the touch themselves to tell a tap on a link from a tap beside it (which opens the post).
+        text.setOnTouchListener { view, event -> postTextTouch(view as TextView, event, card) }
+        card.addView(text, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        val media = LinearLayout(context)
+        media.orientation = LinearLayout.VERTICAL
+        card.addView(media, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        val actions = LinearLayout(context)
+        actions.orientation = LinearLayout.HORIZONTAL
+        actions.gravity = Gravity.CENTER_VERTICAL
+        actions.setPadding(dp(16), dp(10), dp(16), dp(12))
+        val likes = countView(R.drawable.ic_thumb_up_24dp)
+        val comments = countView(R.drawable.ic_comment_24dp)
+        actions.addView(likes.group, LinearLayout.LayoutParams(WRAP, WRAP))
+        val commentsParams = LinearLayout.LayoutParams(WRAP, WRAP)
+        commentsParams.marginStart = dp(28)
+        actions.addView(comments.group, commentsParams)
+        card.addView(actions, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        // A band between one post and the next.
+        val band = View(context)
+        band.setBackgroundColor(palette.chip)
+        card.addView(band, LinearLayout.LayoutParams(MATCH, dp(8)))
+        return PostHolder(card, avatar, name, time, more, text, media, actions, likes, comments)
+    }
+
+    private fun countView(icon: Int): CountView {
+        val group = LinearLayout(context)
+        group.orientation = LinearLayout.HORIZONTAL
+        group.gravity = Gravity.CENTER_VERTICAL
+        val picture = ImageView(context)
+        picture.setImageResource(icon)
+        picture.imageTintList = ColorStateList.valueOf(palette.text)
+        group.addView(picture, LinearLayout.LayoutParams(dp(24), dp(24)))
+        val label = TextView(context)
+        label.textSize = 14f
+        label.setTextColor(palette.text)
+        val labelParams = LinearLayout.LayoutParams(WRAP, WRAP)
+        labelParams.marginStart = dp(8)
+        group.addView(label, labelParams)
+        return CountView(group, label)
+    }
+
+    private fun bindPost(holder: PostHolder, video: SubsVideo, avatars: Map<String, String>) {
+        val post = video.post ?: return
+        holder.name.text = video.channelName
+        holder.time.text = video.published
+        holder.time.visibility = if (video.published.isEmpty()) View.GONE else View.VISIBLE
+        val picture = post.avatar.ifEmpty { avatars[video.channelId] ?: avatars[video.channelName] ?: "" }
+        SubsImages.load(holder.avatar, picture, null, dp(48))
+
+        holder.text.visibility = if (post.text.isEmpty()) View.GONE else View.VISIBLE
+        holder.text.text = linkedText(post)
+        holder.media.removeAllViews()
+        addPostMedia(holder.media, post)
+
+        holder.likes.label.text = post.likes
+        holder.likes.group.visibility = if (post.likes.isEmpty()) View.GONE else View.VISIBLE
+        holder.comments.label.text = post.comments
+        holder.comments.group.visibility = if (post.comments.isEmpty()) View.GONE else View.VISIBLE
+        holder.actions.visibility = if (post.likes.isEmpty() && post.comments.isEmpty()) View.GONE else View.VISIBLE
+
+        holder.itemView.setOnClickListener { listener.onVideo(video) }
+        holder.more.setOnClickListener { listener.onVideoMenu(video, it) }
+    }
+
+    /** The words of a post, its links coloured and tappable. */
+    private fun linkedText(post: SubsPost): CharSequence {
+        if (post.links.isEmpty()) return post.text
+        val spannable = SpannableString(post.text)
+        for (link in post.links) {
+            if (link.start < 0 || link.start >= link.end || link.end > post.text.length) continue
+            spannable.setSpan(LinkSpan(link.url), link.start, link.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return spannable
+    }
+
+    private inner class LinkSpan(private val url: String) : ClickableSpan() {
+        override fun onClick(widget: View) {
+            listener.onLink(url)
+        }
+
+        override fun updateDrawState(ds: TextPaint) {
+            ds.color = palette.accent
+            ds.isUnderlineText = false
+        }
+    }
+
+    /** A tap that ends on a link of the words follows the link; a tap anywhere else in them is a tap on the card. */
+    private fun postTextTouch(view: TextView, event: MotionEvent, card: View): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> return true
+            MotionEvent.ACTION_UP -> {
+                val link = linkAt(view, event)
+                if (link != null) link.onClick(view) else card.performClick()
+                return true
+            }
+        }
+        return false
+    }
+
+    /** The link of [view]'s words under the finger, or null. */
+    private fun linkAt(view: TextView, event: MotionEvent): ClickableSpan? {
+        val words = view.text as? Spanned ?: return null
+        val layout = view.layout ?: return null
+        val x = event.x - view.totalPaddingLeft + view.scrollX
+        val y = event.y - view.totalPaddingTop + view.scrollY
+        if (y < 0f || y > layout.height) return null
+        val line = layout.getLineForVertical(y.toInt())
+        if (x < layout.getLineLeft(line) || x > layout.getLineRight(line)) return null
+        val offset = layout.getOffsetForHorizontal(line, x)
+        return words.getSpans(offset, offset, ClickableSpan::class.java).firstOrNull()
+    }
+
+    /** What is attached to a post, in the order YouTube shows it: pictures, a poll, a video. */
+    private fun addPostMedia(box: LinearLayout, post: SubsPost) {
+        if (post.images.isNotEmpty()) box.addView(postPicture(post.images), LinearLayout.LayoutParams(MATCH, WRAP))
+        if (post.choices.isNotEmpty()) addPoll(box, post)
+        if (post.videoId.isNotEmpty()) box.addView(attachedVideo(post), LinearLayout.LayoutParams(MATCH, WRAP))
+    }
+
+    /** The picture of a post, as wide as the screen and as high as it is (up to a limit); "+2" when the post has more. */
+    private fun postPicture(images: List<String>): View {
+        val frame = FrameLayout(context)
+        val picture = ImageView(context)
+        picture.scaleType = ImageView.ScaleType.CENTER_CROP
+        picture.adjustViewBounds = true
+        picture.maxHeight = screenWidth * 5 / 4
+        picture.minimumHeight = thumbHeight / 2
+        picture.setBackgroundColor(palette.placeholder)
+        frame.addView(picture, FrameLayout.LayoutParams(MATCH, WRAP))
+        SubsImages.load(picture, images[0], null, screenWidth)
+        if (images.size > 1) {
+            val more = TextView(context)
+            more.text = "+" + (images.size - 1)
+            more.textSize = 13f
+            more.typeface = Typeface.DEFAULT_BOLD
+            more.setTextColor(Color.WHITE)
+            more.setPadding(dp(8), dp(3), dp(8), dp(3))
+            more.background = rounded(0xCC000000.toInt(), dp(6).toFloat())
+            val params = FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END)
+            params.setMargins(dp(8), dp(8), dp(8), dp(8))
+            frame.addView(more, params)
+        }
+        return frame
+    }
+
+    /** A poll: a bordered row for each choice (its picture first, then its words), and the votes under them. */
+    private fun addPoll(box: LinearLayout, post: SubsPost) {
+        for (choice in post.choices) {
+            val row = LinearLayout(context)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = Gravity.CENTER_VERTICAL
+            val border = GradientDrawable()
+            border.setColor(Color.TRANSPARENT)
+            border.cornerRadius = dp(12).toFloat()
+            border.setStroke(dp(2), palette.outline)
+            row.background = border
+            row.outlineProvider = roundedCorners
+            row.clipToOutline = true
+            if (choice.image.isNotEmpty()) {
+                val picture = ImageView(context)
+                picture.scaleType = ImageView.ScaleType.CENTER_CROP
+                picture.setBackgroundColor(palette.placeholder)
+                row.addView(picture, LinearLayout.LayoutParams(dp(84), dp(84)))
+                SubsImages.load(picture, choice.image, null, dp(168))
+            }
+            val words = TextView(context)
+            words.text = choice.text
+            words.textSize = 15f
+            words.setTextColor(palette.text)
+            words.setPadding(dp(16), dp(12), dp(16), dp(12))
+            row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+            val params = LinearLayout.LayoutParams(MATCH, WRAP)
+            params.setMargins(dp(16), dp(4), dp(16), dp(4))
+            box.addView(row, params)
+        }
+        if (post.votes.isNotEmpty()) {
+            val votes = TextView(context)
+            votes.text = post.votes
+            votes.textSize = 14f
+            votes.setTextColor(palette.secondary)
+            votes.setPadding(dp(16), dp(6), dp(16), 0)
+            box.addView(votes, LinearLayout.LayoutParams(MATCH, WRAP))
+        }
+    }
+
+    /** A video attached to a post: its picture and title; a tap plays it. */
+    private fun attachedVideo(post: SubsPost): View {
+        val box = LinearLayout(context)
+        box.orientation = LinearLayout.VERTICAL
+        val picture = ImageView(context)
+        picture.scaleType = ImageView.ScaleType.CENTER_CROP
+        picture.setBackgroundColor(palette.placeholder)
+        box.addView(picture, LinearLayout.LayoutParams(MATCH, thumbHeight))
+        SubsImages.load(
+            picture,
+            "https://i.ytimg.com/vi/${post.videoId}/hq720.jpg",
+            "https://i.ytimg.com/vi/${post.videoId}/mqdefault.jpg",
+            (screenWidth * 0.8f).toInt(),
+        )
+        if (post.videoTitle.isNotEmpty()) {
+            val title = TextView(context)
+            title.text = post.videoTitle
+            title.textSize = 14f
+            title.typeface = Typeface.DEFAULT_BOLD
+            title.maxLines = 2
+            title.ellipsize = TextUtils.TruncateAt.END
+            title.setTextColor(palette.text)
+            title.setPadding(dp(16), dp(8), dp(16), dp(4))
+            box.addView(title, LinearLayout.LayoutParams(MATCH, WRAP))
+        }
+        box.setOnClickListener { listener.onLink("${SubsRepository.MOBILE_SITE}/watch?v=${post.videoId}") }
+        return box
     }
 
     /** A tall card with rounded corners: the picture of a Short with its title and views over the bottom. */
@@ -779,8 +1137,23 @@ class SubsScreen(
         texts.addView(views, LinearLayout.LayoutParams(MATCH, WRAP))
         card.addView(texts, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
 
+        // A light shade at the top so the white dots show over a bright picture too.
+        val shade = View(context)
+        shade.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x66000000, 0x00000000))
+        card.addView(shade, FrameLayout.LayoutParams(MATCH, dp(48), Gravity.TOP))
+
+        // The three dots, at the top corner of the card on the end side (the left in Arabic) like YouTube's Shorts.
+        val more = ImageView(context)
+        more.setImageResource(R.drawable.ic_more_vert_24dp)
+        more.imageTintList = ColorStateList.valueOf(Color.WHITE)
+        more.contentDescription = context.getString(R.string.subsMenuMore)
+        more.scaleType = ImageView.ScaleType.CENTER
+        more.isClickable = true
+        more.background = rippleBackground()
+        card.addView(more, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP or Gravity.END))
+
         root.addView(card, FrameLayout.LayoutParams(MATCH, MATCH))
-        return ShortHolder(root, thumb, title, views)
+        return ShortHolder(root, thumb, title, views, more)
     }
 
     /** The row of Shorts: a title with Shorts' red mark, then the Shorts side by side (scrolling sideways). */

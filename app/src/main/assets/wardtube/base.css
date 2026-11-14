@@ -14,3 +14,9 @@ ytm-open-app-header-renderer,
 [class*="open_app"] {
     display: none !important;
 }
+
+/* What wardtube.js has hidden by its label (the "Open app" button, and the "Open app" row of YouTube's menus):
+   kept hidden even if YouTube clears the inline style when it redraws the element. */
+[data-wt-open-app] {
+    display: none !important;
+}

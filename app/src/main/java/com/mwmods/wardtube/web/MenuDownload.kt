@@ -17,10 +17,16 @@ import com.mwmods.wardtube.util.UrlUtils
  * The page script (`assets/wardtube/menu-download.js`) finds which video the tapped button belongs to, adds the row to the
  * menu and, when the row is tapped, calls [Bridge.download] with the video's id. The app builds the address itself
  * from that id (a page cannot hand it any other address), and [onDownload] starts the usual download flow.
+ *
+ * On a watch page the script works on the row of buttons under the video (like, dislike, share, the three dots): the
+ * video is the one the page is showing, so it calls [Bridge.downloadCurrent] and [onDownloadCurrent] runs, which is
+ * the flow of the download button of the bottom bar (it asks the player whether the video is live first). With no
+ * [onDownloadCurrent] the video is handled like a card's, without a title.
  */
 class MenuDownload(
     private val webView: WebView,
     private val onDownload: (url: String, title: String?) -> Unit,
+    private val onDownloadCurrent: ((url: String) -> Unit)? = null,
 ) {
     /** True when the script runs by itself at the start of every YouTube page; false when [injectNow] must be used. */
     var documentStart = false
@@ -56,14 +62,25 @@ class MenuDownload(
         /** [kind] is "video" or "shorts"; [id] is YouTube's 11-character video id. */
         @JavascriptInterface
         fun download(kind: String?, id: String?, title: String?) {
-            val videoId = id?.takeIf { ID.matches(it) } ?: return
-            val url = if (kind == "shorts") {
+            val url = urlOf(kind, id) ?: return
+            val name = title?.trim()?.take(200)?.takeUnless { it.isEmpty() }
+            main.post { onDownload(url, name) }
+        }
+
+        /** The video the watch page itself is showing (the row of buttons under it): same arguments, no title. */
+        @JavascriptInterface
+        fun downloadCurrent(kind: String?, id: String?) {
+            val url = urlOf(kind, id) ?: return
+            main.post { onDownloadCurrent?.invoke(url) ?: onDownload(url, null) }
+        }
+
+        private fun urlOf(kind: String?, id: String?): String? {
+            val videoId = id?.takeIf { ID.matches(it) } ?: return null
+            return if (kind == "shorts") {
                 "https://m.youtube.com/shorts/$videoId"
             } else {
                 "https://m.youtube.com/watch?v=$videoId"
             }
-            val name = title?.trim()?.take(200)?.takeUnless { it.isEmpty() }
-            main.post { onDownload(url, name) }
         }
     }
 

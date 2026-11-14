@@ -13,8 +13,11 @@ import java.lang.ref.WeakReference
  */
 object PlayerController {
 
+    // The video the person is looking at. On a Short the page holds several <video> elements (the neighbours are kept
+    // ready too), so the page script picks the one on view (wardtube.js, `video`); the first one is the fallback.
     private const val VIDEO =
-        "(document.querySelector('video.html5-main-video')||document.querySelector('video'))"
+        "((window.__wardtube&&window.__wardtube.video&&window.__wardtube.video())||" +
+            "document.querySelector('video.html5-main-video')||document.querySelector('video'))"
 
     /**
      * [positionMs] / [durationMs] are -1 when unknown (no video yet, or a live stream with no fixed length).
@@ -42,7 +45,7 @@ object PlayerController {
     //  <video width>|<video height>|<player box width>|<player box height>"  (the last four are missing when there is no video)
     private val STATE_SCRIPT = """
         (function () {
-          var v = document.querySelector('video.html5-main-video') || document.querySelector('video');
+          var v = $VIDEO;
           if (!v) return '-1|0|-1|1|0';
           var box = document.querySelector('#player-container-id') || document.getElementById('movie_player') ||
             document.querySelector('.html5-video-player');

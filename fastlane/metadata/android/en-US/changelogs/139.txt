@@ -1,0 +1,1 @@
+Added: a "Posts" button on the Subscriptions screen that lists the posts of your channels (text, pictures, polls, videos, likes and comments), like the YouTube app. "All content" and "Today" now show posts too, between the videos and the Shorts.

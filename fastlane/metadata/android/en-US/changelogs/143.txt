@@ -1,0 +1,1 @@
+Changed: the "Open app" row is now hidden in the menu that a long press on a Short opens.

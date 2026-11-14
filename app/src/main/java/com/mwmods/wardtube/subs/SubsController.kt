@@ -4,6 +4,7 @@
 package com.mwmods.wardtube.subs
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -12,7 +13,9 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.snackbar.Snackbar
 import com.mwmods.wardtube.R
 import com.mwmods.wardtube.util.UrlUtils
 import java.io.IOException
@@ -41,11 +44,23 @@ class SubsController(
     private val openUrl: (String) -> Unit,
     /** The finger drags over the screen ([down] = the list scrolls down): the owner hides or shows its bottom bar. */
     private val onScrollDirection: (down: Boolean) -> Unit = {},
+    /** The menu's "Download" row: the address of the video's watch page and its title (the owner's usual download flow). */
+    private val onDownload: (url: String, title: String?) -> Unit = { _, _ -> },
+    /** The menu's "Share" row: the link to share and the video's title (the owner opens the phone's share sheet). */
+    private val onShare: (link: String, title: String) -> Unit = { _, _ -> },
 ) : SubsListener {
 
     private val main = Handler(Looper.getMainLooper())
     private val pool = Executors.newFixedThreadPool(4) { task ->
         Thread(task, "wardtube-subs").apply { isDaemon = true }
+    }
+
+    /**
+     * The pool of the channels' own posts (see [morePostsFromChannels]): one request per channel, several at once, so
+     * they do not wait in the queue of the feed, the chips and the playlists that the pool above serves.
+     */
+    private val postsPool = Executors.newFixedThreadPool(5) { task ->
+        Thread(task, "wardtube-posts").apply { isDaemon = true }
     }
     private val state = activity.getSharedPreferences("subs_state", Context.MODE_PRIVATE)
     private val lang: String = Locale.getDefault().language.ifEmpty { "en" }
@@ -84,6 +99,13 @@ class SubsController(
 
     /** Videos the person opened or saw (from the app's list or by tapping their channel): they carry no blue dot. */
     private val seenIds = LinkedHashSet<String>()
+
+    /** Videos hidden with the card's menu: they are left out of every list (kept on the phone, per account). */
+    private val hiddenIds = LinkedHashSet<String>()
+
+    /** The key and the context that YouTube's own API asks for, taken from the first page read (or read on demand). */
+    @Volatile
+    private var apiAccess: SubsRepository.ApiAccess? = null
 
     /** How many more pages may be fetched on their own to fill a short filtered list (reset by every chip tap). */
     private var autoMoreLeft = 0
@@ -132,10 +154,79 @@ class SubsController(
     /** Changes with every new first page of the Shorts chip (and every new account): answers of an older one are dropped. */
     private var shortsGen = 0
 
-    /** The videos of one channel, read when it is chosen; its Shorts and live streams when those chips are chosen. */
+    /**
+     * The Posts chip, the way YouTube does it (the same as the Shorts chip above): its own list of the posts of every
+     * subscription ([postsFeed]), with its own continuation ([postsCursor]). "All content" and "Today" read it too, to
+     * put the posts between the videos (see [extraPosts]).
+     *  - [postsDirect] true: the chip answered with posts, the Posts chip lists [postsFeed];
+     *  - false: the page has no usable Posts chip, the Posts chip lists the posts that the feed itself carries;
+     *  - null: not known yet (the answer is being read, or it could not be read for a moment, offline for instance).
+     */
+    private var postsDirect: Boolean? = null
+    private var postsFeed: List<SubsVideo> = emptyList()
+    private var postsCursor: SubsPage? = null
+    private var postsFeedAt = 0L
+    private var postsTryAt = 0L
+    private var postsLoading = false
+    private var postsMoreLoading = false
+
+    /**
+     * True when YouTube's own list of posts could not be read: the Posts chip then lists the posts tab of the channels
+     * themselves, a few channels at a time, put together by date (see [morePostsFromChannels]). It goes on, channel
+     * after channel and page after page, for as long as the person scrolls.
+     */
+    private var postsByChannels = false
+    private val chanPostCursor = HashMap<String, SubsPage>() // the next page of a channel's posts tab, while it has one
+    private val chanPostRead = HashSet<String>() // the channels whose posts tab was read
+    private var chanPostsBusy = false
+    private var chanPostsDry = 0 // batches in a row that brought no new post
+
+    /** What the Posts chip's answers held, and what the channels' posts read: shown under an empty list, so it says why. */
+    private var postsNote = ""
+    private var postsChanNote = ""
+
+    /** True when [postsFeed] is from before the feed's last refresh (or the chip was tapped after a while): it is read again. */
+    private var postsStale = false
+
+    /** How many pages of the Posts chip in a row came with nothing new (the next one is still tried a few times). */
+    private var postsEmpty = 0
+
+    /** Changes with every new first page of the Posts chip (and every new account): answers of an older one are dropped. */
+    private var postsGen = 0
+
+    /** Batches of channels read since the posts-of-channels list began ("All content" stops reading on its own at [CHAN_POSTS_BG_BATCHES]). */
+    private var chanBatches = 0
+
+    /** When YouTube's own Posts chip last answered with no posts: it is not asked again for [POSTS_CHIP_RETRY_MS]. */
+    private var postsChipBadAt = 0L
+
+    /** How many more pages of YouTube's own posts are read on their own to reach as far back as the feed does. */
+    private var postsAuto = 0
+
+    /**
+     * What was learned about which channels have a posts tab at all (most have none, and asking each of them costs a
+     * whole page): kept between runs for [POSTS_MEMORY_MS]. The ones with posts are read first, the ones without are
+     * skipped. A "no" is trusted only once some channel in this run has shown that posts can be read (see [learnPosts]).
+     */
+    private val chanHasPosts = HashSet<String>()
+    private val chanNoPosts = HashSet<String>()
+    private val pendingNoPosts = HashSet<String>()
+    private var sessionSawPosts = false
+    private var postsMemoryRead = false
+
+    private var postsRefreshQueued = false
+    private val postsRefresh = Runnable {
+        postsRefreshQueued = false
+        val view = screen
+        if (released || view == null || !onSubsPage || selected != null) return@Runnable
+        if (postsFromChannels() || postsFromChannelsBg()) applyVideos(view, toTop = false)
+    }
+
+    /** The videos of one channel, read when it is chosen; its Shorts, posts and live streams when those chips are chosen. */
     private val channelVideos = HashMap<String, List<SubsVideo>>()
     private val channelShorts = HashMap<String, List<SubsVideo>>()
     private val channelStreams = HashMap<String, List<SubsVideo>>()
+    private val channelPosts = HashMap<String, List<SubsVideo>>()
     private val channelLoadedAt = HashMap<String, Long>() // key: "<channel id>|<tab>"
 
     private var channelsAt = 0L
@@ -152,6 +243,8 @@ class SubsController(
 
     init {
         state.getString(KEY_SEEN_IDS, "").orEmpty().split(',').filter { it.length == 11 }.forEach { seenIds.add(it) }
+        // A hidden post's id is longer than a video's 11 characters.
+        state.getString(KEY_HIDDEN_IDS, "").orEmpty().split(',').filter { it.length >= 11 }.forEach { hiddenIds.add(it) }
     }
 
     // ---- Following the page ----
@@ -229,7 +322,9 @@ class SubsController(
         if (account.isNotEmpty() && account != key) {
             // Another account signed in: what the previous one saw means nothing here.
             seenIds.clear()
-            state.edit().remove(KEY_SEEN_IDS).apply()
+            hiddenIds.clear()
+            apiAccess = null
+            state.edit().remove(KEY_SEEN_IDS).remove(KEY_HIDDEN_IDS).apply()
         }
         snapshotRead = true
         account = key
@@ -238,9 +333,11 @@ class SubsController(
         cursor = null
         cursorMissing = false
         resetShorts()
+        resetPosts()
         channelVideos.clear()
         channelShorts.clear()
         channelStreams.clear()
+        channelPosts.clear()
         channelLoadedAt.clear()
         channelsAt = 0L
         feedAt = 0L
@@ -301,15 +398,24 @@ class SubsController(
 
     private fun applyVideos(view: SubsScreen, toTop: Boolean) {
         ensureShorts() // before the list is built: it decides what the Shorts chip lists
+        ensurePosts() // the same for the Posts chip, and the posts that "All content" puts between the videos
         val videos = visible()
         view.setVideos(videos, avatars, toTop)
-        view.setDiagnostic(if (videos.isEmpty() && filter == SubsFilter.ALL) SubsRepository.diag else "")
+        val bare = videos.isEmpty() && (filter == SubsFilter.ALL || filter == SubsFilter.POSTS)
+        val note = if (filter == SubsFilter.POSTS) {
+            listOf(postsNote, postsChanNote).filter { it.isNotEmpty() }.joinToString("\n").ifEmpty { SubsRepository.diag }
+        } else {
+            SubsRepository.diag
+        }
+        view.setDiagnostic(if (bare) note else "")
         fillFiltered(videos.size)
         // The list never ends on its own: if its end is already in view (a short page, or a page that finished
         // loading while the person sat at the bottom) no scroll comes to ask for more, so the screen asks. The Shorts
         // chip does too (its own list goes on for as long as YouTube has Shorts; the feed's Shorts are few per page, so
         // their end is often in view, until pages keep coming with no Short in them, [shortsDry]).
-        if (selected == null && (filter == SubsFilter.ALL || filter == SubsFilter.VIDEOS || shortsChipReadsOn())) view.checkEnd()
+        if (selected == null && (filter == SubsFilter.ALL || filter == SubsFilter.VIDEOS || shortsChipReadsOn() || postsFromChip() || postsFromChannels())) {
+            view.checkEnd()
+        }
     }
 
     /** The Shorts chip is chosen and there is still more for it to read by itself (see [shortsFromChip]). */
@@ -318,6 +424,12 @@ class SubsController(
 
     /** True when the Shorts chip, with no channel chosen, lists YouTube's own list of Shorts ([shortsFeed]). */
     private fun shortsFromChip(): Boolean = selected == null && filter == SubsFilter.SHORTS && shortsDirect == true
+
+    /** True when the Posts chip, with no channel chosen, lists YouTube's own list of posts ([postsFeed]). */
+    private fun postsFromChip(): Boolean = selected == null && filter == SubsFilter.POSTS && postsDirect == true
+
+    /** True when the Posts chip, with no channel chosen, lists the posts of the channels themselves ([postsFeed]). */
+    private fun postsFromChannels(): Boolean = selected == null && filter == SubsFilter.POSTS && postsByChannels
 
     /**
      * True when the feed has all it may hold for the chosen chip: [MAX_FEED] videos, or, for the Shorts chip when it
@@ -332,29 +444,43 @@ class SubsController(
         val chosen = selected
         if (chosen == null) {
             if (shortsFromChip()) return shortsFeed
-            // The Shorts chip is asking YouTube for its own list for the first time: nothing of the feed shows meanwhile
-            // (the list would be swapped a moment later), the spinner does.
+            if (postsFromChannels()) return postsFeed
+            if (postsFromChip()) return postsFeed
+            // The Shorts (or Posts) chip is asking YouTube for its own list for the first time: nothing of the feed shows
+            // meanwhile (the list would be swapped a moment later), the spinner does.
             if (filter == SubsFilter.SHORTS && shortsLoading && shortsDirect == null) return emptyList()
-            return feed
+            if (filter == SubsFilter.POSTS && postsLoading && postsDirect == null) return emptyList()
+            return when (filter) {
+                SubsFilter.ALL -> feed + extraPosts() + extraShorts()
+                SubsFilter.TODAY -> feed + extraPosts()
+                else -> feed
+            }
         }
+        // "All content" of a channel is everything its page has: videos, posts and Shorts.
         return when (filter) {
             SubsFilter.SHORTS -> channelShorts[chosen.id].orEmpty()
             SubsFilter.LIVE -> channelStreams[chosen.id].orEmpty()
+            SubsFilter.POSTS -> channelPosts[chosen.id].orEmpty()
+            SubsFilter.ALL -> channelVideos[chosen.id].orEmpty() + channelPosts[chosen.id].orEmpty() + channelShorts[chosen.id].orEmpty()
+            SubsFilter.TODAY -> channelVideos[chosen.id].orEmpty() + channelPosts[chosen.id].orEmpty()
             else -> channelVideos[chosen.id].orEmpty()
         }
     }
 
     /**
      * The videos the chosen chip shows, the newest first (older pages of the feed go below). "All content" keeps the
-     * Shorts: the screen puts them in rows between videos.
+     * Shorts: the screen puts them in rows between videos. Posts are listed by "All content", "Today" and "Posts", and
+     * stand among the videos by their age.
      */
     private fun visible(): List<SubsVideo> {
-        val base = baseList()
+        val all = baseList()
+        val base = if (hiddenIds.isEmpty()) all else all.filter { it.id !in hiddenIds }
         val now = System.currentTimeMillis()
         return when (filter) {
             SubsFilter.TODAY -> SubsAge.newestFirst(base.filter { !it.short && SubsAge.isToday(it, now) }, now)
-            SubsFilter.VIDEOS -> SubsAge.newestFirst(base.filter { !it.short && it.live == 0 }, now)
+            SubsFilter.VIDEOS -> SubsAge.newestFirst(base.filter { !it.short && it.live == 0 && it.post == null }, now)
             SubsFilter.SHORTS -> base.filter { it.short }
+            SubsFilter.POSTS -> SubsAge.newestFirst(base.filter { it.post != null }, now)
             SubsFilter.LIVE ->
                 SubsAge.newestFirst(base.filter { !it.short && it.live != 0 }, now).sortedBy { liveGroup(it) }
             else -> SubsAge.newestFirst(base.filter { !it.short }, now) + base.filter { it.short }
@@ -379,12 +505,18 @@ class SubsController(
         return SubsAge.isOlderThanDay(oldest, now)
     }
 
-    /** The tab of a channel's page that holds what the chosen chip lists. */
-    private fun tabFor(chip: Int): String =
+    /**
+     * The tabs of a channel's page that hold what the chosen chip lists, the one that matters most first: "All content"
+     * is everything the channel has (its videos, its posts and its Shorts), "Today" its videos and posts.
+     */
+    private fun tabsFor(chip: Int): List<String> =
         when (chip) {
-            SubsFilter.SHORTS -> "shorts"
-            SubsFilter.LIVE -> "streams"
-            else -> "videos"
+            SubsFilter.ALL -> listOf("videos", "posts", "shorts")
+            SubsFilter.TODAY -> listOf("videos", "posts")
+            SubsFilter.SHORTS -> listOf("shorts")
+            SubsFilter.LIVE -> listOf("streams")
+            SubsFilter.POSTS -> listOf("posts")
+            else -> listOf("videos")
         }
 
     private fun resetShorts() {
@@ -399,6 +531,32 @@ class SubsController(
         shortsMoreLoading = false
         shortsStale = false
         shortsEmpty = 0
+    }
+
+    private fun resetPosts() {
+        postsGen++
+        postsDirect = null
+        postsFeed = emptyList()
+        postsCursor = null
+        postsFeedAt = 0L
+        postsTryAt = 0L
+        postsLoading = false
+        postsMoreLoading = false
+        postsStale = false
+        postsEmpty = 0
+        dropChannelPosts()
+        postsNote = ""
+        postsChanNote = ""
+    }
+
+    /** Forgets what the posts-of-channels list read (a new feed, a new account): it is read again when it is needed. */
+    private fun dropChannelPosts() {
+        postsByChannels = false
+        chanPostCursor.clear()
+        chanPostRead.clear()
+        chanPostsBusy = false
+        chanPostsDry = 0
+        chanBatches = 0
     }
 
     /** The chips that may be the Shorts chip, the likeliest first: the one named "Shorts", then the one in its usual place. */
@@ -422,7 +580,8 @@ class SubsController(
      * tap on the chip.
      */
     private fun ensureShorts() {
-        if (selected != null || filter != SubsFilter.SHORTS || shortsLoading || shortsDirect == false || feedLoading) return
+        if (selected != null || (filter != SubsFilter.SHORTS && filter != SubsFilter.ALL)) return
+        if (shortsLoading || shortsDirect == false || feedLoading) return
         val head = feedHead ?: return
         if (shortsDirect == true && !shortsStale && shortsFeed.isNotEmpty()) return
         val now = System.currentTimeMillis()
@@ -435,7 +594,7 @@ class SubsController(
         shortsTryAt = now
         val gen = ++shortsGen
         val cookie = cookie()
-        screen?.setLoading(true)
+        if (filter == SubsFilter.SHORTS) screen?.setLoading(true)
         pool.execute {
             var found: SubsPage? = null
             var unsure = false
@@ -472,7 +631,8 @@ class SubsController(
         }
         val view = screen ?: return
         view.setLoading(feedLoading || channelBusy != null)
-        if (onSubsPage) applyVideos(view, toTop = page != null)
+        if (onSubsPage) applyVideos(view, toTop = page != null && filter == SubsFilter.SHORTS)
+        fillShortsForAll()
     }
 
     /** The next page of the Shorts chip's own list (older Shorts), until YouTube has no more. */
@@ -510,15 +670,408 @@ class SubsController(
                 shortsFeed = shortsFeed + fresh
                 shortsCursor = result
                 val view = screen
-                if (view != null && onSubsPage && shortsFromChip()) applyVideos(view, toTop = false)
+                if (view != null && onSubsPage && selected == null && (shortsFromChip() || filter == SubsFilter.ALL)) {
+                    applyVideos(view, toTop = false)
+                }
+                fillShortsForAll()
             }
         }
+    }
+
+    /**
+     * The Shorts of YouTube's own Shorts list that the feed does not carry itself, for "All content": the feed holds
+     * Shorts only in a few shelves, so its rows of Shorts ran out after the first screens. They are listed after the
+     * feed's own Shorts and fill the rows (see [shortsLacking]).
+     */
+    private fun extraShorts(): List<SubsVideo> {
+        if (shortsDirect != true || shortsFeed.isEmpty()) return emptyList()
+        val known = feed.mapTo(HashSet()) { it.id }
+        return shortsFeed.filter { it.id !in known }
+    }
+
+    /**
+     * True when "All content" has fewer Shorts than its rows of Shorts will use for the videos loaded so far (a row of
+     * [SHORTS_PER_SHELF] after the third video and then after every sixth, as the screen builds them) plus a row to spare.
+     */
+    private fun shortsLacking(): Boolean {
+        val have = feed.count { it.short } + extraShorts().size
+        val videos = feed.count { !it.short } + extraPosts().size
+        val need = ((videos + 3) / 6 + 2) * SHORTS_PER_SHELF
+        return have < need
+    }
+
+    /** Reads on YouTube's own list of Shorts while the rows of "All content" lack Shorts (and the list has more). */
+    private fun fillShortsForAll() {
+        if (released || selected != null || filter != SubsFilter.ALL) return
+        if (shortsDirect != true || shortsCursor == null || !shortsLacking()) return
+        moreShorts()
+    }
+
+    // ---- The Posts chip ----
+
+    /** The chips that may be the Posts chip, the likeliest first: the one named like "Posts", then the one in its usual place. */
+    private fun postsChipsToTry(chips: List<SubsChip>): List<SubsChip> {
+        val named = chips.filter { it.token.isNotEmpty() && isPostsLabel(it.text) }
+        // All, Today, Videos, Shorts, Live, Posts: the sixth.
+        val usual = chips.getOrNull(USUAL_POSTS_CHIP)?.takeIf { it.token.isNotEmpty() }
+        return (named + listOfNotNull(usual)).distinctBy { it.token }.take(2)
+    }
+
+    /** The word for "posts" in the languages of the app's screen (a label in another language is found by its place). */
+    private fun isPostsLabel(text: String): Boolean {
+        val label = text.lowercase(Locale.ROOT)
+        return POSTS_WORDS.any { label.contains(it) }
+    }
+
+    /**
+     * Reads YouTube's own list of posts for the Posts chip (no channel chosen), and for "All content" and "Today" (which
+     * put its posts between the videos), when the page gave the chip and the list is missing or old. The chip's answer
+     * counts only if it is (nearly) all posts ([SubsRepository.mostlyPosts]), so a wrong guess of which chip it is can
+     * never show another list. When no chip gives posts the Posts chip lists the posts of the feed itself. A failed read
+     * (offline, an error) is tried again after [RETRY_MS], or at the next tap on the chip.
+     */
+    private fun ensurePosts() {
+        // YouTube's own list of posts could not be read (or the chip is not there): the channels' own posts are listed.
+        if (selected == null && postsDirect == false &&
+            (filter == SubsFilter.POSTS || filter == SubsFilter.ALL || filter == SubsFilter.TODAY)
+        ) {
+            if (!postsByChannels) startPostsFromChannels()
+            else if (!chanPostsBusy && chanPostRead.isEmpty()) morePostsFromChannels(background = filter != SubsFilter.POSTS)
+            return
+        }
+        if (selected != null || postsLoading || postsDirect == false || feedLoading) return
+        if (filter != SubsFilter.POSTS && filter != SubsFilter.ALL && filter != SubsFilter.TODAY) return
+        val head = feedHead ?: return
+        if (postsDirect == true && !postsStale && postsFeed.isNotEmpty()) return
+        val now = System.currentTimeMillis()
+        // After a failed read the next try waits; a list that was read fine and is old now (a pull-to-refresh) goes at once.
+        if (postsDirect != true && postsTryAt != 0L && now - postsTryAt < RETRY_MS) return
+        val chips = postsChipsToTry(head.chips)
+        if (chips.isEmpty()) {
+            // The page has no chip to ask: the Posts chip lists the channels' own posts.
+            postsNote = "no posts chip in the page (${head.chips.size} chips)"
+            postsDirect = false
+            postsChipBadAt = System.currentTimeMillis()
+            startPostsFromChannels()
+            return
+        }
+        postsLoading = true
+        postsStale = false
+        postsTryAt = now
+        val gen = ++postsGen
+        val cookie = cookie()
+        if (filter == SubsFilter.POSTS) screen?.setLoading(true)
+        pool.execute {
+            var found: SubsPage? = null
+            var unsure = false
+            val notes = StringBuilder()
+            for (chip in chips) {
+                try {
+                    val page = SubsRepository.fetchChip(head, chip, cookie)
+                    notes.append("chip «").append(chip.text).append("»: ").append(page.note).append("\n")
+                    if (SubsRepository.mostlyPosts(page.videos)) {
+                        found = page
+                        break
+                    }
+                } catch (e: Exception) {
+                    notes.append("chip «").append(chip.text).append("»: ").append(e.message ?: e.javaClass.simpleName).append("\n")
+                    unsure = true // offline, or an error answer: not a proof that the chip is not the Posts one
+                    break
+                }
+            }
+            val result = found
+            val failed = unsure
+            val report = notes.toString().trim()
+            main.post {
+                if (gen == postsGen && report.isNotEmpty()) postsNote = report
+                onPostsHead(gen, result, failed)
+            }
+        }
+    }
+
+    private fun onPostsHead(gen: Int, page: SubsPage?, unsure: Boolean) {
+        if (released || gen != postsGen) return
+        postsLoading = false
+        if (page != null) {
+            val seen = HashSet<String>()
+            postsFeed = page.videos.filter { it.post != null && seen.add(it.id) }
+            postsCursor = page
+            postsDirect = true
+            postsFeedAt = System.currentTimeMillis()
+            postsEmpty = 0
+        } else if (!unsure) {
+            postsDirect = false // every chip answered and none of them listed posts: the channels' own posts are listed
+            postsChipBadAt = System.currentTimeMillis()
+        }
+        postsAuto = 0
+        val view = screen ?: return
+        view.setLoading(feedLoading || channelBusy != null)
+        // The list goes back to its top only when it is the Posts chip's own (the posts coming in under "All content"
+        // must not take the person away from what they are reading).
+        if (onSubsPage) applyVideos(view, toTop = page != null && filter == SubsFilter.POSTS)
+        fillPostsForFeed()
+    }
+
+    // ---- The Posts chip, the way out: the posts tab of the channels ----
+
+    private fun startPostsFromChannels() {
+        postsByChannels = true
+        postsDirect = false
+        // What the list holds stays until the new reading brings its own (see [mergePosts]).
+        chanPostCursor.clear()
+        chanPostRead.clear()
+        chanPostsBusy = false
+        chanPostsDry = 0
+        chanBatches = 0
+        morePostsFromChannels(background = filter != SubsFilter.POSTS)
+    }
+
+    /** True when "All content" or "Today" (no channel chosen) lists, among its videos, the posts of the channels themselves. */
+    private fun postsFromChannelsBg(): Boolean =
+        selected == null && postsByChannels && (filter == SubsFilter.ALL || filter == SubsFilter.TODAY)
+
+    /**
+     * The channels to read for posts: the ones known to have a posts tab first, then the unknown ones; the ones known to
+     * have none are left out. Each one is read once (its first page), so the list is never behind a slow or empty channel.
+     */
+    private fun postsOrder(): List<SubsChannel> {
+        val open = strip.ifEmpty { channels }.filter { it.id !in chanNoPosts }
+        val known = open.filter { it.id in chanHasPosts }
+        return known + open.filter { it.id !in chanHasPosts }
+    }
+
+    private fun loadPostsMemory() {
+        if (postsMemoryRead) return
+        postsMemoryRead = true
+        val now = System.currentTimeMillis()
+        val at = state.getLong(KEY_POSTS_MEMORY_AT, 0L)
+        if (at == 0L || now - at > POSTS_MEMORY_MS) {
+            // Old: learn again (a channel may have started posting).
+            state.edit().remove(KEY_POSTS_NO).remove(KEY_POSTS_YES).putLong(KEY_POSTS_MEMORY_AT, now).apply()
+            return
+        }
+        chanNoPosts.addAll(state.getStringSet(KEY_POSTS_NO, emptySet()) ?: emptySet())
+        chanHasPosts.addAll(state.getStringSet(KEY_POSTS_YES, emptySet()) ?: emptySet())
+    }
+
+    private fun savePostsMemory() {
+        if (!sessionSawPosts) return
+        state.edit()
+            .putStringSet(KEY_POSTS_NO, HashSet(chanNoPosts))
+            .putStringSet(KEY_POSTS_YES, HashSet(chanHasPosts))
+            .apply()
+    }
+
+    /**
+     * A channel's posts tab was read ([has]: it gave posts). A "no" counts only once some channel has given posts in this
+     * run: when none did, the reading itself may be what failed (a page of another shape), not the channels.
+     */
+    private fun learnPosts(id: String, has: Boolean) {
+        if (has) {
+            chanHasPosts.add(id)
+            chanNoPosts.remove(id)
+            pendingNoPosts.remove(id)
+            if (!sessionSawPosts) {
+                sessionSawPosts = true
+                chanNoPosts.addAll(pendingNoPosts)
+                pendingNoPosts.clear()
+            }
+        } else {
+            chanHasPosts.remove(id)
+            if (sessionSawPosts) chanNoPosts.add(id) else pendingNoPosts.add(id)
+        }
+    }
+
+    /** Puts [fresh] posts (of one channel) in [postsFeed]: a post that is already there is replaced by its new reading. */
+    private fun mergePosts(fresh: List<SubsVideo>) {
+        val ids = fresh.mapTo(HashSet()) { it.id }
+        postsFeed = (postsFeed.filter { it.id !in ids } + fresh).take(MAX_POSTS_FEED)
+    }
+
+    /** The list is redrawn at most once in a while as the channels answer one by one (a redraw per channel would flicker). */
+    private fun schedulePostsRefresh() {
+        if (postsRefreshQueued) return
+        postsRefreshQueued = true
+        main.postDelayed(postsRefresh, POSTS_REFRESH_MS)
+    }
+
+    /**
+     * Reads the next [CHAN_POSTS_BATCH] channels' posts tabs (see [postsOrder]); when every channel was read, the next
+     * page of the channels whose last post read is the newest, so the list goes back in time by date (not when
+     * [background]: "All content" and "Today" need only the newest posts). The channels are asked at once on a pool of
+     * their own, and each answer goes into the list as it comes, without waiting for the slowest channel of the batch.
+     */
+    private fun morePostsFromChannels(background: Boolean = false) {
+        if (!postsByChannels || chanPostsBusy || released) return
+        if (background && chanBatches >= CHAN_POSTS_BG_MAX_BATCHES) return
+        loadPostsMemory()
+        val order = postsOrder()
+        val now = System.currentTimeMillis()
+        val jobs = ArrayList<Pair<SubsChannel, SubsPage?>>()
+        for (channel in order) {
+            if (channel.id !in chanPostRead) jobs.add(Pair(channel, null))
+            if (jobs.size >= CHAN_POSTS_BATCH) break
+        }
+        if (jobs.isEmpty() && !background) {
+            // Every channel was read once: the next pages, of the channels that still have one.
+            val ageOf = HashMap<String, Double>()
+            for (post in postsFeed) {
+                val age = SubsAge.ageHours(post, now) ?: continue
+                val known = ageOf[post.channelId]
+                if (known == null || age > known) ageOf[post.channelId] = age // the age of the oldest post read so far
+            }
+            val again = order.filter { chanPostCursor[it.id]?.token != null }.sortedBy { ageOf[it.id] ?: 0.0 }
+            for (channel in again.take(CHAN_POSTS_BATCH)) jobs.add(Pair(channel, chanPostCursor[channel.id]))
+        }
+        if (jobs.isEmpty() || chanPostsDry >= CHAN_POSTS_MAX_DRY) return
+        chanPostsBusy = true
+        val gen = postsGen
+        val cookie = cookie()
+        if (!background) screen?.setLoading(true)
+        var left = jobs.size
+        var gotAny = false
+        for ((channel, page) in jobs) {
+            postsPool.execute {
+                var result: SubsPage? = null
+                try {
+                    result = if (page == null) {
+                        SubsRepository.fetchChannelTab(cookie, lang, channel, "posts")
+                    } else {
+                        SubsRepository.fetchMore(page, cookie)
+                    }
+                } catch (e: Exception) {
+                    // The channel counts as read: a failing one must not be asked again and again (a new feed reads it again).
+                }
+                val answer = result
+                main.post {
+                    if (released || gen != postsGen) return@post
+                    chanPostRead.add(channel.id)
+                    val mine = answer?.videos?.filter { it.post != null }
+                        ?.map { it.copy(channelId = channel.id, channelName = channel.name) }.orEmpty()
+                    if (answer != null && page == null) learnPosts(channel.id, mine.isNotEmpty())
+                    if (mine.isNotEmpty()) {
+                        mergePosts(mine)
+                        gotAny = true
+                        schedulePostsRefresh()
+                    }
+                    if (answer != null && answer.token != null && mine.isNotEmpty()) {
+                        chanPostCursor[channel.id] = answer
+                    } else {
+                        chanPostCursor.remove(channel.id)
+                    }
+                    left--
+                    if (left == 0) onChannelPostsBatch(gen, order.size, gotAny)
+                }
+            }
+        }
+    }
+
+    private fun onChannelPostsBatch(gen: Int, total: Int, gotAny: Boolean) {
+        if (released || gen != postsGen) return
+        chanPostsBusy = false
+        chanBatches++
+        chanPostsDry = if (gotAny) 0 else chanPostsDry + 1
+        postsChanNote = "channels: ${chanPostRead.size} of $total read, ${postsFeed.size} posts"
+        savePostsMemory()
+        val view = screen
+        if (view != null) {
+            view.setLoading(feedLoading || channelBusy != null)
+            if (onSubsPage && (postsFromChannels() || postsFromChannelsBg())) applyVideos(view, toTop = false)
+        }
+        // On by itself while the list is short, so the screen is not left empty; after that, as the person scrolls.
+        if (postsFromChannels() && postsFeed.size < CHAN_POSTS_FILL) {
+            morePostsFromChannels()
+        } else if (postsFromChannelsBg() && chanBatches < CHAN_POSTS_BG_BATCHES) {
+            morePostsFromChannels(background = true)
+        }
+    }
+
+    /** The next page of the Posts chip's own list (older posts), until YouTube has no more. */
+    private fun morePosts() {
+        val page = postsCursor ?: return
+        if (postsMoreLoading || postsLoading || page.token == null || postsFeed.size >= MAX_POSTS_FEED) return
+        postsMoreLoading = true
+        val gen = postsGen
+        val cookie = cookie()
+        pool.execute {
+            var next: SubsPage? = null
+            try {
+                next = SubsRepository.fetchMore(page, cookie)
+            } catch (e: Exception) {
+                // Tried again at the next scroll.
+            }
+            val result = next
+            main.post {
+                postsMoreLoading = false
+                if (released || gen != postsGen || result == null) return@post
+                val known = postsFeed.mapTo(HashSet()) { it.id }
+                val fresh = result.videos.filter { it.post != null && it.id !in known }
+                if (fresh.isEmpty()) {
+                    // Nothing new on this page: the end, unless it points to yet another page (tried a few times).
+                    if (result.token != null && result.token != page.token && postsEmpty < MAX_POSTS_EMPTY_PAGES) {
+                        postsEmpty++
+                        postsCursor = result
+                        morePosts()
+                    } else {
+                        postsCursor = null
+                    }
+                    return@post
+                }
+                postsEmpty = 0
+                postsFeed = postsFeed + fresh
+                postsCursor = result
+                val view = screen
+                val listsPosts = filter == SubsFilter.POSTS || filter == SubsFilter.ALL || filter == SubsFilter.TODAY
+                if (view != null && onSubsPage && selected == null && listsPosts) applyVideos(view, toTop = false)
+                fillPostsForFeed()
+            }
+        }
+    }
+
+    /**
+     * "All content" and "Today" show a post only as far back as the videos loaded reach; when YouTube's own list of posts
+     * has not gone that far, its next pages are read on their own (a few), instead of waiting for the end of the list.
+     */
+    private fun fillPostsForFeed() {
+        if (released || selected != null || postsDirect != true || postsCursor == null) return
+        if (filter != SubsFilter.ALL && filter != SubsFilter.TODAY) return
+        if (postsAuto >= POSTS_AUTO_PAGES || !postsBehindFeed()) return
+        postsAuto++
+        morePosts()
+    }
+
+    /**
+     * The posts of YouTube's own Posts list that the feed does not carry itself, for "All content" and "Today": a feed
+     * page may come with no posts in it. They stand among the videos by their age, but only as far back as the videos
+     * loaded so far reach: a post older than the last video loaded may belong between videos that are not loaded yet.
+     */
+    private fun extraPosts(): List<SubsVideo> {
+        if (postsFeed.isEmpty()) return emptyList()
+        val known = feed.mapTo(HashSet()) { it.id }
+        val now = System.currentTimeMillis()
+        val more = cursor?.token != null
+        val limit = if (more) feed.lastOrNull { !it.short }?.let { SubsAge.ageHours(it, now) } else null
+        return postsFeed.filter { post ->
+            post.id !in known && (limit == null || (SubsAge.ageHours(post, now) ?: 0.0) <= limit)
+        }
+    }
+
+    /** True when YouTube's own list of posts has not gone back as far as the feed has: more of it is needed to keep the order. */
+    private fun postsBehindFeed(): Boolean {
+        val oldestPost = postsFeed.lastOrNull() ?: return false
+        val oldestVideo = feed.lastOrNull { !it.short } ?: return false
+        val now = System.currentTimeMillis()
+        val postAge = SubsAge.ageHours(oldestPost, now) ?: return false
+        val videoAge = SubsAge.ageHours(oldestVideo, now) ?: return false
+        return postAge < videoAge
     }
 
     /** A chip that matches only a few videos of the feed: the next pages are fetched (a few times) to fill the list. */
     private fun fillFiltered(count: Int) {
         // The Shorts chip's own list fills itself: the screen asks for its next page while its end is in view.
-        if (shortsFromChip()) return
+        if (shortsFromChip() || postsFromChip() || postsFromChannels()) return
+        // The Posts chip is still asking YouTube for its own list: the feed's pages would be read for nothing.
+        if (filter == SubsFilter.POSTS && postsLoading) return
         if (selected != null || filter == SubsFilter.ALL || count >= MIN_FILTERED || autoMoreLeft <= 0) return
         if (filter == SubsFilter.TODAY && passedToday()) return
         val page = cursor ?: return
@@ -535,7 +1088,7 @@ class SubsController(
         if (feed.isEmpty()) return channels
         val rank = HashMap<String, Int>()
         for ((index, video) in feed.withIndex()) {
-            if (video.short) continue
+            if (video.short || video.post != null) continue
             val channel = channels.firstOrNull { belongs(video, it) } ?: continue
             if (channel.id !in rank) rank[channel.id] = index
         }
@@ -578,7 +1131,7 @@ class SubsController(
         val now = System.currentTimeMillis()
         val fresh = HashSet<String>()
         for ((index, video) in feed.withIndex()) {
-            if (video.short || video.live == 2 || video.watched > 0 || video.id in seenIds) continue
+            if (video.short || video.post != null || video.live == 2 || video.watched > 0 || video.id in seenIds) continue
             val age = SubsAge.ageHours(video, now)
             if (age != null) {
                 if (age > NEW_WINDOW_HOURS) continue
@@ -612,7 +1165,7 @@ class SubsController(
 
     /** The channel was tapped in the strip: everything it has in the feed counts as seen. */
     private fun markSeen(channel: SubsChannel) {
-        remember(feed.filter { !it.short && belongs(it, channel) }.map { it.id })
+        remember(feed.filter { !it.short && it.post == null && belongs(it, channel) }.map { it.id })
     }
 
     /**
@@ -667,6 +1220,7 @@ class SubsController(
             channelVideos.keys.retainAll(keep)
             channelShorts.keys.retainAll(keep)
             channelStreams.keys.retainAll(keep)
+            channelPosts.keys.retainAll(keep)
             channelsAt = System.currentTimeMillis()
             save()
             if (onSubsPage) show()
@@ -676,9 +1230,11 @@ class SubsController(
             setChannelList(emptyList())
             feed = emptyList()
             resetShorts()
+            resetPosts()
             channelVideos.clear()
             channelShorts.clear()
             channelStreams.clear()
+            channelPosts.clear()
             SubsRepository.clear(activity.applicationContext)
             screen?.visibility = View.GONE
             warn(failure.message ?: "?")
@@ -719,7 +1275,18 @@ class SubsController(
             cursor = page
             cursorMissing = false
             feedHead = page
+            SubsRepository.accessOf(page)?.let { apiAccess = it }
             shortsStale = true // a new first page: the Shorts chip's own list is read again too (when it is the one on view)
+            postsStale = true // and the Posts chip's (the posts of "All content" and "Today" come from it too)
+            if (postsByChannels) {
+                // The channels' own posts are read again (the ones on view stay until the new reading brings its own), and
+                // YouTube's own list gets another chance only when its last answer is old.
+                postsGen++
+                postsLoading = false
+                postsDirect = if (System.currentTimeMillis() - postsChipBadAt < POSTS_CHIP_RETRY_MS) false else null
+                postsTryAt = 0L
+                dropChannelPosts()
+            }
             finishFeed()
         } else if (failure is IOException) {
             // Offline: keep what is there.
@@ -795,10 +1362,26 @@ class SubsController(
 
     /** The end of the feed was reached: the next page (older videos), if YouTube has one. */
     override fun onEnd() {
+        if (postsFromChannels()) {
+            morePostsFromChannels() // the channels' own posts: the next channels, and the next pages of the ones read
+            return
+        }
         if (shortsFromChip()) {
             moreShorts() // the Shorts chip has a list of its own, with its own next page
             return
         }
+        if (postsFromChip()) {
+            morePosts() // so has the Posts chip
+            return
+        }
+        // "All content" and "Today" have posts of YouTube's own list among their videos: it is read on as the feed goes deeper.
+        if (selected == null && (filter == SubsFilter.ALL || filter == SubsFilter.TODAY) && postsDirect == true && postsBehindFeed()) {
+            morePosts()
+        }
+        // The same when YouTube's own list gave none: the next channels' own posts are read as the feed goes deeper.
+        if (postsFromChannelsBg()) morePostsFromChannels(background = true)
+        // And the rows of Shorts of "All content" are filled from YouTube's own list of Shorts.
+        fillShortsForAll()
         val page = cursor ?: return
         if (selected != null || moreLoading || feedLoading || page.token == null || feedFull()) return
         if (filter == SubsFilter.TODAY && passedToday()) return
@@ -851,15 +1434,36 @@ class SubsController(
         when (tab) {
             "shorts" -> channelShorts
             "streams" -> channelStreams
+            "posts" -> channelPosts
             else -> channelVideos
         }
 
-    /** Reads one tab of the channel's page ("videos", "shorts" or "streams") unless it was read a moment ago. */
-    private fun loadChannel(channel: SubsChannel, tab: String) {
+    /**
+     * Reads the tabs of the channel's page that the chosen chip lists ([tabsFor]), one after the other: the first is what
+     * the person waits for, the others fill in behind it. [force] reads them even if they were read a moment ago.
+     */
+    private fun loadChannelTabs(channel: SubsChannel, force: Boolean = false) {
+        val tabs = tabsFor(filter)
+        if (force) {
+            for (tab in tabs) channelLoadedAt.remove(channel.id + "|" + tab)
+        }
+        loadChannel(channel, tabs, 0)
+    }
+
+    /** Reads the tab at [index] of [tabs] ("videos", "shorts", "posts" or "streams") unless it was read a moment ago, then the next. */
+    private fun loadChannel(channel: SubsChannel, tabs: List<String>, index: Int) {
+        val tab = tabs.getOrNull(index) ?: return
         val now = System.currentTimeMillis()
         val key = channel.id + "|" + tab
         val loadedAt = channelLoadedAt[key] ?: 0L
-        if (cacheOf(tab)[channel.id] != null && now - loadedAt < CHANNEL_STALE_MS) return
+        // On to the next tab, unless the person chose another channel or chip meanwhile (that choice read its own tabs).
+        val goOn: () -> Unit = {
+            if (selected?.id == channel.id && tabsFor(filter) == tabs) loadChannel(channel, tabs, index + 1)
+        }
+        if (cacheOf(tab)[channel.id] != null && now - loadedAt < CHANNEL_STALE_MS) {
+            goOn()
+            return
+        }
         channelBusy = key
         screen?.setLoading(true)
         val cookie = cookie()
@@ -882,16 +1486,17 @@ class SubsController(
             main.post {
                 if (channelBusy == key) channelBusy = null
                 if (released) return@post
-                // An empty answer is kept for Shorts and streams (many channels have none), not for videos (a failure).
+                // An empty answer is kept for Shorts, posts and streams (many channels have none), not for videos (a failure).
                 if (got != null && (got.isNotEmpty() || tab != "videos")) {
                     cacheOf(tab)[channel.id] = got
                     channelLoadedAt[key] = System.currentTimeMillis()
                 }
                 val view = screen
-                if (view != null && onSubsPage && selected?.id == channel.id && tabFor(filter) == tab) {
+                if (view != null && onSubsPage && selected?.id == channel.id && tab in tabsFor(filter)) {
                     view.setLoading(false)
                     applyVideos(view, toTop = false)
                 }
+                goOn()
             }
         }
     }
@@ -919,7 +1524,7 @@ class SubsController(
         view.setChannels(strip, newIds())
         applyVideos(view, toTop = true)
         if (channel != null) {
-            loadChannel(channel, tabFor(filter))
+            loadChannelTabs(channel)
         } else {
             view.setLoading(feedLoading)
         }
@@ -927,6 +1532,7 @@ class SubsController(
 
     override fun onFilter(filter: Int) {
         this.filter = filter
+        if (filter == SubsFilter.POSTS) chanPostsDry = 0
         autoMoreLeft = AUTO_MORE_PAGES
         shortsDry = 0
         if (filter == SubsFilter.SHORTS) {
@@ -934,20 +1540,261 @@ class SubsController(
             shortsTryAt = 0L
             if (System.currentTimeMillis() - shortsFeedAt > FEED_STALE_MS) shortsStale = true
         }
+        if (filter == SubsFilter.POSTS) {
+            // The same for the Posts chip.
+            postsTryAt = 0L
+            if (System.currentTimeMillis() - postsFeedAt > FEED_STALE_MS) postsStale = true
+        }
         val view = screen ?: return
         val chosen = selected
         view.setLoading(if (chosen != null) channelBusy != null else feedLoading)
         applyVideos(view, toTop = true)
-        if (chosen != null) loadChannel(chosen, tabFor(filter))
+        if (chosen != null) loadChannelTabs(chosen)
     }
 
     override fun onVideo(video: SubsVideo) {
+        if (video.post != null) {
+            // A post opens as YouTube's own page of it (its comments, all its pictures); the screen stays over the old page
+            // until that page is on view, as it does for a channel's page.
+            startHold()
+            openUrl("${SubsRepository.MOBILE_SITE}/post/${video.id}")
+            return
+        }
         // Opened, so seen: its channel's blue dot goes (if it has no other new video).
         remember(listOf(video.id))
         screen?.setChannels(strip, newIds())
         openUrl(
             if (video.short) "https://m.youtube.com/shorts/${video.id}" else "https://m.youtube.com/watch?v=${video.id}"
         )
+    }
+
+    /** A link inside a post's text, or the video attached to a post: a video plays, a YouTube page opens, another site goes to the phone's browser. */
+    override fun onLink(url: String) {
+        if (released) return
+        if (!UrlUtils.isYouTubeUrl(url)) {
+            try {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            } catch (e: Exception) {
+                // No browser installed: nothing to open.
+            }
+            return
+        }
+        if (!UrlUtils.isVideoUrl(url)) startHold() // a page: the screen stays over the old one until it is on view
+        openUrl(url)
+    }
+
+    /** The three dots of a card: the menu of what can be done with the video (or the post), like the YouTube app's. */
+    override fun onVideoMenu(video: SubsVideo, anchor: View) {
+        if (released) return
+        val items = ArrayList<SubsVideoMenu.Item>()
+        val isPost = video.post != null
+        if (!isPost) {
+            items.add(SubsVideoMenu.Item(R.drawable.ic_watch_later_24dp, activity.getString(R.string.subsMenuWatchLater)) {
+                saveToWatchLater(video)
+            })
+            items.add(SubsVideoMenu.Item(R.drawable.ic_bookmark_24dp, activity.getString(R.string.subsMenuPlaylist)) {
+                choosePlaylist(video)
+            })
+            items.add(SubsVideoMenu.Item(R.drawable.ic_download_24dp, activity.getString(R.string.subsMenuDownload)) {
+                onDownload("https://m.youtube.com/watch?v=${video.id}", video.title)
+            })
+        }
+        items.add(SubsVideoMenu.Item(R.drawable.ic_share_24dp, activity.getString(R.string.subsMenuShare)) {
+            if (isPost) onShare("https://www.youtube.com/post/${video.id}", video.channelName) else onShare("https://youtu.be/${video.id}", video.title)
+        })
+        val channel = channels.firstOrNull { belongs(video, it) }
+        if (channel != null) {
+            items.add(SubsVideoMenu.Item(R.drawable.ic_person_remove_24dp, activity.getString(R.string.subsMenuUnsubscribe)) {
+                confirmUnsubscribe(channel)
+            })
+        }
+        items.add(SubsVideoMenu.Item(R.drawable.ic_block_24dp, activity.getString(R.string.subsMenuHide)) {
+            hide(video)
+        })
+        SubsVideoMenu(activity, SubsPalette(night)).show(anchor, items)
+    }
+
+    private fun toast(message: Int) {
+        Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * Runs [work] on a background thread with the key and context of YouTube's API (read from the page when none was
+     * kept) and the account's cookies; [done] is told the result on the main thread, or null when it failed.
+     */
+    private fun <T> withApi(work: (SubsRepository.ApiAccess, String) -> T, done: (T?) -> Unit) {
+        val cookie = cookie()
+        val known = apiAccess
+        pool.execute {
+            var result: T? = null
+            try {
+                val access = known ?: SubsRepository.fetchApiAccess(cookie)
+                if (known == null) apiAccess = access
+                result = work(access, cookie)
+            } catch (e: Exception) {
+                // The result stays null: the person is told it did not work.
+            }
+            val answer = result
+            main.post { if (!released) done(answer) }
+        }
+    }
+
+    private fun saveToWatchLater(video: SubsVideo) {
+        withApi({ access, cookie -> SubsRepository.editPlaylist(access, WATCH_LATER, video.id, true, cookie) }) { ok ->
+            toast(if (ok == true) R.string.subsWatchLaterAdded else R.string.subsMenuFailed)
+        }
+    }
+
+    /** "Save to playlist": the account's playlists with a tick on those that hold the video; a tap adds or takes out at once. */
+    private fun choosePlaylist(video: SubsVideo) {
+        toast(R.string.subsMenuWorking)
+        withApi({ access, cookie -> SubsRepository.fetchPlaylists(access, video.id, cookie) }) { list ->
+            if (list == null) toast(R.string.subsMenuFailed) else showPlaylists(video, list)
+        }
+    }
+
+    /** The playlists sheet (YouTube's own look, with "New playlist"); what its taps do on YouTube is decided here. */
+    private fun showPlaylists(video: SubsVideo, options: List<SubsRepository.PlaylistOption>) {
+        if (activity.isFinishing || activity.isDestroyed) return
+        val host = object : SubsPlaylistSheet.Host {
+            override fun onToggle(option: SubsRepository.PlaylistOption, add: Boolean, onFailed: () -> Unit) {
+                togglePlaylist(video, option, add, onFailed)
+            }
+
+            override fun onCreate(title: String, privacy: String, done: (Boolean) -> Unit) {
+                createPlaylist(video, title, privacy, done)
+            }
+
+            override fun onThumb(option: SubsRepository.PlaylistOption, show: (String) -> Unit) {
+                loadPlaylistThumb(option, show)
+            }
+        }
+        SubsPlaylistSheet(activity, SubsPalette(night), host).show(options)
+    }
+
+    /** The picture of a playlist that came without one (its first video's), kept until the app closes; "" is kept too. */
+    private val playlistThumbs = HashMap<String, String>()
+
+    /** When a playlist's page gave no picture (an empty playlist, or an answer that was not read): not asked again for a while. */
+    private val playlistThumbsEmptyAt = HashMap<String, Long>()
+
+    private fun loadPlaylistThumb(option: SubsRepository.PlaylistOption, show: (String) -> Unit, retry: Boolean = true) {
+        val known = playlistThumbs[option.id]
+        if (!known.isNullOrEmpty()) {
+            show(known)
+            return
+        }
+        // An empty answer is kept only for a short while (it used to be kept until the app closed: one answer that was
+        // not read left that playlist without a picture for good).
+        val emptyAt = playlistThumbsEmptyAt[option.id]
+        if (emptyAt != null && System.currentTimeMillis() - emptyAt < PLAYLIST_THUMB_EMPTY_MS) return
+        withApi({ access, cookie -> SubsRepository.fetchPlaylistThumb(access, option.id, cookie) }) { url ->
+            if (url == null) {
+                // The request failed (the network, a busy moment): once more a moment later.
+                if (retry && !released) main.postDelayed({ loadPlaylistThumb(option, show, retry = false) }, 1500)
+            } else if (url.isNotEmpty()) {
+                playlistThumbs[option.id] = url
+                playlistThumbsEmptyAt.remove(option.id)
+                show(url)
+            } else {
+                playlistThumbsEmptyAt[option.id] = System.currentTimeMillis()
+            }
+        }
+    }
+
+    /** "Create" of the sheet: a new playlist with the video in it; [done] is told whether it worked. */
+    private fun createPlaylist(video: SubsVideo, title: String, privacy: String, done: (Boolean) -> Unit) {
+        toast(R.string.subsMenuWorking)
+        withApi({ access, cookie -> SubsRepository.createPlaylist(access, title, privacy, video.id, cookie) }) { id ->
+            if (id.isNullOrEmpty()) {
+                toast(R.string.subsMenuFailed)
+                done(false)
+            } else {
+                Toast.makeText(activity, activity.getString(R.string.subsPlaylistCreated, title), Toast.LENGTH_SHORT).show()
+                done(true)
+            }
+        }
+    }
+
+    private fun togglePlaylist(video: SubsVideo, option: SubsRepository.PlaylistOption, add: Boolean, onFailed: () -> Unit) {
+        withApi({ access, cookie -> SubsRepository.editPlaylist(access, option.id, video.id, add, cookie) }) { ok ->
+            if (ok == true) {
+                val message = activity.getString(if (add) R.string.subsPlaylistAdded else R.string.subsPlaylistRemoved, option.title)
+                Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
+            } else {
+                onFailed()
+                toast(R.string.subsMenuFailed)
+            }
+        }
+    }
+
+    private fun confirmUnsubscribe(channel: SubsChannel) {
+        if (activity.isFinishing || activity.isDestroyed) return
+        AlertDialog.Builder(activity)
+            .setTitle(activity.getString(R.string.subsUnsubTitle, channel.name))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.subsMenuUnsubscribe) { _, _ -> unsubscribe(channel) }
+            .show()
+    }
+
+    private fun unsubscribe(channel: SubsChannel) {
+        withApi({ access, cookie ->
+            SubsRepository.unsubscribe(access, channel.id, cookie)
+            true
+        }) { ok ->
+            if (ok == true) onUnsubscribed(channel) else toast(R.string.subsMenuFailed)
+        }
+    }
+
+    /** YouTube took the subscription away: the channel leaves the strip and its videos leave the lists. */
+    private fun onUnsubscribed(channel: SubsChannel) {
+        Toast.makeText(activity, activity.getString(R.string.subsUnsubDone, channel.name), Toast.LENGTH_SHORT).show()
+        val wasChosen = selected?.id == channel.id
+        feed = feed.filter { !belongs(it, channel) }
+        shortsFeed = shortsFeed.filter { !belongs(it, channel) }
+        postsFeed = postsFeed.filter { !belongs(it, channel) }
+        channelVideos.remove(channel.id)
+        channelShorts.remove(channel.id)
+        channelStreams.remove(channel.id)
+        channelPosts.remove(channel.id)
+        setChannelList(channels.filter { it.id != channel.id }) // also drops the choice when it was this channel
+        save()
+        val view = screen ?: return
+        if (!onSubsPage) return
+        view.setChannels(strip, newIds())
+        view.setSelected(selected)
+        applyVideos(view, toTop = wasChosen)
+        view.setLoading(feedLoading)
+    }
+
+    /**
+     * "Hide": the video leaves every list at once, and stays out (it is remembered on the phone, for this account) until
+     * "Undo" is tapped. YouTube is not told: the video stays in YouTube's own page and app.
+     */
+    private fun hide(video: SubsVideo) {
+        if (hiddenIds.add(video.id)) saveHidden()
+        refreshList()
+        val view = screen ?: return
+        Snackbar.make(view, if (video.post != null) R.string.subsPostHidden else R.string.subsHidden, Snackbar.LENGTH_LONG)
+            .setAction(R.string.subsUndo) {
+                if (hiddenIds.remove(video.id)) saveHidden()
+                refreshList()
+            }
+            .show()
+    }
+
+    private fun refreshList() {
+        val view = screen ?: return
+        if (onSubsPage) applyVideos(view, toTop = false)
+    }
+
+    private fun saveHidden() {
+        while (hiddenIds.size > MAX_HIDDEN) {
+            val oldest = hiddenIds.iterator()
+            oldest.next()
+            oldest.remove()
+        }
+        state.edit().putString(KEY_HIDDEN_IDS, hiddenIds.joinToString(",")).apply()
     }
 
     override fun onOpenChannel(channel: SubsChannel) {
@@ -970,8 +1817,7 @@ class SubsController(
         if (!channelsLoading) refreshChannels(cookie())
         val chosen = selected
         if (chosen != null) {
-            channelLoadedAt.remove(chosen.id + "|" + tabFor(filter))
-            loadChannel(chosen, tabFor(filter))
+            loadChannelTabs(chosen, force = true)
             view?.setRefreshing(false)
         } else if (feedLoading) {
             view?.setRefreshing(false)
@@ -986,6 +1832,7 @@ class SubsController(
         released = true
         main.removeCallbacksAndMessages(null)
         pool.shutdownNow()
+        postsPool.shutdownNow()
         screen?.let { area.removeView(it) }
         screen = null
     }
@@ -1027,6 +1874,54 @@ class SubsController(
         /** Where the Shorts chip usually stands in the chips of the Subscriptions page (All, Today, Videos, Shorts, Live...). */
         const val USUAL_SHORTS_CHIP = 3
 
+        /**
+         * The Posts chip's own list has no limit but YouTube's end of it; this is only a stop for a list that would never
+         * end. A post is bigger than a Short's tile (its pictures are not kept, only their addresses), so it is lower.
+         */
+        const val MAX_POSTS_FEED = 3000
+
+        /** Pages of the Posts chip's own list in a row with nothing new that are skipped over before the list counts as ended. */
+        const val MAX_POSTS_EMPTY_PAGES = 5
+
+        /** Where the Posts chip usually stands in the chips of the Subscriptions page (All, Today, Videos, Shorts, Live, Posts). */
+        const val USUAL_POSTS_CHIP = 5
+
+        /** The posts-of-channels list reads this many channels (or next pages) at a time. */
+        const val CHAN_POSTS_BATCH = 8
+
+        /** It reads on by itself while the list holds fewer posts than this (so the screen is not left empty). */
+        const val CHAN_POSTS_FILL = 12
+
+        /** Batches in a row with no new post after which it waits for the next tap on the chip (about 120 channels). */
+        const val CHAN_POSTS_MAX_DRY = 15
+
+        /** "All content" and "Today" read this many batches of channels on their own, then go on at the end of the list. */
+        const val CHAN_POSTS_BG_BATCHES = 4
+
+        /** The most batches of channels "All content" and "Today" read between two feed pages that bring a new reading. */
+        const val CHAN_POSTS_BG_MAX_BATCHES = 12
+
+        /** After an answer with no posts, YouTube's own Posts chip is not asked again for this long (the channels are read at once). */
+        const val POSTS_CHIP_RETRY_MS = 30 * 60 * 1000L
+
+        /** How long what was learned about which channels have posts is kept. */
+        const val POSTS_MEMORY_MS = 3 * 24 * 60 * 60 * 1000L
+        const val KEY_POSTS_NO = "posts_no"
+        const val KEY_POSTS_YES = "posts_yes"
+        const val KEY_POSTS_MEMORY_AT = "posts_memory_at"
+
+        /** The list is redrawn at most this often while channels answer one by one. */
+        const val POSTS_REFRESH_MS = 600L
+
+        /** Pages of YouTube's own posts read on their own to reach as far back as the feed does. */
+        const val POSTS_AUTO_PAGES = 3
+
+        /** How many Shorts the screen puts in one row between the videos (the same number as in SubsScreen). */
+        const val SHORTS_PER_SHELF = 8
+
+        /** What a chip's label holds when it is the Posts chip: English, Arabic, French, Spanish, Portuguese, Italian, German, Turkish, Russian, Japanese, Korean. */
+        val POSTS_WORDS = listOf("post", "منشور", "publica", "beitr", "gönder", "публикац", "投稿", "게시물")
+
         /** Only the newest videos are kept on the phone (the screen opens with them, then reads the feed again). */
         const val SAVED_VIDEOS = 120
 
@@ -1034,6 +1929,16 @@ class SubsController(
         const val MAX_EMPTY_PAGES = 3
         const val KEY_SEEN_IDS = "seen_ids"
         const val MAX_SEEN = 1500
+
+        /** Videos hidden with the card's menu are remembered up to this many (the oldest are forgotten first). */
+        const val KEY_HIDDEN_IDS = "hidden_ids"
+        const val MAX_HIDDEN = 1000
+
+        /** The id of the "Watch later" playlist. */
+        const val WATCH_LATER = "WL"
+
+        /** How long a playlist whose page gave no picture is left alone before its picture is asked for again. */
+        const val PLAYLIST_THUMB_EMPTY_MS = 2 * 60 * 1000L
 
         /** A video is "new" (blue dot) for a week; one of unknown age counts while it is among the feed's first 40. */
         const val NEW_WINDOW_HOURS = 7 * 24.0

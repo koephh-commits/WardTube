@@ -1,0 +1,1 @@
+Changed: "Save to playlist" now opens a YouTube-style sheet with each playlist's picture, name and privacy, and a new "New playlist" button to create a playlist with the video in it.
