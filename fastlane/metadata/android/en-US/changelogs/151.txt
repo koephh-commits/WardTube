@@ -1,0 +1,1 @@
+New: the Subscriptions screen was rewritten (modelled on LiTube's): a tappable list of every channel with search, Continue watching and Unwatched chips, a loading skeleton, a Try again screen when a read fails, a spinner while older videos load, and a header that slides away as you scroll. Smoother on slow phones, and it follows the screen when turned.

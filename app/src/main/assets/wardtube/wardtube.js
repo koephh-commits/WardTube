@@ -219,11 +219,16 @@
     try {
       var v = active.querySelector('video');
       if (v) v.muted = true;
-      var next = document.querySelector(NEXT_BTN);
-      if (next) { next.click(); return; }
-      var sib = active.nextElementSibling;
-      if (sib && sib.scrollIntoView) sib.scrollIntoView({ block: 'start' });
+      nextShort(active);
     } catch (e) {}
+  }
+
+  /** Moves the Shorts page on to the next Short: its own "next" button if it has one, else the next item scrolled into view. */
+  function nextShort(active) {
+    var next = document.querySelector(NEXT_BTN);
+    if (next) { next.click(); return; }
+    var sib = active && active.nextElementSibling;
+    if (sib && sib.scrollIntoView) sib.scrollIntoView({ block: 'start' });
   }
 
   // ---- Background play ----------------------------------------------------

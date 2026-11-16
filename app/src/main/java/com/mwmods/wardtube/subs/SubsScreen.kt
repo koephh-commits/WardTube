@@ -3,6 +3,8 @@
 
 package com.mwmods.wardtube.subs
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
@@ -11,10 +13,12 @@ import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.icu.text.CompactDecimalFormat
+import android.text.Editable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextPaint
 import android.text.TextUtils
+import android.text.TextWatcher
 import android.text.format.DateUtils
 import android.text.style.ClickableSpan
 import android.view.Gravity
@@ -23,14 +27,19 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.ViewTreeObserver
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.SimpleItemAnimator
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.mwmods.wardtube.R
 import java.util.Locale
@@ -41,6 +50,7 @@ private const val ROW_CARD = 0
 private const val ROW_SHELF = 1
 private const val ROW_TILE = 2
 private const val ROW_POST = 3
+private const val ROW_FOOTER = 4
 
 /** A row of Shorts goes after the third video, then after every sixth one; a row holds this many Shorts. */
 private const val SHELF_SIZE = 8
@@ -57,6 +67,15 @@ private const val POST_MAX_LINES = 12
 /** How many times the strip may be put back at its first channel by the layout listener (a guard against a loop). */
 private const val MAX_PIN_CORRECTIONS = 8
 
+/** How long the strip and the chips take to settle (slide away or back) once the list stops moving, in milliseconds. */
+private const val HEADER_SETTLE_MS = 180L
+
+/**
+ * A list with more rows than this is put on view again as a whole when it changes: finding what changed in it would take
+ * longer than drawing it again (the Shorts chip's own list can hold thousands of tiles).
+ */
+private const val DIFF_MAX_ROWS = 1500
+
 /** What the screen asks of whoever owns it. */
 interface SubsListener {
     /** A channel was chosen in the strip (null: none, the videos of every channel again). */
@@ -70,7 +89,7 @@ interface SubsListener {
     /** "Go to channel": the channel's own page. */
     fun onOpenChannel(channel: SubsChannel)
 
-    /** The "All" button beside the strip: YouTube's page that lists every subscription. */
+    /** "Manage" in the screen's own list of every subscription: YouTube's page that lists them (to unsubscribe, to set bells). */
     fun onOpenAllChannels()
 
     /** A link inside a post's text, or the video attached to a post, was tapped. */
@@ -81,6 +100,9 @@ interface SubsListener {
 
     /** The list was pulled down to refresh. */
     fun onRefresh()
+
+    /** "Try again" was tapped on the empty screen that says a read failed. */
+    fun onRetry()
 
     /** The list was scrolled close to its end: more videos can be loaded. */
     fun onEnd()
@@ -114,8 +136,12 @@ class SubsPalette(night: Boolean) {
 /**
  * The Subscriptions screen, drawn by the app instead of YouTube's page: a strip of channel pictures on top (a tap
  * shows only that channel's videos, in place, with the strip staying where it is; a second tap goes back to every
- * channel) with an "All" button fixed at the end of its row (it opens the list of every subscription), and the videos
- * below as big cards.
+ * channel) with an "All" button fixed at the end of its row (it opens the screen's own list of every subscription, with
+ * a search box), the filter chips under it, and the videos below as big cards.
+ *
+ * The strip and the chips lie over the list and slide away while the list is scrolled down (and come back as soon as it
+ * is scrolled up), so the videos get the room. While nothing is to be listed the screen says why: a skeleton while it
+ * loads, "Try again" when a read failed, a short note when there is simply nothing.
  *
  * It is built in code (no layout file) and only shows what it is given: the data and the decisions are in
  * [SubsController].
@@ -128,8 +154,9 @@ class SubsScreen(
 ) : FrameLayout(context) {
 
     private val density = resources.displayMetrics.density
+
+    /** The screen's width when it was made: only a hint for the size pictures are decoded at (the layout itself follows the real width). */
     private val screenWidth = resources.displayMetrics.widthPixels
-    private val thumbHeight = (screenWidth * 9f / 16f).toInt()
     private val compact: CompactDecimalFormat =
         CompactDecimalFormat.getInstance(Locale.getDefault(), CompactDecimalFormat.CompactStyle.SHORT)
 
@@ -138,7 +165,17 @@ class SubsScreen(
     private var selectedChannel: SubsChannel? = null
     private var filter = SubsFilter.ALL
     private var loading = false
+    private var failed = false
+    private var loadingMore = false
     private var diagnostic = ""
+
+    /** The rows the videos were built into (without the spinner row at the end), and the pictures of the channels they use. */
+    private var builtRows: List<Row> = emptyList()
+    private var avatarMap: Map<String, String> = emptyMap()
+
+    /** The strip of channels, "Go to channel" and the chips: one block that lies over the list and slides away. */
+    private val header = LinearLayout(context)
+    private var headerHeight = 0
 
     private val strip = RecyclerView(context)
 
@@ -150,15 +187,42 @@ class SubsScreen(
     private val goToChannel = TextView(context)
     private val chips = RecyclerView(context)
     private val chipAdapter = ChipAdapter()
+
+    /** The chips in the order they are shown, and what each one is (a [SubsFilter] value; its label is at the same place). */
+    private val chipValues = intArrayOf(
+        SubsFilter.ALL, SubsFilter.TODAY, SubsFilter.CONTINUE, SubsFilter.UNWATCHED, SubsFilter.VIDEOS, SubsFilter.SHORTS,
+        SubsFilter.LIVE, SubsFilter.POSTS,
+    )
     private val chipLabels = intArrayOf(
-        R.string.subsChipAll, R.string.subsChipToday, R.string.subsChipVideos, R.string.subsChipShorts, R.string.subsChipLive,
-        R.string.subsChipPosts,
+        R.string.subsChipAll, R.string.subsChipToday, R.string.subsChipContinue, R.string.subsChipUnwatched,
+        R.string.subsChipVideos, R.string.subsChipShorts, R.string.subsChipLive, R.string.subsChipPosts,
     )
     private val refresh = SwipeRefreshLayout(context)
     private val list = RecyclerView(context)
     private val listAdapter = VideoAdapter()
-    private val spinner = ProgressBar(context)
+
+    /** What stands where the list is empty: a skeleton while it loads, a note when there is nothing, "Try again" when a read failed. */
+    private val stateBox = FrameLayout(context)
+    private val skeleton = LinearLayout(context)
+    private var skeletonPulse: ObjectAnimator? = null
     private val emptyText = TextView(context)
+    private val errorBox = LinearLayout(context)
+    private val errorNote = TextView(context)
+
+    /** The screen's own list of every subscription (the "All" button), with its search box. */
+    private val panel = FrameLayout(context)
+    private val panelSearch = EditText(context)
+
+    /** The header's two faces: the title row with the lens button under it, and the search row that replaces them while searching. */
+    private val panelBar = LinearLayout(context)
+    private val panelLensRow = LinearLayout(context)
+    private val panelSearchRow = LinearLayout(context)
+    private val panelSearchClear = ImageView(context)
+    private lateinit var panelColumn: LinearLayout
+    private val panelList = RecyclerView(context)
+    private val panelEmpty = TextView(context)
+    private val panelAdapter = PanelAdapter()
+    private var panelQuery = ""
 
     private val circle = object : ViewOutlineProvider() {
         override fun getOutline(view: View, outline: Outline) {
@@ -172,16 +236,14 @@ class SubsScreen(
         }
     }
 
-    /** A Short's tile in the two columns of the Shorts chip: 9:16 picture plus the padding around it. */
-    private val tileHeight = ((screenWidth / 2 - dp(8)) * 16f / 9f).toInt() + dp(8)
-
     init {
         // Everything touched here belongs to this screen: nothing may fall through to YouTube's page underneath.
         isClickable = true
         setBackgroundColor(palette.background)
 
-        val column = LinearLayout(context)
-        column.orientation = LinearLayout.VERTICAL
+        // The header is opaque and lies over the list (the list starts below it, see onHeaderLaidOut).
+        header.orientation = LinearLayout.VERTICAL
+        header.setBackgroundColor(palette.background)
 
         strip.layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
         strip.adapter = stripAdapter
@@ -221,18 +283,18 @@ class SubsScreen(
         allHolder.setBackgroundColor(palette.background)
         allHolder.isClickable = true // touches on it never reach the channels under it
         allButton.text = context.getString(R.string.subsAll)
-        allButton.contentDescription = allButton.text
+        allButton.contentDescription = context.getString(R.string.subsAllTitle)
         allButton.textSize = 14f
         allButton.typeface = Typeface.DEFAULT_BOLD
         allButton.setTextColor(palette.accent)
         allButton.gravity = Gravity.CENTER
-        allButton.setOnClickListener { listener.onOpenAllChannels() }
+        allButton.setOnClickListener { openChannels() }
         // As high as a channel's picture with its ring (56dp + 3dp on each side) and level with it (the strip's top padding).
         val allParams = FrameLayout.LayoutParams(MATCH, dp(62))
         allParams.topMargin = dp(8)
         allHolder.addView(allButton, allParams)
         stripRow.addView(allHolder, FrameLayout.LayoutParams(dp(ALL_WIDTH_DP), MATCH, Gravity.END))
-        column.addView(stripRow, LinearLayout.LayoutParams(MATCH, WRAP))
+        header.addView(stripRow, LinearLayout.LayoutParams(MATCH, WRAP))
 
         goToChannel.text = context.getString(R.string.subsGoToChannel)
         goToChannel.textSize = 14f
@@ -246,20 +308,35 @@ class SubsScreen(
         val goParams = LinearLayout.LayoutParams(WRAP, WRAP)
         goParams.setMargins(dp(12), dp(4), dp(12), dp(8))
         goParams.gravity = Gravity.START
-        column.addView(goToChannel, goParams)
+        header.addView(goToChannel, goParams)
 
         chips.layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
         chips.adapter = chipAdapter
         chips.overScrollMode = View.OVER_SCROLL_NEVER
         chips.clipToPadding = false
         chips.setPadding(dp(8), dp(2), dp(8), dp(8))
-        column.addView(chips, LinearLayout.LayoutParams(MATCH, WRAP))
+        header.addView(chips, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        // The list starts below the header once its height is known; it is read after the layout pass, not during it.
+        header.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            if (bottom - top != headerHeight) header.post { onHeaderLaidOut(header.height) }
+        }
 
         list.layoutManager = LinearLayoutManager(context)
         list.adapter = listAdapter
         list.overScrollMode = View.OVER_SCROLL_NEVER
+        // Rows pass under the header (and into the room it leaves when it has slid away): no clipping to the padding.
+        list.clipToPadding = false
+        // Rows that change in place are redrawn at once (a post's card cross-fading as its count changes looks like a flicker).
+        (list.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
         list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) header.animate().cancel()
+                else if (newState == RecyclerView.SCROLL_STATE_IDLE) settleHeader()
+            }
+
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                followScroll(dy)
                 val manager = recyclerView.layoutManager as? LinearLayoutManager ?: return
                 if (dy > 0 && manager.findLastVisibleItemPosition() >= listAdapter.itemCount - prefetchAhead(manager)) listener.onEnd()
             }
@@ -269,22 +346,181 @@ class SubsScreen(
         refresh.setProgressBackgroundColorSchemeColor(palette.chip)
         refresh.setOnRefreshListener { listener.onRefresh() }
 
-        spinner.isIndeterminate = true
-        spinner.indeterminateTintList = ColorStateList.valueOf(palette.accent)
-        spinner.visibility = View.GONE
+        val body = FrameLayout(context)
+        body.addView(refresh, FrameLayout.LayoutParams(MATCH, MATCH))
+        buildStates()
+        body.addView(stateBox, FrameLayout.LayoutParams(MATCH, MATCH))
+        body.addView(header, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+        addView(body, LayoutParams(MATCH, MATCH))
+
+        buildPanel()
+        addView(panel, LayoutParams(MATCH, MATCH))
+    }
+
+    // ---- The header (the strip and the chips) slides away with the list ----
+
+    /**
+     * The header's height is known (or changed: a channel was chosen and "Go to channel" appeared): the list starts below
+     * it, the empty-state notes stand below it, and the pull-to-refresh spinner comes out from under it.
+     */
+    private fun onHeaderLaidOut(height: Int) {
+        if (height <= 0 || height == headerHeight) return
+        headerHeight = height
+        list.setPadding(0, height, 0, 0)
+        stateBox.setPadding(0, height, 0, 0)
+        refresh.setProgressViewOffset(false, height - dp(40), height + dp(16))
+        if (-header.translationY > height) header.translationY = -height.toFloat()
+    }
+
+    /**
+     * The header follows the list: it goes up as the rows go up and comes back as soon as they come down (so it is never
+     * far from the finger), and it is whole whenever the list is at its top.
+     */
+    private fun followScroll(dy: Int) {
+        if (dy == 0 || headerHeight == 0) return
+        val offset = if (list.canScrollVertically(-1)) (-header.translationY + dy).coerceIn(0f, headerHeight.toFloat()) else 0f
+        if (offset != -header.translationY) {
+            header.animate().cancel()
+            header.translationY = -offset
+        }
+    }
+
+    /**
+     * The list stopped with the header half way: it goes the rest of the way, to whichever end is nearer. Near the top of
+     * the list the header leaves together with the first rows and is left alone (moving it there would leave a gap).
+     */
+    private fun settleHeader() {
+        if (headerHeight == 0) return
+        val offset = -header.translationY
+        if (offset <= 0f || offset >= headerHeight) return
+        if (list.computeVerticalScrollOffset() < headerHeight) return
+        val target = if (offset > headerHeight / 2f) -headerHeight.toFloat() else 0f
+        header.animate().cancel()
+        header.animate().translationY(target).setDuration(HEADER_SETTLE_MS).start()
+    }
+
+    /** The header whole again (another list was put on view). */
+    private fun resetHeader() {
+        header.animate().cancel()
+        header.translationY = 0f
+    }
+
+    // ---- What stands where the list is empty ----
+
+    private fun buildStates() {
+        // A skeleton: three cards as grey blocks, breathing a little, while the first videos are read.
+        skeleton.orientation = LinearLayout.VERTICAL
+        for (i in 0 until 3) skeleton.addView(skeletonCard(), LinearLayout.LayoutParams(MATCH, WRAP))
+        skeleton.visibility = View.GONE
+        stateBox.addView(skeleton, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+
         emptyText.textSize = 15f
         emptyText.setTextColor(palette.secondary)
         emptyText.gravity = Gravity.CENTER
         emptyText.setPadding(dp(24), 0, dp(24), 0)
         emptyText.visibility = View.GONE
+        stateBox.addView(emptyText, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
 
-        val body = FrameLayout(context)
-        body.addView(refresh, FrameLayout.LayoutParams(MATCH, MATCH))
-        body.addView(spinner, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER))
-        body.addView(emptyText, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
-        column.addView(body, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        // A read failed and there is nothing to show: what happened, and a button to try again.
+        errorBox.orientation = LinearLayout.VERTICAL
+        errorBox.gravity = Gravity.CENTER_HORIZONTAL
+        errorBox.setPadding(dp(32), 0, dp(32), 0)
+        val icon = ImageView(context)
+        icon.setImageResource(R.drawable.ic_error_24dp)
+        icon.imageTintList = ColorStateList.valueOf(palette.secondary)
+        errorBox.addView(icon, LinearLayout.LayoutParams(dp(48), dp(48)))
+        val title = TextView(context)
+        title.text = context.getString(R.string.subsLoadError)
+        title.textSize = 16f
+        title.typeface = Typeface.DEFAULT_BOLD
+        title.setTextColor(palette.text)
+        title.gravity = Gravity.CENTER
+        val titleParams = LinearLayout.LayoutParams(WRAP, WRAP)
+        titleParams.topMargin = dp(8)
+        errorBox.addView(title, titleParams)
+        errorNote.textSize = 12f
+        errorNote.setTextColor(palette.secondary)
+        errorNote.gravity = Gravity.CENTER
+        errorNote.maxLines = 4
+        errorNote.ellipsize = TextUtils.TruncateAt.END
+        errorNote.visibility = View.GONE
+        val noteParams = LinearLayout.LayoutParams(WRAP, WRAP)
+        noteParams.topMargin = dp(6)
+        errorBox.addView(errorNote, noteParams)
+        val retry = TextView(context)
+        retry.text = context.getString(R.string.subsRetry)
+        retry.textSize = 14f
+        retry.typeface = Typeface.DEFAULT_BOLD
+        // The accent is light at night and dark by day: the screen's own colour is what reads on it in both.
+        retry.setTextColor(palette.background)
+        retry.gravity = Gravity.CENTER
+        retry.setPadding(dp(24), dp(10), dp(24), dp(10))
+        retry.background = rounded(palette.accent, dp(20).toFloat())
+        retry.setOnClickListener { listener.onRetry() }
+        val retryParams = LinearLayout.LayoutParams(WRAP, WRAP)
+        retryParams.topMargin = dp(20)
+        errorBox.addView(retry, retryParams)
+        errorBox.visibility = View.GONE
+        stateBox.addView(errorBox, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+    }
 
-        addView(column, LayoutParams(MATCH, MATCH))
+    /** A video's card as grey blocks: the picture, the channel's round picture and two lines. */
+    private fun skeletonCard(): View {
+        val card = LinearLayout(context)
+        card.orientation = LinearLayout.VERTICAL
+        val thumb = RatioFrame(context, 9f / 16f)
+        thumb.setBackgroundColor(palette.placeholder)
+        card.addView(thumb, LinearLayout.LayoutParams(MATCH, WRAP))
+        val row = LinearLayout(context)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.setPadding(dp(12), dp(12), dp(12), dp(16))
+        val avatar = View(context)
+        avatar.background = oval(palette.placeholder, Color.TRANSPARENT)
+        row.addView(avatar, LinearLayout.LayoutParams(dp(40), dp(40)))
+        val lines = LinearLayout(context)
+        lines.orientation = LinearLayout.VERTICAL
+        val first = View(context)
+        first.background = rounded(palette.placeholder, dp(4).toFloat())
+        lines.addView(first, LinearLayout.LayoutParams(MATCH, dp(14)))
+        val second = View(context)
+        second.background = rounded(palette.placeholder, dp(4).toFloat())
+        val secondParams = LinearLayout.LayoutParams(dp(160), dp(12))
+        secondParams.topMargin = dp(8)
+        lines.addView(second, secondParams)
+        val linesParams = LinearLayout.LayoutParams(0, WRAP, 1f)
+        linesParams.marginStart = dp(12)
+        row.addView(lines, linesParams)
+        card.addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
+        return card
+    }
+
+    /** The skeleton breathes (its opacity goes down and up) while it is on view, and only then. */
+    private fun setPulse(on: Boolean) {
+        if (on) {
+            var pulse = skeletonPulse
+            if (pulse == null) {
+                pulse = ObjectAnimator.ofFloat(skeleton, View.ALPHA, 1f, 0.45f)
+                pulse.duration = 800L
+                pulse.repeatMode = ValueAnimator.REVERSE
+                pulse.repeatCount = ValueAnimator.INFINITE
+                skeletonPulse = pulse
+            }
+            if (!pulse.isStarted) pulse.start()
+        } else {
+            skeletonPulse?.cancel()
+            skeleton.alpha = 1f
+        }
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        // A screen that is not on view must not keep an animation running.
+        if (changedView === this && visibility != View.VISIBLE) skeletonPulse?.cancel()
+    }
+
+    override fun onDetachedFromWindow() {
+        skeletonPulse?.cancel()
+        super.onDetachedFromWindow()
     }
 
     // ---- Watching the finger (the bottom bar hides while scrolling) ----
@@ -341,6 +577,7 @@ class SubsScreen(
         channels = list
         newIds = fresh
         refreshStrip(sameOrder)
+        if (panel.visibility == View.VISIBLE) panelAdapter.refilter()
     }
 
     fun setSelected(channel: SubsChannel?) {
@@ -365,25 +602,67 @@ class SubsScreen(
         strip.scrollToPosition(0)
     }
 
-    /** The chosen chip. The Shorts chip lists the Shorts in two columns, the others in one. */
+    /** The chosen chip. The Shorts chip lists the Shorts in columns of tiles, the others in one column. */
     fun setFilter(value: Int) {
         if (value == filter) return
+        val wasShorts = filter == SubsFilter.SHORTS
         filter = value
-        list.layoutManager = if (value == SubsFilter.SHORTS) GridLayoutManager(context, 2) else LinearLayoutManager(context)
+        if (wasShorts != (value == SubsFilter.SHORTS)) list.layoutManager = layoutFor(value)
+        resetHeader()
         chipAdapter.notifyDataSetChanged()
     }
 
-    /** [videos] are already filtered by the chip; this puts them in rows (videos, rows of Shorts, or Shorts tiles). */
+    /** One column of cards, or (the Shorts chip) tiles side by side: two on a phone, more on a wide screen. */
+    private fun layoutFor(value: Int): RecyclerView.LayoutManager {
+        if (value != SubsFilter.SHORTS) return LinearLayoutManager(context)
+        val columns = ((resources.displayMetrics.widthPixels / density) / 170f).toInt().coerceIn(2, 5)
+        val manager = GridLayoutManager(context, columns)
+        // The spinner row at the end of the list is as wide as the list.
+        manager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+            override fun getSpanSize(position: Int): Int = if (listAdapter.isFooter(position)) columns else 1
+        }
+        return manager
+    }
+
+    /**
+     * [videos] are already filtered by the chip; this puts them in rows (videos, rows of Shorts, or Shorts tiles).
+     * [toTop]: it is another list (a chip or a channel was chosen): it starts from its top with the header whole.
+     */
     fun setVideos(videos: List<SubsVideo>, avatars: Map<String, String>, toTop: Boolean) {
-        listAdapter.submit(buildRows(videos), avatars)
-        if (toTop) list.scrollToPosition(0)
+        avatarMap = avatars
+        builtRows = buildRows(videos)
+        pushRows(toTop)
+        if (toTop) {
+            list.scrollToPosition(0)
+            resetHeader()
+        }
+    }
+
+    /** Puts the built rows on view, with the spinner row after them while older videos are being read. */
+    private fun pushRows(replace: Boolean) {
+        val rows = if (loadingMore && builtRows.isNotEmpty()) builtRows + Row.Footer else builtRows
+        listAdapter.submit(rows, avatarMap, replace)
         updateEmptyState()
     }
 
-    /** Videos are still being fetched: a spinner shows while there is nothing to list yet. */
+    /** Videos are still being fetched: a skeleton shows while there is nothing to list yet. */
     fun setLoading(on: Boolean) {
         loading = on
         updateEmptyState()
+    }
+
+    /** The last read failed: when there is nothing to list, the screen says so and offers "Try again". */
+    fun setError(on: Boolean) {
+        if (failed == on) return
+        failed = on
+        updateEmptyState()
+    }
+
+    /** Older videos are being read: a small spinner shows at the end of the list. */
+    fun setLoadingMore(on: Boolean) {
+        if (loadingMore == on) return
+        loadingMore = on
+        pushRows(false)
     }
 
     /** What to show under "no videos" (why there are none), or "". */
@@ -429,12 +708,21 @@ class SubsScreen(
 
     private fun updateEmptyState() {
         val empty = listAdapter.itemCount == 0
-        spinner.visibility = if (empty && loading) View.VISIBLE else View.GONE
-        emptyText.visibility = if (empty && !loading) View.VISIBLE else View.GONE
+        val skeletonOn = empty && loading
+        val errorOn = empty && !loading && failed
+        val emptyOn = empty && !loading && !failed
+        skeleton.visibility = if (skeletonOn) View.VISIBLE else View.GONE
+        setPulse(skeletonOn)
+        errorBox.visibility = if (errorOn) View.VISIBLE else View.GONE
+        errorNote.text = diagnostic
+        errorNote.visibility = if (diagnostic.isEmpty()) View.GONE else View.VISIBLE
+        emptyText.visibility = if (emptyOn) View.VISIBLE else View.GONE
         val base = context.getString(
             when (filter) {
                 SubsFilter.LIVE -> R.string.subsEmptyLive
                 SubsFilter.POSTS -> R.string.subsEmptyPosts
+                SubsFilter.UNWATCHED -> R.string.subsEmptyUnwatched
+                SubsFilter.CONTINUE -> R.string.subsEmptyContinue
                 else -> R.string.subsEmpty
             }
         )
@@ -452,11 +740,337 @@ class SubsScreen(
         listener.onFilter(value)
     }
 
-    private sealed class Row {
-        class Card(val video: SubsVideo) : Row()
-        class Shelf(val shorts: List<SubsVideo>) : Row()
-        class Tile(val video: SubsVideo) : Row()
-        class Post(val video: SubsVideo) : Row()
+    // ---- The list of every subscription (the "All" button) ----
+
+    /**
+     * A page over the screen with every channel the account is subscribed to (the ones with something new first, then by
+     * name) and a search box. A tap on a channel shows its videos, as a tap in the strip does. "Manage" goes to YouTube's
+     * own page of the subscriptions (to unsubscribe or set the bells).
+     */
+    private fun buildPanel() {
+        panel.visibility = View.GONE
+        panel.isClickable = true
+        panel.setBackgroundColor(palette.background)
+
+        val column = LinearLayout(context)
+        column.orientation = LinearLayout.VERTICAL
+
+        panelColumn = column
+        val bar = panelBar
+        bar.orientation = LinearLayout.HORIZONTAL
+        bar.gravity = Gravity.CENTER_VERTICAL
+        bar.setPadding(dp(4), dp(4), dp(8), dp(4))
+        val back = ImageView(context)
+        back.setImageResource(R.drawable.ic_arrow_back_white_24dp)
+        back.imageTintList = ColorStateList.valueOf(palette.text)
+        back.contentDescription = context.getString(R.string.browserBack)
+        back.scaleType = ImageView.ScaleType.CENTER
+        back.isClickable = true
+        back.background = rippleBackground()
+        back.setOnClickListener { closeChannels() }
+        bar.addView(back, LinearLayout.LayoutParams(dp(48), dp(48)))
+        val title = TextView(context)
+        title.text = context.getString(R.string.subsAllTitle)
+        title.textSize = 20f
+        title.typeface = Typeface.DEFAULT_BOLD
+        title.setTextColor(palette.text)
+        title.maxLines = 1
+        title.ellipsize = TextUtils.TruncateAt.END
+        val titleParams = LinearLayout.LayoutParams(0, WRAP, 1f)
+        titleParams.marginStart = dp(4)
+        bar.addView(title, titleParams)
+        val manage = TextView(context)
+        manage.text = context.getString(R.string.subsManage)
+        manage.contentDescription = context.getString(R.string.subsManageHint)
+        manage.textSize = 14f
+        manage.typeface = Typeface.DEFAULT_BOLD
+        manage.setTextColor(palette.accent)
+        manage.gravity = Gravity.CENTER
+        manage.setPadding(dp(12), dp(10), dp(12), dp(10))
+        manage.setOnClickListener {
+            closeChannels()
+            listener.onOpenAllChannels()
+        }
+        bar.addView(manage, LinearLayout.LayoutParams(WRAP, WRAP))
+        column.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        // The lens button, under the title row: the lens with its words beside it. The search box is not always on the
+        // screen any more; this button opens it (see openPanelSearch).
+        val lens = LinearLayout(context)
+        lens.orientation = LinearLayout.HORIZONTAL
+        lens.gravity = Gravity.CENTER_VERTICAL
+        lens.isClickable = true
+        lens.isFocusable = true
+        lens.background = android.graphics.drawable.RippleDrawable(
+            ColorStateList.valueOf(0x33808080),
+            rounded(palette.chip, dp(20).toFloat()),
+            rounded(Color.WHITE, dp(20).toFloat()),
+        )
+        lens.setPadding(dp(14), 0, dp(18), 0)
+        lens.contentDescription = context.getString(R.string.subsSearchButton)
+        val lensIcon = ImageView(context)
+        lensIcon.setImageResource(R.drawable.ic_search_24dp)
+        lensIcon.imageTintList = ColorStateList.valueOf(palette.text)
+        lensIcon.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        lens.addView(lensIcon, LinearLayout.LayoutParams(dp(22), dp(22)))
+        val lensLabel = TextView(context)
+        lensLabel.text = context.getString(R.string.subsSearchButton)
+        lensLabel.textSize = 14f
+        lensLabel.maxLines = 1
+        lensLabel.ellipsize = TextUtils.TruncateAt.END
+        lensLabel.setTextColor(palette.text)
+        lensLabel.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        val lensLabelParams = LinearLayout.LayoutParams(WRAP, WRAP)
+        lensLabelParams.marginStart = dp(10)
+        lens.addView(lensLabel, lensLabelParams)
+        lens.setOnClickListener { openPanelSearch() }
+        panelLensRow.orientation = LinearLayout.HORIZONTAL
+        panelLensRow.setPadding(dp(12), dp(2), dp(12), dp(10))
+        panelLensRow.addView(lens, LinearLayout.LayoutParams(WRAP, dp(40)))
+        column.addView(panelLensRow, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        // The search row: back arrow (closes the search and brings the title row back), then a pill with the glass, the
+        // text and an x that empties it. It is hidden until the lens is tapped (see openPanelSearch).
+        val row = panelSearchRow
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.setPadding(dp(4), dp(4), dp(12), dp(4))
+        row.visibility = View.GONE
+        val closeSearch = ImageView(context)
+        closeSearch.setImageResource(R.drawable.ic_arrow_back_white_24dp)
+        closeSearch.imageTintList = ColorStateList.valueOf(palette.text)
+        closeSearch.contentDescription = context.getString(R.string.browserBack)
+        closeSearch.scaleType = ImageView.ScaleType.CENTER
+        closeSearch.isClickable = true
+        closeSearch.background = rippleBackground()
+        closeSearch.setOnClickListener { closePanelSearch() }
+        row.addView(closeSearch, LinearLayout.LayoutParams(dp(48), dp(48)))
+        val pill = LinearLayout(context)
+        pill.orientation = LinearLayout.HORIZONTAL
+        pill.gravity = Gravity.CENTER_VERTICAL
+        pill.background = rounded(palette.chip, dp(22).toFloat())
+        val glass = ImageView(context)
+        glass.setImageResource(R.drawable.ic_search_24dp)
+        glass.imageTintList = ColorStateList.valueOf(palette.secondary)
+        glass.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        val glassParams = LinearLayout.LayoutParams(dp(20), dp(20))
+        glassParams.marginStart = dp(14)
+        pill.addView(glass, glassParams)
+        panelSearch.hint = context.getString(R.string.subsSearchHint)
+        panelSearch.setHintTextColor(palette.secondary)
+        panelSearch.setTextColor(palette.text)
+        panelSearch.textSize = 15f
+        panelSearch.setSingleLine()
+        panelSearch.imeOptions = EditorInfo.IME_ACTION_SEARCH
+        panelSearch.background = null
+        panelSearch.setPadding(dp(10), 0, dp(4), 0)
+        panelSearch.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                hideKeyboard()
+                true
+            } else {
+                false
+            }
+        }
+        panelSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+
+            override fun afterTextChanged(s: Editable?) {
+                panelQuery = s?.toString().orEmpty().trim()
+                panelSearchClear.visibility = if (s.isNullOrEmpty()) View.GONE else View.VISIBLE
+                panelAdapter.refilter()
+            }
+        })
+        pill.addView(panelSearch, LinearLayout.LayoutParams(0, MATCH, 1f))
+        panelSearchClear.setImageResource(R.drawable.ic_close_24dp)
+        panelSearchClear.imageTintList = ColorStateList.valueOf(palette.secondary)
+        panelSearchClear.contentDescription = context.getString(R.string.browserClear)
+        panelSearchClear.scaleType = ImageView.ScaleType.CENTER
+        panelSearchClear.isClickable = true
+        panelSearchClear.background = rippleBackground()
+        panelSearchClear.visibility = View.GONE
+        panelSearchClear.setOnClickListener { panelSearch.setText("") }
+        pill.addView(panelSearchClear, LinearLayout.LayoutParams(dp(40), dp(40)))
+        row.addView(pill, LinearLayout.LayoutParams(0, dp(44), 1f))
+        column.addView(row, LinearLayout.LayoutParams(MATCH, dp(56)))
+
+        panelList.layoutManager = LinearLayoutManager(context)
+        panelList.adapter = panelAdapter
+        panelList.overScrollMode = View.OVER_SCROLL_NEVER
+        panelList.itemAnimator = null
+        panelList.setPadding(0, 0, 0, dp(16))
+        panelList.clipToPadding = false
+        panelEmpty.text = context.getString(R.string.subsNoChannelMatch)
+        panelEmpty.textSize = 15f
+        panelEmpty.setTextColor(palette.secondary)
+        panelEmpty.gravity = Gravity.CENTER
+        panelEmpty.visibility = View.GONE
+        val area = FrameLayout(context)
+        area.addView(panelList, FrameLayout.LayoutParams(MATCH, MATCH))
+        area.addView(panelEmpty, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        column.addView(area, LinearLayout.LayoutParams(MATCH, 0, 1f))
+
+        panel.addView(column, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+
+    /** The lens button was tapped: the title row and the button give way to the search row, and the keyboard comes up. */
+    private fun openPanelSearch() {
+        if (panelSearchRow.visibility == View.VISIBLE) return
+        android.transition.TransitionManager.beginDelayedTransition(
+            panelColumn,
+            android.transition.AutoTransition().setDuration(160).addTarget(panelBar).addTarget(panelLensRow).addTarget(panelSearchRow),
+        )
+        panelBar.visibility = View.GONE
+        panelLensRow.visibility = View.GONE
+        panelSearchRow.visibility = View.VISIBLE
+        panelSearch.requestFocus()
+        panelSearch.post {
+            val manager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            manager?.showSoftInput(panelSearch, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /** Closes the search row (the words are cleared, so the list is whole again) and shows the title row and the button. */
+    private fun closePanelSearch(animate: Boolean = true) {
+        if (panelSearchRow.visibility != View.VISIBLE) return
+        hideKeyboard()
+        if (animate) {
+            android.transition.TransitionManager.beginDelayedTransition(
+                panelColumn,
+                android.transition.AutoTransition().setDuration(160).addTarget(panelBar).addTarget(panelLensRow).addTarget(panelSearchRow),
+            )
+        }
+        panelSearch.setText("")
+        panelSearchRow.visibility = View.GONE
+        panelBar.visibility = View.VISIBLE
+        panelLensRow.visibility = View.VISIBLE
+    }
+
+    private fun openChannels() {
+        if (panel.visibility == View.VISIBLE) return
+        closePanelSearch(animate = false)
+        panelSearch.setText("") // also builds the list again, from the newest channels
+        panelAdapter.refilter()
+        panel.visibility = View.VISIBLE
+        panelList.scrollToPosition(0)
+    }
+
+    /** Closes the list of every subscription (also when the screen goes away, so it is not found open when it returns). */
+    fun closeChannels() {
+        if (panel.visibility != View.VISIBLE) return
+        closePanelSearch(animate = false)
+        hideKeyboard()
+        panel.visibility = View.GONE
+    }
+
+    /** The back button: closes the list of every subscription if it is open. Returns true when it did (the press is used up). */
+    fun onBack(): Boolean {
+        if (panel.visibility != View.VISIBLE) return false
+        // The search row first (back from it shows the title row again), then the list itself.
+        if (panelSearchRow.visibility == View.VISIBLE) {
+            closePanelSearch()
+            return true
+        }
+        closeChannels()
+        return true
+    }
+
+    private fun hideKeyboard() {
+        val manager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        manager?.hideSoftInputFromWindow(windowToken, 0)
+        panelSearch.clearFocus()
+    }
+
+    /** A channel was tapped in the list of every subscription: its videos show, and the strip scrolls to its picture. */
+    private fun pickChannel(channel: SubsChannel) {
+        closeChannels()
+        if (selectedChannel?.id == channel.id) return
+        stripPinned = false
+        choose(channel)
+        val index = channels.indexOfFirst { it.id == channel.id }
+        (strip.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(maxOf(index, 0), dp(4))
+    }
+
+    private class PanelHolder(root: View, val avatar: ImageView, val name: TextView, val dot: View) : RecyclerView.ViewHolder(root)
+
+    private inner class PanelAdapter : RecyclerView.Adapter<PanelHolder>() {
+        private var shown: List<SubsChannel> = emptyList()
+
+        /** Builds the list again from the channels and the words in the search box: the ones with something new first, then by name. */
+        fun refilter() {
+            val words = panelQuery.lowercase()
+            val ordered = channels.sortedWith(compareByDescending<SubsChannel> { it.id in newIds }.thenBy { it.name.lowercase() })
+            shown = if (words.isEmpty()) ordered else ordered.filter { it.name.lowercase().contains(words) }
+            notifyDataSetChanged()
+            panelEmpty.visibility = if (shown.isEmpty()) View.VISIBLE else View.GONE
+        }
+
+        override fun getItemCount(): Int = shown.size
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PanelHolder {
+            val row = LinearLayout(context)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = Gravity.CENTER_VERTICAL
+            row.setPadding(dp(16), dp(8), dp(16), dp(8))
+            row.layoutParams = RecyclerView.LayoutParams(MATCH, WRAP)
+            row.background = selectableBackground()
+            val avatar = roundPicture()
+            row.addView(avatar, LinearLayout.LayoutParams(dp(44), dp(44)))
+            val name = TextView(context)
+            name.textSize = 15f
+            name.maxLines = 1
+            name.ellipsize = TextUtils.TruncateAt.END
+            name.setTextColor(palette.text)
+            val nameParams = LinearLayout.LayoutParams(0, WRAP, 1f)
+            nameParams.marginStart = dp(16)
+            row.addView(name, nameParams)
+            val dot = View(context)
+            dot.background = oval(palette.accent, Color.TRANSPARENT)
+            val dotParams = LinearLayout.LayoutParams(dp(10), dp(10))
+            dotParams.marginStart = dp(12)
+            row.addView(dot, dotParams)
+            return PanelHolder(row, avatar, name, dot)
+        }
+
+        override fun onBindViewHolder(holder: PanelHolder, position: Int) {
+            val channel = shown[position]
+            val chosen = selectedChannel?.id == channel.id
+            holder.name.text = channel.name
+            holder.name.typeface = if (chosen) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            holder.dot.visibility = if (channel.id in newIds) View.VISIBLE else View.GONE
+            SubsImages.load(holder.avatar, channel.avatar, null, dp(88))
+            holder.itemView.setOnClickListener { pickChannel(channel) }
+        }
+    }
+
+    // ---- The rows of the list ----
+
+    /**
+     * What a row of the list is. Each has a [key] (what it stands for: the same video is the same row wherever it moves)
+     * and compares by what it holds, so that [RowDiff] can tell which rows changed when a page arrives or a video is hidden.
+     */
+    private sealed class Row(val key: String) {
+        data class Card(val video: SubsVideo) : Row("v:" + video.id)
+        data class Shelf(val shorts: List<SubsVideo>) : Row("s:" + shorts.firstOrNull()?.id.orEmpty())
+        data class Tile(val video: SubsVideo) : Row("t:" + video.id)
+        data class Post(val video: SubsVideo) : Row("p:" + video.id)
+
+        /** The spinner at the end of the list while older videos are being read. */
+        data object Footer : Row("footer")
+    }
+
+    private class RowDiff(private val before: List<Row>, private val after: List<Row>) : DiffUtil.Callback() {
+        override fun getOldListSize(): Int = before.size
+
+        override fun getNewListSize(): Int = after.size
+
+        override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+            before[oldItemPosition].key == after[newItemPosition].key
+
+        override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+            before[oldItemPosition] == after[newItemPosition]
     }
 
     /** A post is drawn as a post's card, any other video as a video's card. */
@@ -505,6 +1119,16 @@ class SubsScreen(
         }
     }
 
+    /** The touch feedback of the phone's theme for a whole row (it stays inside the row). */
+    private fun selectableBackground(): android.graphics.drawable.Drawable? {
+        val attrs = context.obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
+        try {
+            return attrs.getDrawable(0)
+        } finally {
+            attrs.recycle()
+        }
+    }
+
     private fun oval(color: Int, stroke: Int): GradientDrawable {
         val shape = GradientDrawable()
         shape.shape = GradientDrawable.OVAL
@@ -536,7 +1160,7 @@ class SubsScreen(
     private class ChipHolder(root: View, val label: TextView) : RecyclerView.ViewHolder(root)
 
     private inner class ChipAdapter : RecyclerView.Adapter<ChipHolder>() {
-        override fun getItemCount(): Int = chipLabels.size
+        override fun getItemCount(): Int = chipValues.size
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ChipHolder {
             // Equal padding on both sides of the chip (not a margin), so nothing depends on the layout direction.
@@ -553,11 +1177,13 @@ class SubsScreen(
         }
 
         override fun onBindViewHolder(holder: ChipHolder, position: Int) {
-            val chosen = position == filter
+            val value = chipValues[position]
+            val chosen = value == filter
             holder.label.text = context.getString(chipLabels[position])
             holder.label.setTextColor(if (chosen) palette.background else palette.text)
             holder.label.background = rounded(if (chosen) palette.text else palette.chip, dp(8).toFloat())
-            holder.itemView.setOnClickListener { chooseFilter(position) }
+            holder.itemView.isSelected = chosen
+            holder.itemView.setOnClickListener { chooseFilter(value) }
         }
     }
 
@@ -610,11 +1236,15 @@ class SubsScreen(
 
     private fun bindChannel(holder: StripHolder, channel: SubsChannel) {
         val chosen = selectedChannel?.id == channel.id
+        val fresh = !chosen && channel.id in newIds
         holder.label.text = channel.name
         holder.label.setTextColor(if (chosen) palette.text else palette.secondary)
         holder.ring?.background = if (chosen) ring() else null
-        holder.dot?.visibility = if (!chosen && channel.id in newIds) View.VISIBLE else View.GONE
+        holder.dot?.visibility = if (fresh) View.VISIBLE else View.GONE
         holder.avatar?.let { SubsImages.load(it, channel.avatar, null, dp(72)) }
+        // What a screen reader says: the name, and that the channel has something new.
+        holder.itemView.contentDescription = if (fresh) context.getString(R.string.subsChannelNew, channel.name) else channel.name
+        holder.itemView.isSelected = chosen
         // Tapping the chosen channel again goes back to every channel.
         holder.itemView.setOnClickListener { choose(if (chosen) null else channel) }
     }
@@ -625,7 +1255,10 @@ class SubsScreen(
         root: View,
         val thumb: ImageView,
         val duration: TextView,
+        /** The red line under the picture (how much was watched) and its two parts: the watched part and the rest. */
         val progress: View,
+        val done: View,
+        val rest: View,
         val avatar: ImageView,
         val title: TextView,
         val meta: TextView,
@@ -643,15 +1276,32 @@ class SubsScreen(
     /** A row of Shorts in the list: its own sideways list of Shorts under a title. */
     private class ShelfHolder(root: View, val shorts: ShelfAdapter) : RecyclerView.ViewHolder(root)
 
+    /** The spinner row at the end of the list. */
+    private class FooterHolder(root: View) : RecyclerView.ViewHolder(root)
+
     private inner class VideoAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         private var rows: List<Row> = emptyList()
         private var avatars: Map<String, String> = emptyMap()
 
-        fun submit(newRows: List<Row>, avatarOf: Map<String, String>) {
+        /**
+         * Puts [newRows] on view. Only the rows that changed are touched ([RowDiff]): the list keeps its place, the rows
+         * that stay are not drawn again, and a hidden video leaves with an animation. A different list ([replace]: a chip
+         * or a channel was chosen), new channel pictures, an empty list on either side or a very long one are put on
+         * view whole.
+         */
+        fun submit(newRows: List<Row>, avatarOf: Map<String, String>, replace: Boolean) {
+            val old = rows
+            val sameAvatars = avatarOf === avatars || avatarOf == avatars
             rows = newRows
             avatars = avatarOf
-            notifyDataSetChanged()
+            if (replace || !sameAvatars || old.isEmpty() || newRows.isEmpty() || old.size > DIFF_MAX_ROWS || newRows.size > DIFF_MAX_ROWS) {
+                notifyDataSetChanged()
+            } else {
+                DiffUtil.calculateDiff(RowDiff(old, newRows), false).dispatchUpdatesTo(this)
+            }
         }
+
+        fun isFooter(position: Int): Boolean = rows.getOrNull(position) is Row.Footer
 
         override fun getItemCount(): Int = rows.size
 
@@ -661,13 +1311,15 @@ class SubsScreen(
                 is Row.Shelf -> ROW_SHELF
                 is Row.Tile -> ROW_TILE
                 is Row.Post -> ROW_POST
+                is Row.Footer -> ROW_FOOTER
             }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
             when (viewType) {
                 ROW_SHELF -> buildShelfItem()
-                ROW_TILE -> buildShortCard(MATCH, tileHeight)
+                ROW_TILE -> buildShortCard(MATCH, 0)
                 ROW_POST -> buildPostItem()
+                ROW_FOOTER -> buildFooterItem()
                 else -> buildVideoItem()
             }
 
@@ -677,6 +1329,7 @@ class SubsScreen(
                 is Row.Shelf -> (holder as ShelfHolder).shorts.submit(row.shorts)
                 is Row.Tile -> bindShort(holder as ShortHolder, row.video)
                 is Row.Post -> bindPost(holder as PostHolder, row.video, avatars)
+                is Row.Footer -> Unit
             }
         }
     }
@@ -697,6 +1350,17 @@ class SubsScreen(
         override fun onBindViewHolder(holder: ShortHolder, position: Int) = bindShort(holder, items[position])
     }
 
+    private fun buildFooterItem(): FooterHolder {
+        val box = FrameLayout(context)
+        box.layoutParams = RecyclerView.LayoutParams(MATCH, WRAP)
+        box.setPadding(0, dp(16), 0, dp(24))
+        val bar = ProgressBar(context)
+        bar.isIndeterminate = true
+        bar.indeterminateTintList = ColorStateList.valueOf(palette.accent)
+        box.addView(bar, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.CENTER_HORIZONTAL))
+        return FooterHolder(box)
+    }
+
     private fun bindCard(holder: CardHolder, video: SubsVideo, avatars: Map<String, String>) {
         holder.title.text = video.title
         holder.meta.text = metaLine(video)
@@ -709,11 +1373,12 @@ class SubsScreen(
         holder.duration.text = badge
         holder.duration.visibility = if (badge.isEmpty()) View.GONE else View.VISIBLE
         holder.duration.background = rounded(if (video.live == 1) 0xE6CC0000.toInt() else 0xCC000000.toInt(), dp(4).toFloat())
-        // The red line under the picture: how much the account has watched.
-        val line = holder.progress.layoutParams
-        line.width = (screenWidth * video.watched / 100f).toInt()
-        holder.progress.layoutParams = line
-        holder.progress.visibility = if (video.watched > 0) View.VISIBLE else View.GONE
+        // The red line under the picture: how much the account has watched, as a share of the picture's width.
+        val watched = video.watched.coerceIn(0, 100)
+        (holder.done.layoutParams as LinearLayout.LayoutParams).weight = watched.toFloat()
+        (holder.rest.layoutParams as LinearLayout.LayoutParams).weight = (100 - watched).toFloat()
+        holder.progress.visibility = if (watched > 0) View.VISIBLE else View.GONE
+        holder.progress.requestLayout()
         SubsImages.load(
             holder.thumb,
             "https://i.ytimg.com/vi/${video.id}/hq720.jpg",
@@ -747,7 +1412,8 @@ class SubsScreen(
         card.orientation = LinearLayout.VERTICAL
         card.layoutParams = RecyclerView.LayoutParams(MATCH, WRAP)
 
-        val thumbBox = FrameLayout(context)
+        // The picture is 16:9 at whatever width the card has (the phone may be turned sideways after the card was made).
+        val thumbBox = RatioFrame(context, 9f / 16f)
         val thumb = ImageView(context)
         thumb.scaleType = ImageView.ScaleType.CENTER_CROP
         thumb.setBackgroundColor(palette.placeholder)
@@ -762,11 +1428,17 @@ class SubsScreen(
         val durationParams = FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END)
         durationParams.setMargins(dp(8), dp(8), dp(8), dp(8))
         thumbBox.addView(duration, durationParams)
-        val progress = View(context)
-        progress.setBackgroundColor(0xFFFF0000.toInt())
+        // The red line: two parts side by side whose weights are the percent watched and the rest.
+        val progress = LinearLayout(context)
+        progress.orientation = LinearLayout.HORIZONTAL
         progress.visibility = View.GONE
-        thumbBox.addView(progress, FrameLayout.LayoutParams(0, dp(3), Gravity.BOTTOM or Gravity.START))
-        card.addView(thumbBox, LinearLayout.LayoutParams(MATCH, thumbHeight))
+        val done = View(context)
+        done.setBackgroundColor(0xFFFF0000.toInt())
+        val rest = View(context)
+        progress.addView(done, LinearLayout.LayoutParams(0, MATCH, 0f))
+        progress.addView(rest, LinearLayout.LayoutParams(0, MATCH, 0f))
+        thumbBox.addView(progress, FrameLayout.LayoutParams(MATCH, dp(3), Gravity.BOTTOM))
+        card.addView(thumbBox, LinearLayout.LayoutParams(MATCH, WRAP))
 
         val info = LinearLayout(context)
         info.orientation = LinearLayout.HORIZONTAL
@@ -810,7 +1482,7 @@ class SubsScreen(
         info.addView(more, moreParams)
 
         card.addView(info, LinearLayout.LayoutParams(MATCH, WRAP))
-        return CardHolder(card, thumb, duration, progress, avatar, title, meta, more)
+        return CardHolder(card, thumb, duration, progress, done, rest, avatar, title, meta, more)
     }
 
     // ---- The posts ----
@@ -1017,7 +1689,7 @@ class SubsScreen(
         picture.scaleType = ImageView.ScaleType.CENTER_CROP
         picture.adjustViewBounds = true
         picture.maxHeight = screenWidth * 5 / 4
-        picture.minimumHeight = thumbHeight / 2
+        picture.minimumHeight = dp(120)
         picture.setBackgroundColor(palette.placeholder)
         frame.addView(picture, FrameLayout.LayoutParams(MATCH, WRAP))
         SubsImages.load(picture, images[0], null, screenWidth)
@@ -1083,7 +1755,10 @@ class SubsScreen(
         val picture = ImageView(context)
         picture.scaleType = ImageView.ScaleType.CENTER_CROP
         picture.setBackgroundColor(palette.placeholder)
-        box.addView(picture, LinearLayout.LayoutParams(MATCH, thumbHeight))
+        // 16:9 at whatever width the post has.
+        val frame = RatioFrame(context, 9f / 16f)
+        frame.addView(picture, FrameLayout.LayoutParams(MATCH, MATCH))
+        box.addView(frame, LinearLayout.LayoutParams(MATCH, WRAP))
         SubsImages.load(
             picture,
             "https://i.ytimg.com/vi/${post.videoId}/hq720.jpg",
@@ -1105,13 +1780,18 @@ class SubsScreen(
         return box
     }
 
-    /** A tall card with rounded corners: the picture of a Short with its title and views over the bottom. */
+    /**
+     * A tall card with rounded corners: the picture of a Short with its title and views over the bottom. With a [height]
+     * the card has that size (a Short in a row of Shorts); with 0 it is as tall as its width asks for, 9:16 (a tile of
+     * the Shorts chip: its width is the grid's, and follows the screen when it is turned).
+     */
     private fun buildShortCard(width: Int, height: Int): ShortHolder {
+        val fixed = height > 0
         val root = FrameLayout(context)
-        root.layoutParams = RecyclerView.LayoutParams(width, height)
+        root.layoutParams = RecyclerView.LayoutParams(width, if (fixed) height else WRAP)
         root.setPadding(dp(4), dp(4), dp(4), dp(4))
 
-        val card = FrameLayout(context)
+        val card: FrameLayout = if (fixed) FrameLayout(context) else RatioFrame(context, 16f / 9f)
         card.outlineProvider = roundedCorners
         card.clipToOutline = true
         card.setBackgroundColor(palette.placeholder)
@@ -1152,7 +1832,7 @@ class SubsScreen(
         more.background = rippleBackground()
         card.addView(more, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP or Gravity.END))
 
-        root.addView(card, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(card, FrameLayout.LayoutParams(MATCH, if (fixed) MATCH else WRAP))
         return ShortHolder(root, thumb, title, views, more)
     }
 
@@ -1163,17 +1843,17 @@ class SubsScreen(
         box.layoutParams = RecyclerView.LayoutParams(MATCH, WRAP)
         box.setPadding(0, dp(8), 0, dp(12))
 
-        val header = LinearLayout(context)
-        header.orientation = LinearLayout.HORIZONTAL
-        header.gravity = Gravity.CENTER_VERTICAL
-        header.setPadding(dp(12), dp(4), dp(12), dp(8))
+        val titleRow = LinearLayout(context)
+        titleRow.orientation = LinearLayout.HORIZONTAL
+        titleRow.gravity = Gravity.CENTER_VERTICAL
+        titleRow.setPadding(dp(12), dp(4), dp(12), dp(8))
         val mark = TextView(context)
-        mark.text = "\u25B6"
+        mark.text = "▶"
         mark.textSize = 9f
         mark.setTextColor(Color.WHITE)
         mark.gravity = Gravity.CENTER
         mark.background = rounded(0xFFFF0000.toInt(), dp(5).toFloat())
-        header.addView(mark, LinearLayout.LayoutParams(dp(26), dp(18)))
+        titleRow.addView(mark, LinearLayout.LayoutParams(dp(26), dp(18)))
         val name = TextView(context)
         name.text = context.getString(R.string.subsShortsTitle)
         name.textSize = 20f
@@ -1181,8 +1861,8 @@ class SubsScreen(
         name.setTextColor(palette.text)
         val nameParams = LinearLayout.LayoutParams(WRAP, WRAP)
         nameParams.marginStart = dp(8)
-        header.addView(name, nameParams)
-        box.addView(header, LinearLayout.LayoutParams(MATCH, WRAP))
+        titleRow.addView(name, nameParams)
+        box.addView(titleRow, LinearLayout.LayoutParams(MATCH, WRAP))
 
         val row = RecyclerView(context)
         val adapter = ShelfAdapter()
@@ -1214,6 +1894,24 @@ class SubsScreen(
                 ).toString()
             )
         }
-        return parts.joinToString(" \u2022 ")
+        return parts.joinToString(" • ")
+    }
+}
+
+/**
+ * A frame whose height follows its width ([ratio] is height over width): a 16:9 picture is 0.5625 of its width high at
+ * any width, so it stays right when the phone is turned (a height worked out once, in pixels, did not).
+ */
+private class RatioFrame(context: Context, private val ratio: Float) : FrameLayout(context) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val width = View.MeasureSpec.getSize(widthMeasureSpec)
+        if (width <= 0) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            return
+        }
+        super.onMeasure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((width * ratio).toInt(), View.MeasureSpec.EXACTLY),
+        )
     }
 }

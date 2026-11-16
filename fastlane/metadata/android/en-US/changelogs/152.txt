@@ -1,0 +1,1 @@
+New: pull down at the top of a page (Home, Search, Channels, Library...) to load it again, like YouTube's own app. It leaves sideways swipes, Shorts and videos alone.

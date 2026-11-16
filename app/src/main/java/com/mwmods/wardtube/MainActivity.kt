@@ -70,6 +70,7 @@ import com.mwmods.wardtube.player.PlayerHost
 import com.mwmods.wardtube.player.SleepTimer
 import com.mwmods.wardtube.subs.SubsController
 import com.mwmods.wardtube.ui.MenuController
+import com.mwmods.wardtube.ui.PullRefreshLayout
 import com.mwmods.wardtube.util.CookieHelper
 import com.mwmods.wardtube.util.Permissions
 import com.mwmods.wardtube.util.PlaylistLinks
@@ -96,6 +97,13 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     // Videos play in a second WebView (the player) that is full screen or a small floating box (the mini player),
     // so the page being browsed stays untouched behind it.
     private lateinit var webArea: FrameLayout
+
+    /** Pull down at the top of the browsing page to load it again (see [setUpPullRefresh]). */
+    private lateinit var pullRefresh: PullRefreshLayout
+
+    /** True when the page was found scrolled inside the list under the finger (see [probePullTop]): no pull then. */
+    private var pullListScrolled = false
+    private val stopPullSpinner = Runnable { if (::pullRefresh.isInitialized) pullRefresh.isRefreshing = false }
     private lateinit var playerHost: PlayerHost
     private lateinit var playerScripts: PageScripts
     private var playerChrome: WardTubeChromeClient? = null
@@ -214,6 +222,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
         prefs = Prefs(this)
         webView = findViewById(R.id.webView)
+        pullRefresh = findViewById(R.id.pullRefresh)
         webArea = findViewById(R.id.webArea)
         appWindow = findViewById(R.id.appWindow)
         statusBarSpace = findViewById(R.id.statusBarSpace)
@@ -246,6 +255,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         menuDownload.install()
         scripts.install(webView)
         watchScrollDirection(webView)
+        setUpPullRefresh()
 
         playerHost = PlayerHost(
             area = webArea,
@@ -301,6 +311,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 when {
                     isFullscreen -> exitFullscreen()
                     playerHost.mode == PlayerHost.Mode.EXPANDED -> playerHost.minimize()
+                    // The Subscriptions screen's list of every channel is open: back closes it (the page stays).
+                    ::subs.isInitialized && subs.onBack() -> Unit
                     webView.canGoBack() -> webView.goBack()
                     else -> finish()
                 }
@@ -639,6 +651,72 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             return
         }
         setBarHidden(down)
+    }
+
+    // ---- Pull down to refresh ----
+
+    /**
+     * Pulling the browsing page down from its top loads it again, like YouTube's own app (the Subscriptions screen
+     * does the same for its own list). The layer only takes the pull when [canPullRefresh] says the page is at its top.
+     */
+    private fun setUpPullRefresh() {
+        val night = createdNight
+        pullRefresh.setColorSchemeColors(if (night) 0xFF3EA6FF.toInt() else 0xFF065FD4.toInt())
+        pullRefresh.setProgressBackgroundColorSchemeColor(if (night) 0xFF272727.toInt() else 0xFFF2F2F2.toInt())
+        // The callback answers "can the page still scroll up?": yes means the pull is left to the page.
+        pullRefresh.setOnChildScrollUpCallback { _, _ -> !canPullRefresh() }
+        pullRefresh.setOnRefreshListener { refreshBrowse() }
+        pullRefresh.onTouchStart = { x, y -> probePullTop(x, y) }
+    }
+
+    /**
+     * True when a pull may start: the page is a plain page of YouTube (not a Short, which moves up and down by itself, not
+     * a video, not a sign-in page), nothing covers it, and it is at its top.
+     */
+    private fun canPullRefresh(): Boolean =
+        pullPageEligible() && !pullListScrolled && webView.scrollY <= 0 && !webView.canScrollVertically(-1)
+
+    /** The page on view is one that a pull may refresh (whatever its scroll position is). */
+    private fun pullPageEligible(): Boolean {
+        if (isFullscreen) return false
+        if (::playerHost.isInitialized && playerHost.mode == PlayerHost.Mode.EXPANDED) return false
+        val url = webView.url ?: return false
+        if (!UrlUtils.isYouTubeUrl(url) || UrlUtils.isShortsPage(url) || UrlUtils.isVideoUrl(url)) return false
+        return !Uri.parse(url).host.orEmpty().startsWith("accounts.")
+    }
+
+    /**
+     * A finger went down on the page: finds out whether a list inside the page, under the finger, is scrolled. YouTube's
+     * pages scroll as a whole (the WebView knows that: [canPullRefresh] asks it), but a list that scrolls inside the page
+     * would look like the top to the WebView, so the page itself is asked, once per touch. The layer has to say yes
+     * to a touch when it starts (it cannot begin a pull later), so a pull is allowed until the page answers, which takes
+     * a few milliseconds, far less than a pull needs to begin. Only an answer of "false" blocks: a page that cannot answer
+     * (still loading, or an error page) is let through, and the WebView's own position decides.
+     */
+    private fun probePullTop(x: Float, y: Float) {
+        pullListScrolled = false
+        if (webView.scrollY > 0 || !pullPageEligible()) return
+        val density = resources.displayMetrics.density
+        webView.evaluateJavascript("$PULL_PROBE_JS(${(x / density).toInt()},${(y / density).toInt()})") { result ->
+            pullListScrolled = result == "false"
+        }
+    }
+
+    /** The pull was let go: the page loads again, and the spinner stays until it has (see [endPullRefresh]). */
+    private fun refreshBrowse() {
+        errorSnackbar?.dismiss()
+        errorSnackbar = null
+        val url = webView.url
+        if (url.isNullOrEmpty() || url == "about:blank") loadBrowse(browseHomepage()) else webView.reload()
+        // The spinner stops when the page has loaded; this is only for a load that never ends.
+        pullRefresh.removeCallbacks(stopPullSpinner)
+        pullRefresh.postDelayed(stopPullSpinner, PULL_REFRESH_MAX_MS)
+    }
+
+    private fun endPullRefresh() {
+        if (!::pullRefresh.isInitialized || !pullRefresh.isRefreshing) return
+        pullRefresh.removeCallbacks(stopPullSpinner)
+        pullRefresh.isRefreshing = false
     }
 
     /** Settings shared by the browsing WebView and the player. */
@@ -1246,6 +1324,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (::subs.isInitialized) subs.onPageShown(url)
     }
 
+    override fun onPageFinished(url: String?) = endPullRefresh()
+
     override fun onPageChanged(url: String?) {
         allowAutoplayFor(url ?: webView.url)
         if (::menuDownload.isInitialized) menuDownload.injectNow()
@@ -1297,6 +1377,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     override fun onLoadError(kind: ErrorKind, description: String) {
+        endPullRefresh()
         showLoadError(kind, description) { retry() }
     }
 
@@ -1337,18 +1418,71 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         appWindow.visibility = if (fullscreen) View.GONE else View.VISIBLE
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         refreshKeepAwake() // full screen no longer keeps the screen on by itself: only a playing video does
-        // Fullscreen locks to landscape like the YouTube app: it flips between the two landscape sides
-        // with the sensor (even when the system auto-rotate toggle is off) and holding the phone upright
-        // does not rotate it back to portrait.
-        requestedOrientation = if (fullscreen) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        useRotateAnimation()
         if (fullscreen) {
+            lockFullscreenOrientation(target)
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.systemBars())
             target?.evaluateJavascript("document.body.style.overflowX='hidden';window.scrollTo(0,0);", null)
+            // The window's shape and arming were set for the page the video was on (the player box, its place on the
+            // screen): from here on the picture's own shape counts and the old place is wrong. Until the next report of
+            // the player (up to a few seconds) a Home press would have used the old ones.
+            updatePipParams()
         } else {
+            fullscreenOrientationToken++ // a wait for the picture's shape that is still open must not lock the phone after this
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             controller.show(WindowInsetsCompat.Type.systemBars())
             target?.evaluateJavascript("window.scrollTo(0,0);document.body.style.overflowX='';", null)
+        }
+    }
+
+    /** Counts the waits for a picture's shape (see [lockFullscreenOrientation]): a newer one, or leaving full screen, cancels the older. */
+    private var fullscreenOrientationToken = 0
+
+    /**
+     * From LiTube (PlayerWindowHost.applyImmersive): full screen turns the phone to the picture's own shape, sideways for
+     * a normal video and upright for one that is taller than wide. It flips between the two sides of that shape with the
+     * sensor (even when the system auto-rotate toggle is off), like the YouTube app, and holding the phone the other way
+     * does not turn it back. The player's page is asked for the picture's size first so the phone turns once, to the right
+     * way; a page that does not answer in time, or a page that is not the player (a Short), gets the sideways lock.
+     */
+    private fun lockFullscreenOrientation(target: WebView?) {
+        val token = ++fullscreenOrientationToken
+        fun lock(upright: Boolean) {
+            if (token != fullscreenOrientationToken || isDestroyed || !isFullscreen) return
+            fullscreenOrientationToken++ // locked once: the other of the two (answer or timeout) is out of date now
+            requestedOrientation = if (upright) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+        if (!::playerHost.isInitialized || target == null || target !== playerHost.webView) {
+            lock(false)
+            return
+        }
+        PlayerController.queryState { state ->
+            lock(state != null && state.videoWidth > 0 && state.videoHeight > state.videoWidth)
+        }
+        webArea.postDelayed({ lock(false) }, FULLSCREEN_ORIENTATION_WAIT_MS)
+    }
+
+    /**
+     * From LiTube: the system turns the screen with its own rotation animation instead of fading a picture of the old
+     * orientation, which in full screen shows the app's bars for a moment.
+     */
+    private fun useRotateAnimation() {
+        val attributes = window.attributes
+        if (attributes.rotationAnimation == WindowManager.LayoutParams.ROTATION_ANIMATION_ROTATE) return
+        attributes.rotationAnimation = WindowManager.LayoutParams.ROTATION_ANIMATION_ROTATE
+        window.attributes = attributes
+    }
+
+    /**
+     * From LiTube (PlayerWindowEffects): a dialog, the share sheet or the notification shade drawn over the full-screen video
+     * can leave the system bars showing when the window gets its focus back. They are hidden again then.
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && ::chromeClient.isInitialized && isFullscreen && !isInPictureInPictureMode) {
+            WindowCompat.getInsetsController(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -1490,6 +1624,21 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val BAR_ANIMATION_MS = 150L
         const val BAR_SCROLL_THRESHOLD_DP = 24f
 
+        // Pull down to refresh: the longest the spinner stays when the page never reports that it has loaded, and the
+        // script that asks the page whether it (or the list under the finger) is scrolled away from its top. It is a
+        // function; the finger's place is passed to it in CSS pixels. True: nothing is scrolled.
+        const val PULL_REFRESH_MAX_MS = 12_000L
+        const val PULL_PROBE_JS =
+            "(function(x,y){try{" +
+                "var s=document.scrollingElement||document.documentElement;" +
+                "if((window.pageYOffset||0)>0||(s&&s.scrollTop>0))return false;" +
+                "var e=document.elementFromPoint(x,y);" +
+                "while(e&&e!==document.body&&e!==document.documentElement){" +
+                "if(e.scrollTop>0){var o=getComputedStyle(e).overflowY;" +
+                "if(o==='auto'||o==='scroll'||o==='overlay')return false;}" +
+                "e=e.parentElement;}" +
+                "return true;}catch(err){return true;}})"
+
         // Picture in picture. Android accepts window shapes between 1:2.39 and 2.39:1.
         const val ACTION_PIP_TOGGLE = "com.mwmods.wardtube.PIP_TOGGLE"
         const val ACTION_PIP_PREVIOUS = "com.mwmods.wardtube.PIP_PREVIOUS"
@@ -1503,6 +1652,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val PIP_MAX_ASPECT = 2.35f
         const val PIP_ASK_WINDOW_MS = 1500L
         const val PIP_LEAVE_MEMORY_MS = 8000L
+
+        /** How long full screen waits for the page to say the picture's shape before it locks sideways (see lockFullscreenOrientation). */
+        const val FULLSCREEN_ORIENTATION_WAIT_MS = 350L
         val PIP_RESUME_CHECKS_MS = longArrayOf(600L, 1500L, 3000L)
         const val OWN_LAUNCH_MS = 1500L
     }

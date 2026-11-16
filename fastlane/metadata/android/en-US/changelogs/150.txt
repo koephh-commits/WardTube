@@ -1,0 +1,1 @@
+New: full screen turns the phone upright for a video taller than wide; "Next Short when one ends" option in the menu. Fixed: picture in picture used an old shape if Home was pressed right after entering full screen.

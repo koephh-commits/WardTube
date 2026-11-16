@@ -1,5 +1,122 @@
 # Changelog
 
+## 2.6.110
+- Fixed: **the pencil on the open page's card now puts the page's address in the link field** (`browser/OmniboxPanel.kt`,
+  `browser/BrowserActivity.kt`). The pencil (and a tap on the card) only focused the field and brought the keyboard up, so
+  when the field was empty (the x pressed, or the selected address deleted) it stayed empty and the address could not be
+  edited. Now `editAddress(url)` fills the field with the page's address, puts the cursor at its end and shows the keyboard.
+- Fixed: tapping the field of an open page while it is empty now fills it with the page's address, as it already did when
+  the field was not being used (`openOmnibox`).
+- Not tested: written without an Android SDK to build it. Build it and try it: open a search or a site, tap the field,
+  press the x, then the pencil on the card: the address should come back in the field with the keyboard up.
+
+## 2.6.109
+- Changed: **the browser's link field opens with one smooth movement** (`browser/BrowserActivity.kt`, `OmniboxPanel.kt`).
+  - Before, the top row faded out, *then* the field moved, *then* the row faded in (three steps one after the other, about
+    0.45 s), and the suggestions page appeared over the field while it was still on its way. Now the field and the page
+    (or the main screen) under it glide up together in 0.24 s on one curve, the top row fades away at the start, the
+    suggestions fade in and rise a few dp into place a moment later, and the field's first button grows into its new icon
+    (the back arrow). Closing plays the same movement backwards, and the suggestions fade out quickly instead of vanishing.
+  - `layoutHeader` is now the only place that sizes the header; `headerTransition` is its movement. The old
+    `animateField` (a sequential `AutoTransition`) is gone.
+- Changed: **the header is slim while a page is open** (any site, or the result of a search). The top row is 40dp (was
+  64dp), the field 48dp (was 56dp), the gap above the field 2dp (was 12dp) and the one above the page 4dp (was 8dp): the
+  page gets **46dp more of the screen** (the header went from 140dp to 94dp). The search engine button is hidden on the
+  slim field, so the address has more room, and comes back (fading in) as soon as the field is tapped. The main screen
+  keeps the roomy header as it was; opening or closing a page switches between the two at once.
+- Removed: **"Next Short when one ends"**, because it did not work. The switch is gone from the menu (`MenuController`), with
+  `Prefs.shortsAutoNext`, the flag sent to the page (`PageScripts`), `autoNextShort` in `wardtube.js`, the three strings
+  (English and Arabic) and the lines in both READMEs. `nextShort` in the script stays: the Shorts ad skipper uses it. A
+  Short that ends plays again, as on YouTube. An old `shortsAutoNext` value in the preferences of a phone that had the option
+  is never read again and does no harm.
+- Not tested: written without an Android SDK to build it. Build it and try it: tap the field on the main screen and with
+  a page open (and press back to close it) and look at the movement; open a site and a search and see the slimmer header;
+  check that Reload / Home / Back and the keyboard still work with it; check the menu no longer shows the Next Short row.
+
+## 2.6.108
+- Improved: **the search box of "All subscriptions"** (`subs/SubsScreen.kt`) is no longer always on the screen. Under the
+  panel's title row there is now a **lens button with "Search for a channel in subscriptions" beside it** (a small rounded
+  button, not a box); a tap turns the title row and the button into the search box (back arrow, the text, an x that empties
+  it) and brings the keyboard up, and the back arrow (or the phone's back button, once) closes the search and shows them
+  again. Closing the panel always leaves the search closed.
+- New: **the browser's link field works like Chrome's address bar** (`browser/OmniboxPanel.kt`, `SearchHistory.kt`,
+  `SearchSuggest.kt`, `BrowserActivity.kt`, `activity_browser.xml`).
+  - A tap on the field **widens it**: the top row goes away, the field takes the width of the screen, and its globe becomes
+    a back arrow. Under it the suggestions page opens; the back arrow or the back button closes it.
+  - **Empty field** (or the open page's own address): the open page's card with *edit / copy / share* buttons, then the
+    **recent searches** (the words searched in this field, newest first). With no searches yet, the last pages opened.
+  - **While typing:** the text itself first (search it, or open it when it looks like an address), then the recent
+    searches that match, then **the suggestions of the search engine in use**, then the pages of the browsing history that
+    match. The arrow at the end of a row only puts its text in the field; a tap on the row searches / opens it; a long press
+    on a recent search removes it. Dragging the list hides the keyboard.
+  - **Privacy:** the typed words are sent for suggestions only to the engine chosen at the end of the field (Google,
+    YouTube, Bing, DuckDuckGo, Brave and Yandex have a suggestion service; the other engines get no suggestions, and the text
+    is not sent to any other one). Text that looks like an address is never sent. Searches are saved on the phone only.
+  - The screen's own view now takes the first focus (so the field is not focused, and the suggestions are not opened, when
+    the screen starts), and the field selects its whole text when it gets the focus.
+- Not tested: written without an Android SDK to build it, and the suggestion services were not reached from here. Build it
+  and try it: the lens in All subscriptions, then the field on the browser screen (empty, typing Arabic and English words,
+  with a page open and without).
+
+## 2.6.106
+- New: **pull down to refresh** on the browsing page, like YouTube's own app and the Subscriptions screen: pulling the page
+  down from its top loads it again, with the round spinner, which stops when the page has loaded
+  (`MainActivity.setUpPullRefresh`, `ui/PullRefreshLayout.kt`, `PageEvents.onPageFinished`).
+  - It only works on plain YouTube pages: not on Shorts (they move up and down by themselves), not on a video, not on a
+    sign-in page, not in full screen or while the player is open over the page.
+  - **It waits for the top.** The pull starts only when the WebView is at the top of the page, and a short script asks the
+    page once per touch whether a list inside the page under the finger is scrolled (YouTube's pages scroll as a whole, but
+    a list in one would look like the top to the WebView).
+  - **Sideways swipes are left alone:** a slanted swipe along a row of chips no longer pulls the page (`PullRefreshLayout`
+    stops offering the pull once the finger has gone further sideways than down).
+- Not tested: written without an Android SDK to build it. Build it and try it on a device (Home, Search, a channel).
+
+## 2.6.105
+- Improved: **the Subscriptions screen** (`subs/SubsScreen.kt`, with small hooks in `SubsController.kt`), rewritten with
+  [LiTube](https://github.com/HydeYYHH/litube)'s subscriptions screen as the model (LiTube is a Compose app, so its code
+  cannot be copied into this View-based one; the ideas were re-written here). The data layer (`SubsRepository`) is
+  untouched: what is read from YouTube, and how, is as before.
+  - **All channels in a list.** The "All" button used to leave for YouTube's page. It now opens a panel over the screen
+    with every subscription, a search box and the blue dot for new videos; a tap picks the channel. Its "Manage" button
+    still opens YouTube's own page. The back button closes the panel first (`SubsController.onBack`).
+  - **Two new chips:** *Continue watching* (videos with a red line between the ends, under 95 %) and *Unwatched* (no red
+    line). They read further pages like the Videos chip does when few videos match (`SubsFilter.CONTINUE`/`UNWATCHED`).
+  - **States instead of a blank screen.** A skeleton of cards while the first read is on its way; a "Couldn't load
+    videos" screen with **Try again** when a read failed and there is nothing to show (`feedFailed`/`channelFailed`); a small
+    spinner at the end of the list while older videos are read (`setLoadingMore`).
+  - **The header slides away** with the finger (strip of channels and chips), and comes back when scrolling up; it settles
+    only when the list has scrolled past it, so no gap is left.
+  - **Lighter on slow phones:** the list is a `RecyclerView` updated with `DiffUtil` (a full redraw only for another list,
+    new pictures, or more than 1500 rows) instead of being rebuilt on every page.
+  - **Turning the phone:** the Shorts grid takes its columns from the width (2 to 5), and the pictures keep 16:9 / 9:16 at any
+    width (`RatioFrame`).
+- Not tested: this version was written without an Android SDK to build it. Build it (`./gradlew assembleDebug`) and check
+  the Subscriptions screen on a device before publishing.
+
+## 2.6.104
+- Improved, from reading [LiTube](https://github.com/HydeYYHH/litube)'s player and Shorts code (LiTube is a native app, so
+  its player cannot be copied into this WebView app; the rules that carry over were re-written here):
+  - Full screen turns the phone to the picture's own shape (`MainActivity.lockFullscreenOrientation`, from LiTube's
+    `PlayerWindowHost.applyImmersive`): sideways as before, but upright for a video taller than wide. The player's page is
+    asked for the picture's size first so the phone turns once; no answer within 350 ms (or a page that is not the
+    player) gives the old sideways lock.
+  - The turn uses the system's own rotation animation (`ROTATION_ANIMATION_ROTATE`) instead of a cross-fade of a picture
+    of the old orientation.
+  - A dialog, the share sheet or the notification shade over the full-screen video can leave the system bars showing: they
+    are hidden again when the window gets its focus back (`onWindowFocusChanged`).
+  - New menu option **Next Short when one ends** (off by default; Playback section): YouTube's page only repeats a Short
+    that ends. With the option on, the page moves on to the next Short a moment before the end, or right after the Short
+    started over if its 0.3 s timer missed that moment (`autoNextShort` in `wardtube.js`; it shares `nextShort` with the Shorts
+    ad skipper). Nothing happens for a paused Short or an ad.
+- Fixed: **picture in picture could use the shape and the "where the video is" of the page behind full screen.** The
+  window's params (shape, arming, source rectangle) were refreshed only by the player's report, every one to three
+  seconds, so pressing Home soon after entering full screen handed Android the player box's old place on the screen, which
+  crops the window to the wrong part. They are now refreshed the moment full screen starts, as LiTube does on every player
+  state change. (Leaving full screen is left to the report: the box measured in full screen is the screen's shape.)
+- Not changed: the picture-in-picture window itself still takes the video out of the page's full screen (see
+  `enterPipUi`): LiTube's window works from full screen because its full screen is only a state of its own player view,
+  while here full screen is the page's, and YouTube's page leaves it by itself when the window turns upright.
+
 ## 2.6.103
 - Fixed: **posts were slow to come and rare in "All content", and Shorts were rare in it too.**
   - Posts, why they were rare: "All content" and "Today" put posts among the videos only from YouTube's own Posts list. When

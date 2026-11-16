@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One suggestion of the browser's link field: an icon (search, clock, globe), the text (and, for a page of the history,
+     its address under it) and the arrow that puts the text in the field. Filled in by OmniboxPanel. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:minHeight="56dp"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingEnd="4dp">
+
+    <ImageView
+        android:id="@+id/omniIcon"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        app:tint="@color/browserHint" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/omniText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textAlignment="viewStart"
+            android:textColor="@color/browserText"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/omniSub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textAlignment="viewStart"
+            android:textColor="@color/browserFabIcon"
+            android:textDirection="ltr"
+            android:textSize="12.5sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/omniFill"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/omniboxFill"
+        android:src="@drawable/ic_fill_24dp"
+        app:tint="@color/browserHint" />
+</LinearLayout>

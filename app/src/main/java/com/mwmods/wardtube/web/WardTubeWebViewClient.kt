@@ -32,6 +32,9 @@ interface PageEvents {
     /** The new page painted its first content: nothing of the page before it is drawn any more. */
     fun onPageCommitVisible(url: String?) {}
 
+    /** The page finished loading (the pull-to-refresh spinner stops here). */
+    fun onPageFinished(url: String?) {}
+
     fun onLoadError(kind: ErrorKind, description: String)
 
     fun onRenderProcessGone()
@@ -98,6 +101,7 @@ class WardTubeWebViewClient(
         super.onPageFinished(view, url)
         view?.let { scripts.injectFallback(it) }
         events.onPageChanged(url)
+        events.onPageFinished(url)
     }
 
     override fun onPageCommitVisible(view: WebView?, url: String?) {

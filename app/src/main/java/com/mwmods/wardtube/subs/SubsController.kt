@@ -235,6 +235,12 @@ class SubsController(
     private var channelsLoading = false
     private var feedLoading = false
     private var moreLoading = false
+
+    /** The last read of the feed failed (offline, or nothing could be read): the empty screen then offers "Try again". */
+    private var feedFailed = false
+
+    /** The tabs ("<channel id>|<tab>") whose last read failed: the same, for the screen of one channel. */
+    private val channelFailed = HashSet<String>()
     private var channelBusy: String? = null
     private var generation = 0
 
@@ -257,6 +263,7 @@ class SubsController(
             // Leaving for a channel's page: the screen stays over the old page until the new one is on view.
             if (holding && enabled() && screen?.visibility == View.VISIBLE) return
             onSubsPage = false
+            screen?.closeChannels()
             screen?.visibility = View.GONE
             return
         }
@@ -339,6 +346,8 @@ class SubsController(
         channelStreams.clear()
         channelPosts.clear()
         channelLoadedAt.clear()
+        channelFailed.clear()
+        feedFailed = false
         channelsAt = 0L
         feedAt = 0L
         selected = null
@@ -401,6 +410,7 @@ class SubsController(
         ensurePosts() // the same for the Posts chip, and the posts that "All content" puts between the videos
         val videos = visible()
         view.setVideos(videos, avatars, toTop)
+        showStatus(view)
         val bare = videos.isEmpty() && (filter == SubsFilter.ALL || filter == SubsFilter.POSTS)
         val note = if (filter == SubsFilter.POSTS) {
             listOf(postsNote, postsChanNote).filter { it.isNotEmpty() }.joinToString("\n").ifEmpty { SubsRepository.diag }
@@ -413,10 +423,40 @@ class SubsController(
         // loading while the person sat at the bottom) no scroll comes to ask for more, so the screen asks. The Shorts
         // chip does too (its own list goes on for as long as YouTube has Shorts; the feed's Shorts are few per page, so
         // their end is often in view, until pages keep coming with no Short in them, [shortsDry]).
-        if (selected == null && (filter == SubsFilter.ALL || filter == SubsFilter.VIDEOS || shortsChipReadsOn() || postsFromChip() || postsFromChannels())) {
+        if (selected == null && (SubsFilter.listsVideos(filter) || shortsChipReadsOn() || postsFromChip() || postsFromChannels())) {
             view.checkEnd()
         }
     }
+
+    /**
+     * Tells the screen two things about what is happening behind the list: whether the list is empty because a read
+     * failed (it then offers "Try again" instead of "no videos"), and whether older videos are being read (a small
+     * spinner then shows at the end of the list).
+     */
+    private fun showStatus(view: SubsScreen) {
+        val chosen = selected
+        val failed = if (chosen != null) {
+            tabsFor(filter).any { chosen.id + "|" + it in channelFailed }
+        } else {
+            feedFailed && feed.isEmpty()
+        }
+        view.setError(failed)
+        view.setLoadingMore(moreBusy())
+    }
+
+    /** The same, for the spinner alone: called where a flag of a "read more" goes up or down. */
+    private fun updateMore() {
+        screen?.setLoadingMore(moreBusy())
+    }
+
+    /** True while the list the chip shows is being read further (older pages of the feed, or of the chip's own list). */
+    private fun moreBusy(): Boolean =
+        selected == null && when {
+            filter == SubsFilter.SHORTS && shortsFromChip() -> shortsMoreLoading
+            filter == SubsFilter.POSTS && postsFromChip() -> postsMoreLoading
+            filter == SubsFilter.POSTS && postsFromChannels() -> chanPostsBusy
+            else -> moreLoading
+        }
 
     /** The Shorts chip is chosen and there is still more for it to read by itself (see [shortsFromChip]). */
     private fun shortsChipReadsOn(): Boolean =
@@ -479,6 +519,14 @@ class SubsController(
         return when (filter) {
             SubsFilter.TODAY -> SubsAge.newestFirst(base.filter { !it.short && SubsAge.isToday(it, now) }, now)
             SubsFilter.VIDEOS -> SubsAge.newestFirst(base.filter { !it.short && it.live == 0 && it.post == null }, now)
+            // The red line under a video's picture is how much of it the account has watched (0: none, so "unwatched").
+            SubsFilter.UNWATCHED ->
+                SubsAge.newestFirst(base.filter { !it.short && it.live != 2 && it.post == null && it.watched == 0 }, now)
+            SubsFilter.CONTINUE ->
+                SubsAge.newestFirst(
+                    base.filter { !it.short && it.live != 2 && it.post == null && it.watched in 1 until SubsFilter.FINISHED_PERCENT },
+                    now,
+                )
             SubsFilter.SHORTS -> base.filter { it.short }
             SubsFilter.POSTS -> SubsAge.newestFirst(base.filter { it.post != null }, now)
             SubsFilter.LIVE ->
@@ -640,6 +688,7 @@ class SubsController(
         val page = shortsCursor ?: return
         if (shortsMoreLoading || shortsLoading || page.token == null || shortsFeed.size >= MAX_SHORTS_FEED) return
         shortsMoreLoading = true
+        updateMore()
         val gen = shortsGen
         val cookie = cookie()
         pool.execute {
@@ -652,6 +701,7 @@ class SubsController(
             val result = next
             main.post {
                 shortsMoreLoading = false
+                if (!released) updateMore()
                 if (released || gen != shortsGen || result == null) return@post
                 val known = shortsFeed.mapTo(HashSet()) { it.id }
                 val fresh = result.videos.filter { it.short && it.id !in known }
@@ -925,6 +975,7 @@ class SubsController(
         }
         if (jobs.isEmpty() || chanPostsDry >= CHAN_POSTS_MAX_DRY) return
         chanPostsBusy = true
+        updateMore()
         val gen = postsGen
         val cookie = cookie()
         if (!background) screen?.setLoading(true)
@@ -969,6 +1020,7 @@ class SubsController(
     private fun onChannelPostsBatch(gen: Int, total: Int, gotAny: Boolean) {
         if (released || gen != postsGen) return
         chanPostsBusy = false
+        updateMore()
         chanBatches++
         chanPostsDry = if (gotAny) 0 else chanPostsDry + 1
         postsChanNote = "channels: ${chanPostRead.size} of $total read, ${postsFeed.size} posts"
@@ -991,6 +1043,7 @@ class SubsController(
         val page = postsCursor ?: return
         if (postsMoreLoading || postsLoading || page.token == null || postsFeed.size >= MAX_POSTS_FEED) return
         postsMoreLoading = true
+        updateMore()
         val gen = postsGen
         val cookie = cookie()
         pool.execute {
@@ -1003,6 +1056,7 @@ class SubsController(
             val result = next
             main.post {
                 postsMoreLoading = false
+                if (!released) updateMore()
                 if (released || gen != postsGen || result == null) return@post
                 val known = postsFeed.mapTo(HashSet()) { it.id }
                 val fresh = result.videos.filter { it.post != null && it.id !in known }
@@ -1236,6 +1290,7 @@ class SubsController(
             channelStreams.clear()
             channelPosts.clear()
             SubsRepository.clear(activity.applicationContext)
+            screen?.closeChannels()
             screen?.visibility = View.GONE
             warn(failure.message ?: "?")
         }
@@ -1271,6 +1326,7 @@ class SubsController(
     private fun onFeedPage(token: Int, page: SubsPage?, failure: Exception?) {
         if (released || token != generation) return
         if (page != null && page.videos.isNotEmpty()) {
+            feedFailed = false
             feed = page.videos
             cursor = page
             cursorMissing = false
@@ -1289,10 +1345,12 @@ class SubsController(
             }
             finishFeed()
         } else if (failure is IOException) {
-            // Offline: keep what is there.
+            // Offline: keep what is there (with nothing there, the screen says so and offers "Try again").
             feedLoading = false
-            screen?.setLoading(false)
+            feedFailed = true
+            screen?.setLoading(channelBusy != null)
             screen?.setRefreshing(false)
+            screen?.let { showStatus(it) }
         } else {
             // The page held no videos that could be read: ask the channels' RSS feeds instead.
             refreshFeedRss(token)
@@ -1329,6 +1387,7 @@ class SubsController(
                         feed = collected.values.flatten().sortedByDescending { it.publishedMs }.take(MAX_FEED)
                         cursor = null
                         cursorMissing = false
+                        feedFailed = feed.isEmpty()
                         if (feed.isEmpty()) {
                             SubsRepository.diag = SubsRepository.diag + "; rss: ${list.size - failed} ok, $failed failed ($lastError)"
                         }
@@ -1386,6 +1445,7 @@ class SubsController(
         if (selected != null || moreLoading || feedLoading || page.token == null || feedFull()) return
         if (filter == SubsFilter.TODAY && passedToday()) return
         moreLoading = true
+        updateMore()
         val cookie = cookie()
         val token = generation
         pool.execute {
@@ -1398,6 +1458,7 @@ class SubsController(
             val result = next
             main.post {
                 moreLoading = false
+                if (!released) updateMore()
                 if (released || token != generation || result == null) return@post
                 val known = feed.map { it.id }.toHashSet()
                 val fresh = result.videos.filter { it.id !in known }
@@ -1486,6 +1547,9 @@ class SubsController(
             main.post {
                 if (channelBusy == key) channelBusy = null
                 if (released) return@post
+                // No videos on the Videos tab is a failure (the screen then offers "Try again"). The other tabs are not judged
+                // so: a channel that has no Shorts, posts or streams can answer with nothing, or with an error page.
+                if (tab == "videos" && got.isNullOrEmpty()) channelFailed.add(key) else channelFailed.remove(key)
                 // An empty answer is kept for Shorts, posts and streams (many channels have none), not for videos (a failure).
                 if (got != null && (got.isNotEmpty() || tab != "videos")) {
                     cacheOf(tab)[channel.id] = got
@@ -1806,6 +1870,28 @@ class SubsController(
     override fun onOpenAllChannels() {
         startHold()
         openUrl("https://m.youtube.com/feed/channels")
+    }
+
+    /** "Try again" on the empty screen of a failed read: the same as a pull to refresh, with the spinner of the skeleton. */
+    override fun onRetry() {
+        val chosen = selected
+        if (chosen != null) {
+            screen?.setLoading(true)
+            loadChannelTabs(chosen, force = true)
+        } else if (!feedLoading) {
+            reorderOnFeed = true
+            if (channels.isEmpty() && !channelsLoading) refreshChannels(cookie()) else refreshFeed()
+        }
+    }
+
+    /**
+     * The back button, asked before the page's own history: it closes the list of every subscription when that is open.
+     * Returns true when it did (the press is used up).
+     */
+    fun onBack(): Boolean {
+        val view = screen ?: return false
+        if (view.visibility != View.VISIBLE) return false
+        return view.onBack()
     }
 
     override fun onRefresh() {

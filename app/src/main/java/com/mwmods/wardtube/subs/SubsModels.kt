@@ -62,7 +62,10 @@ data class SubsPost(
     val comments: String = "",
 )
 
-/** The chips under the strip of channels, in the order they are shown (the position is the value). */
+/**
+ * The chips under the strip of channels. The values are only names (the order the chips are shown in is the screen's:
+ * `SubsScreen.chipValues`), so a chip can be added anywhere without changing the others.
+ */
 object SubsFilter {
     const val ALL = 0
     const val TODAY = 1
@@ -70,6 +73,19 @@ object SubsFilter {
     const val SHORTS = 3
     const val LIVE = 4
     const val POSTS = 5
+
+    /** Videos that were started and not finished (the red line under the picture is somewhere between the ends). */
+    const val CONTINUE = 6
+
+    /** Videos with no red line at all: nothing of them was watched. */
+    const val UNWATCHED = 7
+
+    /** A video this far watched (percent) or more counts as finished, not as one to continue. */
+    const val FINISHED_PERCENT = 95
+
+    /** True for the chips that list the feed's videos themselves (their list is longer the further the feed is read). */
+    fun listsVideos(filter: Int): Boolean =
+        filter == ALL || filter == VIDEOS || filter == CONTINUE || filter == UNWATCHED
 }
 
 /**

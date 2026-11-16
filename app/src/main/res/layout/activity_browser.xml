@@ -6,17 +6,22 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/browserBg"
+    android:focusable="true"
+    android:focusableInTouchMode="true"
     tools:context=".browser.BrowserActivity">
 
     <LinearLayout
+        android:id="@+id/browserColumn"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical">
 
         <!-- Top row: back, Library and History (the first buttons of the Seal app), then the big thin title.
              While a page is open the title is hidden (it keeps its room) and the page buttons show at the far end:
-             previous page, next page, Reload and Home. -->
+             previous page, next page, Reload and Home. The sizes here are the main screen's; BrowserActivity.layoutHeader
+             makes the row (and its buttons) and the field slimmer while a page is open. -->
         <LinearLayout
+            android:id="@+id/browserTopRow"
             android:layout_width="match_parent"
             android:layout_height="64dp"
             android:gravity="center_vertical"
@@ -135,6 +140,7 @@
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/browserField"
+                android:selectAllOnFocus="true"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_marginStart="4dp"
@@ -366,4 +372,25 @@
         app:shapeAppearanceOverlay="@style/BrowserFabShape"
         app:srcCompat="@drawable/ic_download_24dp"
         app:tint="@color/browserFab" />
+
+    <!-- The link field's suggestions (see OmniboxPanel): while the field is used, the top row goes away and this page
+         fills the room under the field (8dp + the field + 8dp: 72dp with the main screen's 56dp field; BrowserActivity
+         sets the margin for the slimmer field of an open page). It lies over the floating buttons. -->
+    <FrameLayout
+        android:id="@+id/browserOmnibox"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="72dp"
+        android:background="@color/browserBg"
+        android:clickable="true"
+        android:elevation="16dp"
+        android:visibility="gone">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/browserOmniboxList"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp" />
+    </FrameLayout>
 </FrameLayout>

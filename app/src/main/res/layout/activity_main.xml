@@ -28,10 +28,17 @@
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <com.mwmods.wardtube.web.BackgroundWebView
-                android:id="@+id/webView"
+            <!-- Pull down at the top of a page to load it again, like YouTube's own app (see MainActivity.setUpPullRefresh). -->
+            <com.mwmods.wardtube.ui.PullRefreshLayout
+                android:id="@+id/pullRefresh"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent" />
+                android:layout_height="match_parent">
+
+                <com.mwmods.wardtube.web.BackgroundWebView
+                    android:id="@+id/webView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+            </com.mwmods.wardtube.ui.PullRefreshLayout>
 
             <!-- The player's WebView is added here in code, below the mini player's buttons. -->
             <FrameLayout

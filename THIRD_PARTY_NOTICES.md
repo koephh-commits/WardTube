@@ -11,6 +11,14 @@ Public License, version 3 or (at your option) any later version, which is why Wa
 GPL-3.0-or-later. The original Java code was restructured in Kotlin and extended; the webTube authors keep their
 copyright on the parts that come from it.
 
+## Ideas taken from LiTube
+
+Some behaviour of the full-screen player and of Shorts follows [LiTube](https://github.com/HydeYYHH/litube) by HydeYYHH
+and contributors (GPL-3.0), an unofficial native YouTube client: the full-screen orientation rule (a picture taller than
+wide turns the phone upright), the system's own rotation animation, hiding the system bars again when the window gets its
+focus back, and the "next Short when one ends" playback order. Ward Tube is a WebView app, so none of LiTube's native
+player code is used; the rules were re-written for it. Both projects are GPL-3.0.
+
 ## Libraries and tools bundled in the APK
 
 | Component | License | Notes |

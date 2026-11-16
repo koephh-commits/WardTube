@@ -5,6 +5,7 @@ package com.mwmods.wardtube.browser
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -17,11 +18,17 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.transition.ChangeBounds
+import android.transition.Fade
+import android.transition.Transition
+import android.transition.TransitionManager
+import android.transition.TransitionSet
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
@@ -35,6 +42,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
@@ -103,6 +111,14 @@ import org.json.JSONObject
  * - A page is written to the history only once it has settled: redirects and address changes made while it loads
  *   (a search page often changes its address twice) count as one visit (see [scheduleRecord]).
  *
+ * - Tapping the link field opens the suggestions page, like Chrome's address bar ([OmniboxPanel]): the top row goes away,
+ *   the field widens and its globe becomes a back arrow, and under it come the open page's card (edit / copy / share), the
+ *   recent searches ([SearchHistory]) and, while typing, what the chosen engine suggests ([SearchSuggest]) and the
+ *   matching pages of the history. Back (or the arrow) closes it. The field, the page under it and the top row move as one
+ *   (see [layoutHeader]), and the suggestions glide in behind them ([OmniboxPanel.show]).
+ * - While a page is open the header is slim (the top row 40dp, the field 48dp, no search engine button until the field is
+ *   used), so the page gets more of the screen; the main screen keeps the roomy one (see [layoutHeader]).
+ *
  * The WebView exists only while a page is open: the plain paste screen costs no browser memory.
  */
 class BrowserActivity : AppCompatActivity() {
@@ -111,6 +127,23 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var root: View
     private lateinit var title: TextView
     private lateinit var fieldPill: View
+    private lateinit var column: LinearLayout
+    private lateinit var topRow: View
+
+    /** The seven buttons of the top row: they shrink with the row while a page is open (see [layoutHeader]). */
+    private lateinit var topRowButtons: List<ImageButton>
+    private lateinit var goButton: ImageButton
+    private lateinit var omnibox: OmniboxPanel
+
+    /** The suggestions page's view: its top follows the field (see [layoutHeader]); [omnibox] animates it. */
+    private lateinit var omniboxView: View
+    private lateinit var homeScroll: View
+
+    /** True while the field's first button shows the back arrow (the suggestions are open) instead of the globe. */
+    private var goIsBack = false
+
+    /** Fast at the start, soft at the end: the curve of everything that moves in the header. */
+    private val headerInterpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
     private lateinit var clearButton: ImageButton
     private lateinit var linkField: TextInputEditText
 
@@ -138,6 +171,9 @@ class BrowserActivity : AppCompatActivity() {
 
     /** The pages opened here, newest first (shown by [HistoryActivity]). */
     private val history by lazy { BrowserHistory.get(this) }
+
+    /** The words searched here, newest first (listed by the link field's suggestions). */
+    private val searches by lazy { SearchHistory.get(this) }
 
     /** The app's single ad blocker, shared with the YouTube screen: the filter lists are loaded only once. */
     private val adBlocker by lazy { AdBlocker.shared(this, prefs) }
@@ -207,6 +243,9 @@ class BrowserActivity : AppCompatActivity() {
         root = findViewById(R.id.browserRoot)
         title = findViewById(R.id.browserTitle)
         fieldPill = findViewById(R.id.browserFieldPill)
+        column = findViewById(R.id.browserColumn)
+        topRow = findViewById(R.id.browserTopRow)
+        goButton = findViewById(R.id.browserGo)
         clearButton = findViewById(R.id.browserClear)
         linkField = findViewById(R.id.browserField)
         engineButton = findViewById(R.id.browserEngineButton)
@@ -219,12 +258,24 @@ class BrowserActivity : AppCompatActivity() {
         homeButton = findViewById(R.id.browserHome)
         prevButton = findViewById(R.id.browserPrev)
         nextButton = findViewById(R.id.browserNext)
+        homeScroll = findViewById(R.id.browserHomeScroll)
+        omniboxView = findViewById(R.id.browserOmnibox)
+        topRowButtons = listOf(
+            findViewById<ImageButton>(R.id.browserBack),
+            findViewById<ImageButton>(R.id.browserLibrary),
+            findViewById<ImageButton>(R.id.browserHistory),
+            prevButton,
+            nextButton,
+            reloadButton,
+            homeButton,
+        )
         reloadButton.setOnClickListener { webView?.reload() }
         homeButton.setOnClickListener { goHome() }
         prevButton.setOnClickListener { webView?.takeIf { it.canGoBack() }?.goBack() }
         nextButton.setOnClickListener { webView?.takeIf { it.canGoForward() }?.goForward() }
         findViewById<ImageButton>(R.id.browserHistory).setOnClickListener { openHistory() }
         home = BrowserHome(this, prefs, history, openPage = { openPage(it) }, openHistory = { openHistory() })
+        omnibox = OmniboxPanel(this, history, searches, engine = { currentEngine() }, actions = omniboxActions)
         detectButton.setOnClickListener { onDetectClicked() }
         detectX = prefs.detectButtonX
         detectY = prefs.detectButtonY
@@ -255,14 +306,23 @@ class BrowserActivity : AppCompatActivity() {
             startActivity(Intent(this, LibraryActivity::class.java))
         }
         findViewById<FloatingActionButton>(R.id.browserPaste).setOnClickListener { pasteFromClipboard() }
-        findViewById<ImageButton>(R.id.browserGo).setOnClickListener { onSearch() }
+        // The globe starts the search; while the suggestions are open it is the back arrow that closes them.
+        goButton.setOnClickListener { if (omnibox.isOpen) closeOmnibox() else onSearch() }
         showEngine()
         engineButton.setOnClickListener { chooseEngine() }
-        // The pill is outlined in light green while the text has the focus.
-        linkField.setOnFocusChangeListener { _, focused -> fieldPill.isActivated = focused }
+        // The pill is outlined in light green while the text has the focus, and the focus opens the suggestions.
+        linkField.setOnFocusChangeListener { _, focused ->
+            fieldPill.isActivated = focused
+            if (focused) openOmnibox()
+        }
+        // A tap on a field that still has the focus (the suggestions were closed with the keyboard up) opens them again.
+        linkField.setOnClickListener { openOmnibox() }
         // The x: there while the field has text; it empties the field and brings the keyboard up for the next text.
         clearButton.visibility = if (linkField.text.isNullOrEmpty()) View.GONE else View.VISIBLE
-        linkField.doAfterTextChanged { clearButton.visibility = if (it.isNullOrEmpty()) View.GONE else View.VISIBLE }
+        linkField.doAfterTextChanged {
+            clearButton.visibility = if (it.isNullOrEmpty()) View.GONE else View.VISIBLE
+            if (omnibox.isOpen) omnibox.update(it?.toString().orEmpty())
+        }
         clearButton.setOnClickListener {
             linkField.setText("")
             linkField.requestFocus()
@@ -282,6 +342,7 @@ class BrowserActivity : AppCompatActivity() {
             override fun handleOnBackPressed() {
                 val web = webView
                 when {
+                    omnibox.isOpen -> closeOmnibox()
                     web != null && web.canGoBack() -> web.goBack()
                     web != null -> closePage()
                     else -> finish()
@@ -305,6 +366,7 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        omnibox.destroy()
         closePage()
         super.onDestroy()
     }
@@ -355,6 +417,177 @@ class BrowserActivity : AppCompatActivity() {
             PackageManager.PERMISSION_GRANTED
     }
 
+    // ---- The suggestions under the link field ----
+
+    /** What the suggestions page asks of this screen. */
+    private val omniboxActions = object : OmniboxPanel.Actions {
+        override fun pick(text: String) {
+            closeOmnibox()
+            linkField.setText(text)
+            onSearch()
+        }
+
+        override fun openPage(url: String) {
+            closeOmnibox()
+            linkField.setText(url)
+            this@BrowserActivity.openPage(url)
+        }
+
+        override fun fill(text: String) {
+            linkField.setText(text)
+            linkField.setSelection(linkField.text?.length ?: 0)
+        }
+
+        override fun editAddress(url: String) {
+            // The field is filled with the page's address even when it was emptied (the x, or the selected address
+            // deleted): the pencil used to only bring the keyboard up and left an empty field empty.
+            if (linkField.text?.toString() != url) linkField.setText(url)
+            linkField.requestFocus()
+            linkField.setSelection(linkField.text?.length ?: 0)
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(linkField, 0)
+        }
+
+        override fun copyAddress(url: String) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText(url, url))
+            snack(getString(R.string.omniboxCopied), Snackbar.LENGTH_SHORT)
+        }
+
+        override fun shareAddress(url: String) {
+            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
+            runCatching { startActivity(Intent.createChooser(send, getString(R.string.share_with))) }
+        }
+
+        override fun listDragged() = hideKeyboard()
+    }
+
+    /** The widening of the field: the top row goes away, the field goes up and takes the whole width, its globe becomes a back arrow. */
+    private fun openOmnibox() {
+        if (omnibox.isOpen) return
+        val web = webView
+        // A page is open but the field is empty: it shows the page's address (as it does when it is not being used).
+        val address = web?.url?.takeIf { it.isNotBlank() && it != "about:blank" }
+        if (address != null && linkField.text.isNullOrBlank()) linkField.setText(address)
+        omnibox.show(web?.url, web?.title)
+        layoutHeader(animate = true)
+        // The address of the open page is selected as a whole, so that typing replaces it (and a tap puts the cursor in it).
+        linkField.selectAll()
+        omnibox.update(linkField.text?.toString().orEmpty())
+    }
+
+    /**
+     * Closes the suggestions: the field gets back its size, the keyboard goes and the focus leaves the field (to the
+     * screen's own view, so that it does not come back to the field). A page that is open shows its address again.
+     */
+    private fun closeOmnibox() {
+        if (!omnibox.isOpen) return
+        omnibox.hide()
+        layoutHeader(animate = true)
+        hideKeyboard()
+        root.requestFocus()
+        webView?.url?.let { showAddress(it) }
+    }
+
+    /**
+     * Sizes the header (the top row, the link field and the room under it) for what the screen shows:
+     *  - main screen: roomy, as it always was;
+     *  - a page open: slim, so the page gets more of the screen. The row is 40dp instead of 64dp, the field 48dp instead of
+     *    56dp, the gaps are smaller, and the search engine button waits (it comes back as soon as the field is used);
+     *  - the suggestions open: the top row is gone and the field sits at the top of the screen, as wide as the screen.
+     * [animate]: the change plays as one movement (see [headerTransition]). Opening and closing a page does not animate: the
+     * whole screen changes then.
+     */
+    private fun layoutHeader(animate: Boolean) {
+        if (animate) TransitionManager.beginDelayedTransition(column, headerTransition())
+        val page = webView != null
+        val expanded = omnibox.isOpen
+
+        topRow.visibility = if (expanded) View.GONE else View.VISIBLE
+        setHeight(topRow, dp(if (page) PAGE_ROW_DP else ROW_DP))
+        val buttonHeight = dp(if (page) PAGE_BUTTON_DP else BUTTON_DP)
+        topRowButtons.forEach { setHeight(it, buttonHeight) }
+
+        val fieldHeight = dp(if (page) PAGE_FIELD_DP else FIELD_DP)
+        val side = dp(if (page || expanded) 12 else 16)
+        fieldPill.layoutParams = (fieldPill.layoutParams as LinearLayout.LayoutParams).apply {
+            height = fieldHeight
+            marginStart = side
+            marginEnd = side
+            topMargin = dp(if (expanded) 8 else if (page) 2 else 12)
+        }
+        engineButton.visibility = if (page && !expanded) View.GONE else View.VISIBLE
+        webContainer.layoutParams = (webContainer.layoutParams as LinearLayout.LayoutParams).apply {
+            topMargin = dp(if (page) 4 else 8)
+        }
+        // The suggestions page starts right under the field when it is at the top: 8dp + the field + 8dp.
+        omniboxView.layoutParams = (omniboxView.layoutParams as FrameLayout.LayoutParams).apply {
+            topMargin = dp(8) + fieldHeight + dp(8)
+        }
+        showGoIcon(back = expanded, animate = animate)
+    }
+
+    /**
+     * One movement for the whole header: the field, and the page or the main screen under it, glide to their new places
+     * together; the top row fades away in the first part of it and comes back at the end; the engine button fades in.
+     */
+    private fun headerTransition(): Transition {
+        val move = ChangeBounds().apply {
+            addTarget(fieldPill)
+            addTarget(webContainer)
+            addTarget(homeScroll)
+            duration = HEADER_MOVE_MS
+            interpolator = headerInterpolator
+        }
+        val rowOut = Fade(Fade.OUT).apply {
+            addTarget(topRow)
+            duration = ROW_OUT_MS
+        }
+        val rowIn = Fade(Fade.IN).apply {
+            addTarget(topRow)
+            addTarget(engineButton)
+            startDelay = ROW_IN_DELAY_MS
+            duration = ROW_IN_MS
+        }
+        return TransitionSet().apply {
+            ordering = TransitionSet.ORDERING_TOGETHER
+            addTransition(move)
+            addTransition(rowOut)
+            addTransition(rowIn)
+        }
+    }
+
+    /** The globe is the back arrow while the suggestions are open: the new icon grows in instead of changing at once. */
+    private fun showGoIcon(back: Boolean, animate: Boolean) {
+        if (back == goIsBack) return
+        goIsBack = back
+        goButton.setImageResource(if (back) R.drawable.ic_arrow_back_white_24dp else R.drawable.ic_globe_white_24dp)
+        goButton.contentDescription = getString(if (back) R.string.browserBack else R.string.browserOpen)
+        goButton.animate().cancel()
+        if (animate) {
+            goButton.alpha = 0f
+            goButton.scaleX = GO_ICON_FROM_SCALE
+            goButton.scaleY = GO_ICON_FROM_SCALE
+            goButton.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                .setStartDelay(0)
+                .setDuration(GO_ICON_MS)
+                .setInterpolator(headerInterpolator)
+                .start()
+        } else {
+            goButton.alpha = 1f
+            goButton.scaleX = 1f
+            goButton.scaleY = 1f
+        }
+    }
+
+    private fun setHeight(view: View, height: Int) {
+        val params = view.layoutParams
+        if (params.height == height) return
+        params.height = height
+        view.layoutParams = params
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
     // ---- The search engine ----
 
     private fun currentEngine(): SearchEngine = SearchEngines.byId(prefs.searchEngine)
@@ -371,6 +604,8 @@ class BrowserActivity : AppCompatActivity() {
         SearchEngineSheet.show(this, currentEngine()) { engine ->
             prefs.searchEngine = engine.id
             showEngine()
+            // The suggestions come from the engine in use: ask the new one for the text being typed.
+            if (omnibox.isOpen) omnibox.update(linkField.text?.toString().orEmpty())
             snack(getString(R.string.browserEngineButton, engine.name), Snackbar.LENGTH_SHORT)
         }
     }
@@ -394,8 +629,10 @@ class BrowserActivity : AppCompatActivity() {
             return
         }
         hideKeyboard()
+        closeOmnibox()
         val address = asUrl(text) ?: ShareLinks.firstUrl(text)
         if (address == null) {
+            searches.record(text)
             openPage(currentEngine().urlFor(text))
             return
         }
@@ -425,6 +662,7 @@ class BrowserActivity : AppCompatActivity() {
 
     private fun openPage(url: String) {
         hideKeyboard()
+        closeOmnibox()
         if (needsInsecureWarning(url)) {
             confirmInsecureSite(url)
             return
@@ -594,6 +832,8 @@ class BrowserActivity : AppCompatActivity() {
         // Dimmed until the page offers something (see showDetected).
         detectButton.visibility = View.VISIBLE
         webView = web
+        // The header gets slim, to leave the page more of the screen.
+        layoutHeader(animate = false)
         updateNavButtons()
         return web
     }
@@ -626,6 +866,8 @@ class BrowserActivity : AppCompatActivity() {
         webContainer.visibility = View.GONE
         progress.visibility = View.GONE
         if (!isFinishing) title.visibility = View.VISIBLE
+        // The main screen's roomy header again.
+        layoutHeader(animate = false)
     }
 
     /** The previous / next page buttons are dimmed (and do nothing) when the page has no page before / after it. */
@@ -674,6 +916,7 @@ class BrowserActivity : AppCompatActivity() {
     /** The Home button: leaves the open page and shows the main screen again, with an empty field. */
     private fun goHome() {
         hideKeyboard()
+        closeOmnibox()
         linkField.clearFocus()
         closePage()
         linkField.setText("")
@@ -1042,6 +1285,25 @@ class BrowserActivity : AppCompatActivity() {
 
         /** The closest the floating download button can get to the edge of the screen. */
         const val EDGE_DP = 8
+
+        /** The header's sizes in dp: the main screen's, and the slimmer ones while a page is open (see [layoutHeader]). */
+        const val ROW_DP = 64
+        const val BUTTON_DP = 48
+        const val FIELD_DP = 56
+        const val PAGE_ROW_DP = 40
+        const val PAGE_BUTTON_DP = 40
+        const val PAGE_FIELD_DP = 48
+
+        /**
+         * The movement of the header when the suggestions open and close: the field and the page glide together; the top
+         * row fades away in the first half and comes back (after a short wait) at the end; the globe's new icon grows in.
+         */
+        const val HEADER_MOVE_MS = 240L
+        const val ROW_OUT_MS = 110L
+        const val ROW_IN_MS = 160L
+        const val ROW_IN_DELAY_MS = 80L
+        const val GO_ICON_MS = 200L
+        const val GO_ICON_FROM_SCALE = 0.6f
 
         /** How long an address stays unchanged before the page is written to the history. */
         const val RECORD_DELAY_MS = 2000L
