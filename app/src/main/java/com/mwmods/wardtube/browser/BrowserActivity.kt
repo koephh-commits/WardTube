@@ -147,6 +147,9 @@ class BrowserActivity : AppCompatActivity() {
     private lateinit var clearButton: ImageButton
     private lateinit var linkField: TextInputEditText
 
+    /** True while the keyboard is up (from the window insets). The x of the link field shows only then. */
+    private var keyboardVisible = false
+
     /** The main screen's content under the field: quick sites, recent pages, the hint (see [BrowserHome]). */
     private lateinit var home: BrowserHome
     private lateinit var engineButton: View
@@ -291,6 +294,12 @@ class BrowserActivity : AppCompatActivity() {
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
+            // Before Android 11 the keyboard is not always reported as "visible": its height above the bars says it too.
+            val imeShown = insets.isVisible(WindowInsetsCompat.Type.ime()) || keyboard.bottom > bars.bottom
+            if (imeShown != keyboardVisible) {
+                keyboardVisible = imeShown
+                updateClearButton()
+            }
             view.updatePadding(
                 left = bars.left,
                 top = bars.top,
@@ -314,13 +323,15 @@ class BrowserActivity : AppCompatActivity() {
         linkField.setOnFocusChangeListener { _, focused ->
             fieldPill.isActivated = focused
             if (focused) openOmnibox()
+            updateClearButton()
         }
         // A tap on a field that still has the focus (the suggestions were closed with the keyboard up) opens them again.
         linkField.setOnClickListener { openOmnibox() }
-        // The x: there while the field has text; it empties the field and brings the keyboard up for the next text.
-        clearButton.visibility = if (linkField.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        // The x: there only while the field is being used (the suggestions are open, the field has the focus and the
+        // keyboard is up) and has text; it empties the field and brings the keyboard up for the next text.
+        updateClearButton()
         linkField.doAfterTextChanged {
-            clearButton.visibility = if (it.isNullOrEmpty()) View.GONE else View.VISIBLE
+            updateClearButton()
             if (omnibox.isOpen) omnibox.update(it?.toString().orEmpty())
         }
         clearButton.setOnClickListener {
@@ -372,6 +383,16 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     // ---- The link field ----
+
+    /**
+     * The x of the link field shows only while the field is in use: the suggestions are open, the field has the focus and the
+     * keyboard is up, and there is text to clear. On the main screen and on an open page (the address bar at rest) it is
+     * hidden, even though the field holds the page's address.
+     */
+    private fun updateClearButton() {
+        val show = keyboardVisible && omnibox.isOpen && linkField.hasFocus() && !linkField.text.isNullOrEmpty()
+        clearButton.visibility = if (show) View.VISIBLE else View.GONE
+    }
 
     private fun pasteFromClipboard() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -473,6 +494,7 @@ class BrowserActivity : AppCompatActivity() {
         // The address of the open page is selected as a whole, so that typing replaces it (and a tap puts the cursor in it).
         linkField.selectAll()
         omnibox.update(linkField.text?.toString().orEmpty())
+        updateClearButton()
     }
 
     /**
@@ -486,6 +508,7 @@ class BrowserActivity : AppCompatActivity() {
         hideKeyboard()
         root.requestFocus()
         webView?.url?.let { showAddress(it) }
+        updateClearButton()
     }
 
     /**

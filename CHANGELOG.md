@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.6.111
+- Changed: **the x in the browser's link field now shows only while the field is being used** (`browser/BrowserActivity.kt`).
+  Before, it showed whenever the field had text, so on the main screen and on an open page (where the field holds the
+  page's address) it sat in the address bar all the time. Now `updateClearButton` shows it only when the suggestions are
+  open, the field has the focus, the keyboard is up and there is text to clear. It goes as soon as the keyboard goes (the
+  suggestions list dragged, the back button, a search started) and it is not there for the address bar at rest. The
+  keyboard is read from the window insets that the screen already listens to (`keyboardVisible`).
+- Not tested: written without an Android SDK to build it. Build it and try it: open a site (no x in the address bar), tap
+  the bar (x shows with the keyboard), drag the suggestions (the keyboard goes, the x goes), tap the bar again (it comes back).
+
 ## 2.6.110
 - Fixed: **the pencil on the open page's card now puts the page's address in the link field** (`browser/OmniboxPanel.kt`,
   `browser/BrowserActivity.kt`). The pencil (and a tap on the card) only focused the field and brought the keyboard up, so
