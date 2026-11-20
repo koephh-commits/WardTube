@@ -30,6 +30,8 @@ import java.util.Locale
  * - [pause] stops it just as fast but keeps what was written: [run] throws [Paused], and calling [run] again on the
  *   same instance continues from the last byte (HTTP Range). If the server cannot continue, the file is started again
  *   from its first byte. [discard] throws a paused download's half-written file away.
+ * - A speed limit ([speedLimit], bytes per second, 0 = none) is asked again before every read, so a change of the limit
+ *   in the Library's download settings takes effect while the file is downloading ([SpeedLimiter] keeps the pace).
  *
  * One instance is one download: create it, call [run] on a worker thread, and [cancel] / [pause] from any other thread.
  */
@@ -40,6 +42,8 @@ class FileDownloader(
     /** The file name to save under; blank = the server's name (Content-Disposition), then the address's. */
     private val wantedName: String,
     private val listener: Listener,
+    /** The speed limit right now, in bytes per second; 0 = no limit. Called from the download's thread. */
+    private val speedLimit: () -> Long = { 0L },
 ) {
 
     interface Listener {
@@ -158,10 +162,19 @@ class FileDownloader(
 
                     val out = (pending ?: throw IOException("no file")).output
                     val buffer = ByteArray(BUFFER_BYTES)
+                    val pacer = SpeedLimiter()
                     conn.inputStream.use { input ->
                         while (true) {
                             throwIfStopped()
-                            val read = input.read(buffer)
+                            val limit = speedLimit()
+                            // Under a low limit the data is read in smaller pieces, so the waiting is spread evenly
+                            // instead of one long wait after every big read.
+                            val want = if (limit > 0L) {
+                                minOf(BUFFER_BYTES.toLong(), maxOf(limit / 4, MIN_READ_BYTES)).toInt()
+                            } else {
+                                BUFFER_BYTES
+                            }
+                            val read = input.read(buffer, 0, want)
                             if (read < 0) break
                             try {
                                 out.write(buffer, 0, read)
@@ -180,6 +193,10 @@ class FileDownloader(
                                 lastBytes = written
                                 listener.onProgress(progressOf(written, total, speed))
                             }
+
+                            // Over the limit: wait (a pause or a cancel cuts the wait short) before reading on.
+                            val delay = pacer.delayFor(read, limit, SystemClock.elapsedRealtime())
+                            if (delay > 0L) sleepFor(delay)
                         }
                     }
                     // The server closed the connection before the end: continue from here.
@@ -416,6 +433,8 @@ class FileDownloader(
         const val CONNECT_TIMEOUT_MS = 20_000
         const val READ_TIMEOUT_MS = 30_000
         const val BUFFER_BYTES = 64 * 1024
+        /** The smallest piece read while a speed limit is on. */
+        const val MIN_READ_BYTES = 4 * 1024L
         const val TICK_MS = 500L
         const val MAX_REDIRECTS = 10
         /** Lost connections in a row (without a single byte in between) before the download gives up. */

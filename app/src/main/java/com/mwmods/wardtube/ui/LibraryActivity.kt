@@ -48,12 +48,14 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.mwmods.wardtube.Prefs
 import com.mwmods.wardtube.R
 import com.mwmods.wardtube.download.DownloadEvents
 import com.mwmods.wardtube.download.DownloadJob
+import com.mwmods.wardtube.download.DownloadLimits
 import com.mwmods.wardtube.download.DownloadService
 import com.mwmods.wardtube.download.Downloader
 import com.mwmods.wardtube.download.FailedDownloads
@@ -238,6 +240,10 @@ class LibraryActivity : AppCompatActivity() {
                     setSelectionMode(!adapter.selecting)
                     true
                 }
+                R.id.action_download_settings -> {
+                    showDownloadSettings()
+                    true
+                }
                 R.id.action_all_files -> {
                     openAllFilesSettings()
                     true
@@ -261,6 +267,7 @@ class LibraryActivity : AppCompatActivity() {
             onRetryJob = ::retryJob,
             onDismissJob = ::dismissJob,
             onShowJobError = ::showJobError,
+            onOpenDownloadSettings = ::showDownloadSettings,
         )
         list.adapter = adapter
         // Progress updates rebind the same row in place; a cross-fade on every tick would make the card flicker.
@@ -555,7 +562,7 @@ class LibraryActivity : AppCompatActivity() {
         val shownJobs = jobs.filter { showsJob(it) }
         val showQueue = searchQuery.isEmpty() && (shownJobs.isNotEmpty() || shownFailed.isNotEmpty())
         if (showQueue) {
-            rows += LibraryRow.Section(R.string.libraryDownloads, shownJobs.size + shownFailed.size)
+            rows += LibraryRow.Section(R.string.libraryDownloads, shownJobs.size + shownFailed.size, hasSettings = true)
             // The position counts the whole queue, also the jobs hidden by the filter: it is the real place in line.
             var waiting = 0
             for (job in jobs) {
@@ -671,6 +678,77 @@ class LibraryActivity : AppCompatActivity() {
             }
         }
         dialog.show()
+    }
+
+    // ---- Download settings ----
+
+    /**
+     * How many downloads run at the same time, and the speed limit of each one. A choice is saved and sent to the
+     * download service (if it is running) the moment it is made, so there is no Save button: the dialog is only closed.
+     */
+    private fun showDownloadSettings() {
+        val prefs = Prefs(this)
+        val view = layoutInflater.inflate(R.layout.dialog_download_settings, null)
+        val parallelGroup = view.findViewById<ChipGroup>(R.id.chipsParallel)
+        val speedGroup = view.findViewById<ChipGroup>(R.id.chipsSpeed)
+        val total = view.findViewById<TextView>(R.id.tvLimitsTotal)
+
+        val counts = (1..Prefs.MAX_PARALLEL_DOWNLOADS).toList()
+        val speeds = Prefs.SPEED_LIMITS_KB.toList()
+        // A limit that an earlier version of the list offered still counts as chosen: the nearest chip is shown instead.
+        val currentSpeed = speeds.minByOrNull { Math.abs(it - prefs.speedLimitKb) } ?: 0
+
+        fun showTotal() {
+            val limit = prefs.speedLimitKb
+            total.visibility = if (limit > 0) View.VISIBLE else View.GONE
+            if (limit > 0) {
+                total.text = getString(
+                    R.string.downloadSettingsTotal,
+                    speedLabel(limit * prefs.maxParallelDownloads),
+                    prefs.maxParallelDownloads,
+                )
+            }
+        }
+
+        fun saved() {
+            DownloadLimits.of(prefs).announce(this)
+            showTotal()
+        }
+
+        fillChips(parallelGroup, counts.map { it.toString() }, counts.indexOf(prefs.maxParallelDownloads)) { index ->
+            prefs.maxParallelDownloads = counts[index]
+            saved()
+        }
+        fillChips(speedGroup, speeds.map { speedLabel(it) }, speeds.indexOf(currentSpeed)) { index ->
+            prefs.speedLimitKb = speeds[index]
+            saved()
+        }
+        showTotal()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.downloadSettings)
+            .setView(view)
+            .setPositiveButton(R.string.close, null)
+            .show()
+    }
+
+    /** One choice chip for each of [labels]; tapping one reports its position. */
+    private fun fillChips(group: ChipGroup, labels: List<String>, selected: Int, onPick: (Int) -> Unit) {
+        labels.forEachIndexed { index, label ->
+            val chip = layoutInflater.inflate(R.layout.chip_choice, group, false) as Chip
+            chip.id = View.generateViewId()
+            chip.text = label
+            chip.setOnClickListener { onPick(index) }
+            group.addView(chip)
+            if (index == selected) group.check(chip.id)
+        }
+    }
+
+    /** "No limit", "256 KB/s", "1 MB/s". */
+    private fun speedLabel(kb: Int): String = when {
+        kb <= 0 -> getString(R.string.speedUnlimited)
+        kb >= 1024 && kb % 1024 == 0 -> getString(R.string.speedMb, kb / 1024)
+        else -> getString(R.string.speedKb, kb)
     }
 
     // ---- Play / share ----

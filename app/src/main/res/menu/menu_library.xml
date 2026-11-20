@@ -12,6 +12,11 @@
         android:id="@+id/action_multi_select"
         android:title="@string/libraryMultiSelectOn"
         app:showAsAction="never" />
+    <!-- How many downloads run at once and how fast (the same dialog as the gear on the "Downloads" heading). -->
+    <item
+        android:id="@+id/action_download_settings"
+        android:title="@string/downloadSettings"
+        app:showAsAction="never" />
     <item
         android:id="@+id/action_all_files"
         android:title="@string/allFilesMenu"

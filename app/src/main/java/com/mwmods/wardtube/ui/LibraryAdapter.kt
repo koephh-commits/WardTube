@@ -36,7 +36,8 @@ sealed interface LibraryRow {
     /** Identifies a row across updates, so DiffUtil animates moves instead of redrawing everything. */
     val key: String
 
-    data class Section(@StringRes val title: Int, val count: Int) : LibraryRow {
+    /** [hasSettings]: the heading has a button that opens the download settings (the "Downloads" one). */
+    data class Section(@StringRes val title: Int, val count: Int, val hasSettings: Boolean = false) : LibraryRow {
         override val key: String get() = "section:$title"
     }
 
@@ -54,6 +55,7 @@ sealed interface LibraryRow {
  * The Library list. Saved files: a picture (video frame / audio cover), tap a row to play, a menu to share / delete.
  * Downloads: a card with a live
  * progress ring and bar, speed and time left, a pause / resume button and a cancel button (retry / dismiss once failed).
+ * The "Downloads" heading has a button for the download settings (how many at once, the speed limit).
  *
  * Multi-select: while [selecting], every saved file shows a check box in place of its menu, a tap
  * ticks the file instead of playing it, and a long press ticks the whole range up to it ([MultiSelection]). A ticked
@@ -72,6 +74,7 @@ class LibraryAdapter(
     private val onRetryJob: (DownloadJob) -> Unit,
     private val onDismissJob: (DownloadJob) -> Unit,
     private val onShowJobError: (DownloadJob) -> Unit,
+    private val onOpenDownloadSettings: () -> Unit,
 ) : ListAdapter<LibraryRow, RecyclerView.ViewHolder>(DIFF) {
 
     private val dateFormat: DateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
@@ -153,10 +156,13 @@ class LibraryAdapter(
     // ---- Group heading ----
 
     inner class SectionHolder(view: View) : RecyclerView.ViewHolder(view) {
-        private val label = view as TextView
+        private val label: TextView = view.findViewById(R.id.tvSection)
+        private val settings: ImageButton = view.findViewById(R.id.btnSectionSettings)
 
         fun bind(row: LibraryRow.Section) {
             label.text = itemView.context.getString(row.title) + " • " + row.count
+            settings.visibility = if (row.hasSettings) View.VISIBLE else View.GONE
+            settings.setOnClickListener { onOpenDownloadSettings() }
         }
     }
 

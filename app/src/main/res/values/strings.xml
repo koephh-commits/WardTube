@@ -216,6 +216,19 @@
     <string name="jobResumeAction">Resume</string>
     <string name="jobRetry">Try again</string>
     <string name="jobDismiss">Dismiss</string>
+    <string name="jobCancelAllAction">Cancel all</string>
+    <string name="downloadsRunning">%1$d downloads running</string>
+
+    <!-- Library: download settings (how many downloads at once, speed limit) -->
+    <string name="downloadSettings">Download settings</string>
+    <string name="downloadSettingsParallel">Downloads at the same time</string>
+    <string name="downloadSettingsParallelHint">More at once finishes a long list sooner, but uses more data, memory and battery. On a small phone, 1 or 2 is enough.</string>
+    <string name="downloadSettingsSpeed">Speed limit for each download</string>
+    <string name="downloadSettingsSpeedHint">A limit leaves part of the connection to other apps. A file takes a new limit at once; a video takes it when it starts or is resumed.</string>
+    <string name="downloadSettingsTotal">In total: up to %1$s (%2$d downloads at the same time)</string>
+    <string name="speedUnlimited">No limit</string>
+    <string name="speedKb" translatable="false">%1$d KB/s</string>
+    <string name="speedMb" translatable="false">%1$d MB/s</string>
     <string name="subsMissing">Saved without the subtitle file: YouTube did not provide it or refused the request. Try again later.</string>
     <string name="sleepTimer">Sleep timer</string>
     <string name="sleepTimerLeft">Sleep timer (%1$d min left)</string>

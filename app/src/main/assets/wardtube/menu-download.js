@@ -6,6 +6,15 @@
 // It never changes YouTube's own rows: it adds one row of its own, built by hand, and never uses innerHTML
 // (YouTube's Trusted Types rules refuse it).
 //
+// On a card (the Home feed, search results, channels ...): after a tap on a button inside the card, the row goes into the
+// menu that opens, in this order:
+//   1. a row of YouTube's menu that is really in sight (what is drawn at its centre is the row itself: a menu that is
+//      kept in the page hidden, transparent or off the screen is never used), the top one: the row goes before it;
+//   2. no such row (a menu whose rows have names this script does not know): the rows are found by how they are drawn
+//      (wide boxes with text, one above the other, in a layer fixed to the screen) and the row goes before the top one;
+//   3. still none, or the row cannot be seen where it was put: a "Download video" button of the script's own is shown
+//      above the menu, for as long as a layer covering the page is open. Nothing is shown when no menu is open.
+//
 // On a watch page (the video's own row of buttons: like, dislike, share ... and the three dots) it works in this order:
 //   1. the three dots of that row are found: the row is added to the menu they open;
 //   2. no three dots in the row (or the menu could not take the row): a "Download" button is added to the row itself,
@@ -19,6 +28,10 @@
 
   var WINDOW_MS = 6000; // how long the menu is waited for after a tap on a button inside a video card
   var SYNC_MS = 500;    // how often, at most, the row of buttons of a watch page is looked at again
+  var SCAN_GAP_MS = 80;     // how often, at most, the page is looked at for the menu (the page changes all the time)
+  var DRAWN_AFTER_MS = 400; // the menu is looked for by how it is drawn only if its names were not known by then
+  var PILL_AFTER_MS = 1400; // still no row in the menu by then: a button of the script's own is shown over the page
+  var CLIP_MS = 500;        // a row that was added and is still not in sight after this long is taken out
 
   // Links that name a video, inside a card.
   var LINKS = 'a[href*="/watch?v="], a[href*="/shorts/"]';
@@ -37,6 +50,9 @@
   var ACTION_ANCHORS = 'ytm-segmented-like-dislike-button-renderer, segmented-like-dislike-button-view-model, ' +
     'like-button-view-model, ytm-like-button-renderer, ytm-slim-video-action-bar-renderer, ' +
     'yt-flexible-actions-view-model, button[aria-pressed]';
+  // What is never the menu: the cards, the bars of the page and its player (and the script's own row and button).
+  var NOT_MENU = CARDS + ', ytm-pivot-bar-renderer, ytm-mobile-topbar-renderer, header, nav, [role="tablist"], ' +
+    'ytm-chip-cloud-renderer, video, [data-wt-dl], [data-wt-dlb]';
   var PRESSABLE = 'button, [role="button"]';
   // What the label of the three dots can say (read only inside the row of buttons of a watch page).
   var MORE_RE = /more|المزيد|إضافي|أخرى|plus|más|mehr|altro|もっと|更多|더보기|mais|еще|daha/i;
@@ -46,6 +62,10 @@
   var last = null;
   var poll = 0;
   var inserted = false;   // the row went into the menu that the last tap opened
+  var clipped = false;    // the row was added to the menu and could not be seen there: it is not added again
+  var insertedAt = 0;
+  var scanAt = 0;
+  var pillTimer = 0;
   var fallbackOn = false; // a menu could not take the row: the watch page gets its own button
   var hooked = null;      // the three dots of the watch page that the menu row is waited for from
   var syncTimer = 0;
@@ -244,36 +264,216 @@
     return row;
   }
 
+  // ---- Is it really on the screen? ----
+  // YouTube keeps menus in the page that are not open (hidden with visibility or opacity, or moved off the screen).
+  // They have a box, so `getClientRects` says they are "shown", and they come first in the page: a row added to one
+  // of them is never seen. What is drawn on the screen is looked at instead.
+
+  // The box of an element; a row drawn with display: contents has none of its own: its first child's is used.
+  function box(el) {
+    var r = el.getBoundingClientRect();
+    if (!r.width && !r.height && el.firstElementChild) r = el.firstElementChild.getBoundingClientRect();
+    return r;
+  }
+
+  function byTop(a, b) {
+    return box(a).top - box(b).top;
+  }
+
+  // True when the element is inside the window and on top: what is drawn at its centre is the element or inside it.
+  function seen(el) {
+    try {
+      var r = box(el), vw = window.innerWidth, vh = window.innerHeight;
+      if (r.width < 4 || r.height < 4 || r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) return false;
+      var t = document.elementFromPoint(Math.min(Math.max(r.left + r.width / 2, 1), vw - 1),
+        Math.min(Math.max(r.top + r.height / 2, 1), vh - 1));
+      return !!t && t !== document.body && t !== document.documentElement && (el === t || el.contains(t));
+    } catch (x) {
+      return false;
+    }
+  }
+
+  // The rows of YouTube's menu that are in sight, the top one first: those inside a sheet this script knows, else any.
+  function menuRows() {
+    var nodes = document.querySelectorAll(ITEMS), inSheet = [], other = [];
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].closest('[data-wt-dl]')) continue;
+      var item = outer(nodes[i]);
+      if (!item.parentNode || inSheet.indexOf(item) >= 0 || other.indexOf(item) >= 0 || !seen(item)) continue;
+      (item.closest(SHEETS) ? inSheet : other).push(item);
+    }
+    return (inSheet.length ? inSheet : other).sort(byTop);
+  }
+
+  // ---- A menu whose rows this script has no name for: it is found by how it is drawn ----
+  // A menu is drawn over the page, in a layer fixed to the screen, and its rows are wide boxes with text, one line
+  // or two tall, one above the other.
+
+  function hasText(el) {
+    var t = (el.textContent || '').replace(/\s+/g, '');
+    return t.length > 0 && t.length < 160;
+  }
+
+  function onFixedLayer(el) {
+    for (var n = el; n && n !== document.body; n = n.parentElement) {
+      if (getComputedStyle(n).position === 'fixed') return true;
+    }
+    return false;
+  }
+
+  // The row of a menu drawn at `el`: the smallest box around it that is wide, not too tall and has text. A wrapper that
+  // holds nothing but the row, at the same size, is part of the row.
+  function rowAround(el, vw) {
+    if (el.closest(NOT_MENU)) return null;
+    for (var n = el, hops = 0; n && n !== document.body && hops < 10; n = n.parentElement, hops++) {
+      var r = n.getBoundingClientRect();
+      if (r.height > 110) return null; // taller than any row: the menu itself, the dimmed page or the page
+      if (r.height < 36 || r.width < vw * 0.5 || !hasText(n)) continue;
+      if (!onFixedLayer(n)) return null;
+      while (n.parentElement && n.parentElement !== document.body) {
+        var p = n.parentElement, pr = p.getBoundingClientRect();
+        if (p.children.length !== 1 || Math.abs(pr.height - r.height) > 2 || Math.abs(pr.width - r.width) > 2) break;
+        n = p;
+      }
+      return n;
+    }
+    return null;
+  }
+
+  // The rows of an open menu found by looking down its middle, the top one first.
+  function drawnRows() {
+    var vw = window.innerWidth, vh = window.innerHeight, rows = [];
+    for (var y = vh - 8; y > vh * 0.3; y -= 12) {
+      var el = document.elementFromPoint(Math.round(vw / 2), Math.round(y));
+      var row = el ? rowAround(el, vw) : null;
+      if (row && rows.indexOf(row) < 0) rows.push(row);
+    }
+    return rows.sort(byTop);
+  }
+
+  // ---- The last resort: a button of the script's own over the page ----
+
+  // True while a layer that covers the page is open (a menu and the dimmed page behind it): what is drawn at the top
+  // of the window, above any menu, is inside a fixed layer about as big as the window, and is not a bar of the page.
+  function overlayUp() {
+    try {
+      var vw = window.innerWidth, vh = window.innerHeight;
+      var el = document.elementFromPoint(Math.round(vw / 2), 6);
+      if (!el || el.closest(NOT_MENU)) return false;
+      for (var n = el, hops = 0; n && n !== document.body && hops < 8; n = n.parentElement, hops++) {
+        if (getComputedStyle(n).position !== 'fixed') continue;
+        var r = n.getBoundingClientRect();
+        if (r.width >= vw * 0.9 && r.height >= vh * 0.5) return true;
+      }
+    } catch (x) { /* no layer is assumed */ }
+    return false;
+  }
+
+  function removePill() {
+    clearInterval(pillTimer);
+    var p = document.querySelector('[data-wt-dl="pill"]');
+    if (p && p.parentNode) p.parentNode.removeChild(p);
+  }
+
+  // A menu is open and no row could be put in it (rows not found, or a row that cannot be seen there): the page gets a
+  // "Download video" button above the menu, which goes when the menu does. Never shown when no menu is open.
+  function showPill(info) {
+    if (document.querySelector('[data-wt-dl]') || !overlayUp()) return;
+    var p = document.createElement('div');
+    p.setAttribute('data-wt-dl', 'pill');
+    p.setAttribute('role', 'button');
+    p.setAttribute('tabindex', '0');
+    var s = p.style;
+    s.position = 'fixed';
+    s.left = '50%';
+    s.top = '22%';
+    s.transform = 'translateX(-50%)';
+    s.zIndex = '2147483647';
+    s.display = 'flex';
+    s.alignItems = 'center';
+    s.columnGap = '10px';
+    s.boxSizing = 'border-box';
+    s.minHeight = '48px';
+    s.padding = '0 22px';
+    s.borderRadius = '24px';
+    s.backgroundColor = '#212121';
+    s.color = '#fff';
+    s.border = '1px solid rgba(255, 255, 255, 0.3)';
+    s.font = '500 15px/1.2 Roboto, Arial, sans-serif';
+    s.direction = isArabic() ? 'rtl' : 'ltr';
+    s.whiteSpace = 'nowrap';
+    s.cursor = 'pointer';
+    s.userSelect = 'none';
+    s.webkitUserSelect = 'none';
+    s.webkitTapHighlightColor = 'transparent';
+    var tx = document.createElement('span');
+    tx.textContent = isArabic() ? 'تنزيل الفيديو' : 'Download video';
+    p.appendChild(icon(24));
+    p.appendChild(tx);
+    // The page must not take the touch for a tap outside its menu (it could close it before the tap is a click).
+    ['pointerdown', 'touchstart'].forEach(function (name) {
+      p.addEventListener(name, function (e) { e.stopPropagation(); });
+    });
+    p.__wt = info;
+    (document.body || document.documentElement).appendChild(p);
+    clearInterval(pillTimer);
+    pillTimer = setInterval(function () {
+      if (!p.isConnected || !overlayUp()) removePill(); // the menu was closed
+    }, 300);
+  }
+
+  // ---- Putting the row in the menu ----
+
   function scan() {
     if (!active() || !bridge()) return;
-    var mine = document.querySelector('[data-wt-dl]');
-    if (mine && mine.isConnected && shown(mine)) return; // already added to this menu
-    var nodes = document.querySelectorAll(ITEMS);
-    // The rows of an open sheet first; a menu this script does not know the sheet of is tried after them.
-    for (var pass = 0; pass < 2; pass++) {
-      for (var i = 0; i < nodes.length; i++) {
-        if (nodes[i].closest('[data-wt-dl]')) continue;
-        if (pass === 0 && !nodes[i].closest(SHEETS)) continue;
-        var item = outer(nodes[i]);
-        if (!shown(item) || !item.parentNode) continue; // a menu kept hidden in the page
-        var info = { kind: last.v.kind, id: last.v.id, title: last.title, cur: !!last.cur };
-        var row = null;
-        try {
-          row = build(item, info);
-          item.parentNode.insertBefore(row, item);
-        } catch (x) {
-          if (row && row.parentNode) row.parentNode.removeChild(row); // nothing half-built is left in the menu
-          return;
-        }
-        inserted = true;
+    var now = Date.now();
+    if (now - scanAt < SCAN_GAP_MS) return;
+    scanAt = now;
+    var mine = document.querySelector('[data-wt-dl="1"]');
+    if (mine) {
+      if (mine.isConnected && seen(mine)) {
+        removePill();
+        return; // already added to this menu, and in sight
+      }
+      if (now - insertedAt < CLIP_MS) return; // the menu may still be sliding in
+      // Not in sight: the menu was closed, or the row went where it cannot be seen. It is taken out and not put back.
+      if (mine.parentNode) mine.parentNode.removeChild(mine);
+      inserted = false;
+      clipped = true;
+    }
+    var rows = [];
+    if (!clipped) {
+      rows = menuRows();
+      if (!rows.length && now - last.at > DRAWN_AFTER_MS) rows = drawnRows();
+    }
+    if (rows.length) {
+      var item = rows[0];
+      var info = { kind: last.v.kind, id: last.v.id, title: last.title, cur: !!last.cur };
+      var row = null;
+      try {
+        row = build(item, info);
+        item.parentNode.insertBefore(row, item);
+      } catch (x) {
+        if (row && row.parentNode) row.parentNode.removeChild(row); // nothing half-built is left in the menu
         return;
       }
+      inserted = true;
+      insertedAt = now;
+      return;
+    }
+    // (the watch page has a button of its own for this: see the end of startPolling)
+    if (!last.cur && now - last.at > PILL_AFTER_MS) {
+      showPill({ kind: last.v.kind, id: last.v.id, title: last.title, cur: false });
     }
   }
 
   function startPolling() {
     clearInterval(poll);
+    removePill();
     inserted = false;
+    clipped = false;
+    insertedAt = 0;
+    scanAt = 0;
     var runs = 0;
     poll = setInterval(function () {
       if (!active() || ++runs > 40) {
@@ -319,7 +519,9 @@
     e.stopImmediatePropagation();
     var info = row.__wt;
     if (!info) return;
+    last = null; // this menu is done with: nothing more is added to it while it closes
     closeSheet(row);
+    if (row.getAttribute('data-wt-dl') === 'pill') removePill();
     send(info);
   }
 

@@ -35,17 +35,23 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Downloads videos / audio with the bundled yt-dlp. Jobs run one after another: the first one is
- * "downloading", the rest are "queued" and move up as the ones before them finish.
+ * Downloads videos / audio with the bundled yt-dlp. The jobs wait in a queue, and as many of them as the Library's
+ * download settings allow (one, by default) are "downloading" at the same time; the rest are "queued" and move up as
+ * the ones before them finish. See [dispatch].
  *
  * A download that is running can be paused and resumed. Pausing stops its yt-dlp process (or its HTTP connection) but
  * keeps what was already downloaded: the job stays in the list as "paused", the jobs behind it carry on, and Resume
  * puts it back at the end of the line, where it continues from the same bytes. The service stays alive (in the
  * foreground) while a job is paused, because the half-downloaded file belongs to this process.
+ *
+ * The settings (how many downloads at once, the speed limit of each) are [DownloadLimits]. A speed limit is kept by
+ * yt-dlp itself (`--limit-rate`) for a video, and by [FileDownloader] for a plain file.
  *
  * The whole queue (progress, speed, ETA, waiting jobs) is broadcast to the Library through
  * [DownloadEvents] and mirrored in one notification. Each finished file is saved into
@@ -53,41 +59,65 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class DownloadService : Service() {
 
-    private val worker = Executors.newSingleThreadExecutor()
+    /** The threads the downloads run on. How many run at once is decided by [dispatch], not by this pool. */
+    private val worker = Executors.newCachedThreadPool()
+    /** Jobs that are waiting or running (a paused job is not counted): the service stops when this reaches 0. */
     private val pendingJobs = AtomicInteger(0)
     private val resultIds = AtomicInteger(RESULT_BASE_ID)
     private val handler = Handler(Looper.getMainLooper())
 
-    /** The queue in the order jobs were added; the first non-queued one is the job being worked on. Guarded by [lock]. */
+    /** The queue in the order jobs were added; the ones that are not waiting or paused are being worked on. Guarded by [lock]. */
     private val lock = Any()
     private val jobs = LinkedHashMap<String, DownloadJob>()
     private var lastPublish = 0L
 
-    @Volatile private var currentJobId: String? = null
-    @Volatile private var currentProcessId: String? = null
-    /** The plain file being downloaded by the app itself (not by yt-dlp), when the current job is one. */
-    @Volatile private var currentFile: FileDownloader? = null
-    @Volatile private var cancelRequested = false
-    @Volatile private var pauseRequested = false
-    /** Set when the job that just ran was paused: it stays in the queue instead of leaving it. */
-    @Volatile private var heldRun = false
+    /**
+     * What a thread that works on a job needs to be stopped from outside: its yt-dlp process (or its plain-file
+     * downloader), and what was asked of it. Created when the thread takes the job, gone when it is done.
+     */
+    private class Run {
+        @Volatile var processId: String? = null
+        /** The plain file being downloaded by the app itself (not by yt-dlp), when the job is one. */
+        @Volatile var file: FileDownloader? = null
+        @Volatile var cancelRequested = false
+        @Volatile var pauseRequested = false
+        /** Set when the run ended because the job was paused: the job stays in the queue instead of leaving it. */
+        @Volatile var held = false
+    }
+
+    /** The jobs that have a thread working on them, by job id. A run is added (and found by a cancel) under [lock]. */
+    private val runs = ConcurrentHashMap<String, Run>()
+
     /**
      * Plain-file downloads that are paused, by job id. The downloader keeps the half-written file and how far it got,
      * so Resume continues with the same instance. (A yt-dlp job keeps its files in a folder instead, see [process].)
      * Guarded by [lock].
      */
     private val pausedFiles = HashMap<String, FileDownloader>()
-    @Volatile private var engineUpdatedThisRun = false
+    private val engineUpdatedThisRun = AtomicBoolean(false)
     /**
      * Whether a failed download may update the engine and try again. It comes with each start request (the newest one
      * wins) because this service runs in its own process and cannot read the app's settings as they change.
      */
     @Volatile private var autoUpdateEngine = false
+    /** How many downloads may run at once and the speed limit of each, newest values: see [DownloadLimits]. */
+    @Volatile private var limits = DownloadLimits(Prefs.DEFAULT_PARALLEL_DOWNLOADS, 0)
     @Volatile private var lastStartId = 0
 
     /** A Library that just opened asks for the queue; silence from this process means nothing is downloading. */
     private val stateRequests = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) = publish(force = true)
+    }
+
+    /** The person changed the download settings in the Library while this service is running. */
+    private val limitsChanged = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            DownloadLimits.from(intent)?.let { limits = it }
+            // A higher number of places lets waiting jobs start at once; a lower one simply stops new ones from starting
+            // until enough of the running ones are done.
+            dispatch()
+            publish(force = true)
+        }
     }
 
     /** Tells the Library every couple of seconds that this process is alive (it may be killed on low-memory phones). */
@@ -105,6 +135,9 @@ class DownloadService : Service() {
         ContextCompat.registerReceiver(
             this, stateRequests, IntentFilter(DownloadEvents.ACTION_REQUEST_STATE), ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        ContextCompat.registerReceiver(
+            this, limitsChanged, IntentFilter(DownloadLimits.ACTION_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         // A fresh service has no jobs: any download still recorded as running was cut off when the old process died.
         FailedDownloads.recoverInterrupted(this, getString(R.string.downloadInterrupted))
         // ...and whatever it left in the temporary folder (a paused download's parts included) is of no use any more.
@@ -118,6 +151,12 @@ class DownloadService : Service() {
         if (intent?.action == ACTION_CANCEL) {
             // From the notification (no id: the current job) or from a Library card (that job).
             cancelJob(intent?.getStringExtra(EXTRA_JOB_ID))
+            stopIfIdle(startId)
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_CANCEL_ALL) {
+            // From the notification while several downloads are running.
+            cancelAll()
             stopIfIdle(startId)
             return START_NOT_STICKY
         }
@@ -140,6 +179,7 @@ class DownloadService : Service() {
         }
         val options = DownloadOptions.fromJson(request.getStringExtra(EXTRA_OPTIONS))
         autoUpdateEngine = request.getBooleanExtra(EXTRA_AUTO_UPDATE, false)
+        DownloadLimits.from(request)?.let { limits = it }
 
         createChannel()
 
@@ -170,10 +210,11 @@ class DownloadService : Service() {
         ensureForeground()
         if (added.isEmpty()) {
             toast(R.string.downloadAlreadyQueued)
+            dispatch() // the settings that came with the request may have made room for a waiting job
             return START_NOT_STICKY
         }
         publish(force = true)
-        for (jobId in added) schedule(jobId)
+        dispatch()
         return START_NOT_STICKY
     }
 
@@ -195,8 +236,30 @@ class DownloadService : Service() {
         )
     }
 
-    /** Puts one queued job on the worker; the jobs run one after another. */
-    private fun schedule(jobId: String) {
+    /**
+     * Starts the waiting jobs that the settings allow: the first ones in line, while fewer than [DownloadLimits.parallel]
+     * jobs are being worked on. It is called whenever something may have made room or added work: a job was added or
+     * resumed, a job ended or was paused, or the person changed the settings. A job that is started stops being
+     * "waiting" at once (it becomes "preparing"), under [lock], so it can never be started twice.
+     *
+     * Nothing is stopped when the number is lowered: the running downloads finish, and no new one starts until fewer
+     * than the new number are running.
+     */
+    private fun dispatch() {
+        while (true) {
+            val id = synchronized(lock) {
+                if (jobs.values.count { it.isActive } >= limits.parallel) return
+                val next = jobs.values.firstOrNull { it.status == JobStatus.QUEUED } ?: return
+                jobs[next.id] = next.copy(status = JobStatus.STARTING)
+                next.id
+            }
+            publish(force = true)
+            startRun(id)
+        }
+    }
+
+    /** Puts one job on a thread of the pool (see [dispatch]); when it is over, the place it held goes to the next job. */
+    private fun startRun(jobId: String) {
         worker.execute {
             // True when this run ended because the person paused the job: it stays in the queue, waiting for Resume.
             var held = false
@@ -207,23 +270,31 @@ class DownloadService : Service() {
                 fail(jobId, e.message ?: e.javaClass.simpleName)
             } finally {
                 if (!held) finish(jobId)
-                if (pendingJobs.decrementAndGet() == 0) {
-                    // The last job did not save anything (it failed or was cancelled): still announce the earlier ones.
-                    if (quietSaves > 0) {
-                        notifyResult(getString(R.string.filesSavedMany, quietSaves), openLibrary = true)
-                        quietSaves = 0
-                    }
-                    if (hasPausedJobs()) {
-                        // Nothing is running, but a paused download waits for Resume: the service (and its notification,
-                        // which now offers Resume) stays, because the half-downloaded file belongs to this process.
-                        publish(force = true)
-                    } else {
-                        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-                        // Only stops if no newer start request arrived in the meantime.
-                        stopSelfResult(lastStartId)
-                    }
-                }
+                settle()
+                // A place is free now: the next waiting job starts.
+                dispatch()
             }
+        }
+    }
+
+    /**
+     * A job no longer needs the service: its run is over (it finished, failed, was cancelled or paused), or it was
+     * cancelled while it still waited. When none is left, the service says what was saved and stops, unless a paused
+     * download is waiting for Resume.
+     */
+    private fun settle() {
+        if (pendingJobs.decrementAndGet() != 0) return
+        // The last job did not save anything (it failed or was cancelled): still announce the earlier ones.
+        val quiet = synchronized(lock) { quietSaves.also { quietSaves = 0 } }
+        if (quiet > 0) notifyResult(getString(R.string.filesSavedMany, quiet), openLibrary = true)
+        if (hasPausedJobs()) {
+            // Nothing is running, but a paused download waits for Resume: the service (and its notification,
+            // which now offers Resume) stays, because the half-downloaded file belongs to this process.
+            publish(force = true)
+        } else {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            // Only stops if no newer start request arrived in the meantime.
+            stopSelfResult(lastStartId)
         }
     }
 
@@ -241,8 +312,11 @@ class DownloadService : Service() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         runCatching { unregisterReceiver(stateRequests) }
-        currentProcessId?.let { runCatching { YoutubeDL.getInstance().destroyProcessById(it) } }
-        currentFile?.cancel()
+        runCatching { unregisterReceiver(limitsChanged) }
+        for (run in runs.values) {
+            run.processId?.let { runCatching { YoutubeDL.getInstance().destroyProcessById(it) } }
+            run.file?.cancel()
+        }
         worker.shutdownNow()
         // A paused download's half-written file cannot outlive this process: throw it away.
         val paused = synchronized(lock) { pausedFiles.values.toList().also { pausedFiles.clear() } }
@@ -297,20 +371,40 @@ class DownloadService : Service() {
         }
     }
 
+    /** [requestedId] null = the first job that is being worked on (a request that names no job). */
     private fun cancelJob(requestedId: String?) {
-        val target = requestedId ?: currentJobId ?: return
-        if (target == currentJobId) {
-            cancelRequested = true
-            currentProcessId?.let { runCatching { YoutubeDL.getInstance().destroyProcessById(it) } }
-            currentFile?.cancel()
+        val target = requestedId ?: synchronized(lock) { jobs.values.firstOrNull { it.isActive }?.id } ?: return
+        // Looked up and (if no thread has the job) taken out of the queue in one step, so a thread that is just about to
+        // pick the job up cannot slip in between: it finds either the job gone, or its run registered for this cancel.
+        var removed: DownloadJob? = null
+        val run: Run? = synchronized(lock) {
+            val found = runs[target]
+            if (found == null) removed = jobs.remove(target)
+            found
+        }
+        if (run != null) {
+            run.cancelRequested = true
+            run.processId?.let { runCatching { YoutubeDL.getInstance().destroyProcessById(it) } }
+            run.file?.cancel()
             return
         }
-        // Still waiting, or paused: just take it out of the queue; its task (if it has one) will find nothing to do.
-        val removed = synchronized(lock) { jobs.remove(target) }
+        // Still waiting, or paused: it was taken out of the queue just now. (A thread that was already about to start
+        // it finds nothing to do.)
         // A paused download leaves a half-downloaded file behind: nobody will resume it now.
         discardPartial(target)
         FailedDownloads.clearActive(this, target)
-        if (removed != null) publish(force = true)
+        val gone = removed ?: return
+        publish(force = true)
+        // A job that never reached a thread still counted as pending, and no run will ever settle it.
+        if (gone.status == JobStatus.QUEUED) settle()
+    }
+
+    /** Cancels everything that is downloading or waiting (the notification's "Cancel all"); paused downloads stay. */
+    private fun cancelAll() {
+        val ids = synchronized(lock) {
+            jobs.values.filter { it.status != JobStatus.PAUSED && it.status != JobStatus.FAILED }.map { it.id }
+        }
+        for (id in ids) cancelJob(id)
     }
 
     /** Throws away what a paused job had already downloaded (the file being written, or yt-dlp's parts). */
@@ -321,23 +415,25 @@ class DownloadService : Service() {
     }
 
     /**
-     * Pauses the job that is downloading right now ([requestedId] null = that one): its yt-dlp process is stopped (or its
-     * connection closed) and the job waits as "paused" with what it already has. Merging / converting, a job that is
-     * only waiting, or a request that came too late (the job just ended) is left alone.
+     * Pauses a job that is downloading right now ([requestedId] null = the first one that is): its yt-dlp process is
+     * stopped (or its connection closed) and the job waits as "paused" with what it already has. Merging / converting,
+     * a job that is only waiting, or a request that came too late (the job just ended) is left alone.
      */
     private fun pauseJob(requestedId: String?) {
-        val target = requestedId ?: currentJobId ?: return
-        if (target != currentJobId) return
+        val target = requestedId
+            ?: synchronized(lock) { jobs.values.firstOrNull { it.status == JobStatus.DOWNLOADING }?.id }
+            ?: return
+        val run = runs[target] ?: return
         val job = synchronized(lock) { jobs[target] } ?: return
         if (job.status != JobStatus.DOWNLOADING) return
-        pauseRequested = true
-        currentProcessId?.let { runCatching { YoutubeDL.getInstance().destroyProcessById(it) } }
-        currentFile?.pause()
+        run.pauseRequested = true
+        run.processId?.let { runCatching { YoutubeDL.getInstance().destroyProcessById(it) } }
+        run.file?.pause()
     }
 
-    /** The running job ended because it was paused: it stays in the queue, with its percentage, until Resume. */
-    private fun hold(id: String) {
-        heldRun = true
+    /** A running job ended because it was paused: it stays in the queue, with its percentage, until Resume. */
+    private fun hold(id: String, run: Run) {
+        run.held = true
         update(id, force = true) { it.copy(status = JobStatus.PAUSED, speed = "", eta = "") }
     }
 
@@ -360,7 +456,7 @@ class DownloadService : Service() {
         if (!resumed) return
         pendingJobs.incrementAndGet()
         publish(force = true)
-        schedule(id)
+        dispatch()
     }
 
     private fun hasPausedJobs(): Boolean = synchronized(lock) { jobs.values.any { it.status == JobStatus.PAUSED } }
@@ -400,27 +496,24 @@ class DownloadService : Service() {
 
     /** Returns true when the job was paused: it stays in the queue then, instead of leaving it. */
     private fun runJob(id: String): Boolean {
-        // Cancelled while it was waiting: it is no longer in the queue.
-        val job = synchronized(lock) { jobs[id] } ?: return false
-        cancelRequested = false
-        pauseRequested = false
-        heldRun = false
-        currentJobId = id
+        val run = Run()
+        // The run is registered in the same step that checks the job is still there (see cancelJob). Cancelled while it
+        // was waiting for a thread: it is no longer in the queue.
+        val job = synchronized(lock) { jobs[id]?.also { runs[id] = run } } ?: return false
         try {
-            process(job)
+            process(job, run)
         } finally {
-            currentJobId = null
-            currentProcessId = null
+            runs.remove(id)
         }
-        return heldRun
+        return run.held
     }
 
-    private fun process(job: DownloadJob) {
+    /** The job is already "preparing" (see [dispatch]). */
+    private fun process(job: DownloadJob, run: Run) {
         val id = job.id
-        update(id, force = true) { it.copy(status = JobStatus.STARTING) }
         // A plain file (zip, pdf, apk...) is downloaded by the app itself: yt-dlp is not needed for it.
         if (job.options.isFile) {
-            processFile(job)
+            processFile(job, run)
             return
         }
         if (!YtDlpEngine.ensureReady(this)) {
@@ -440,17 +533,17 @@ class DownloadService : Service() {
             var withCover = job.options.isAudio && job.options.audioCodec.cover
             while (true) {
                 try {
-                    download(job, workDir, withCover)
+                    download(job, run, workDir, withCover)
                     break
                 } catch (e: Throwable) {
-                    if (cancelRequested) {
+                    if (run.cancelRequested) {
                         notifyResult(getString(R.string.downloadCancelled), null)
                         return
                     }
-                    if (pauseRequested) {
+                    if (run.pauseRequested) {
                         // The process was stopped on purpose: its parts stay in workDir, and Resume continues from them.
                         keepWork = true
-                        hold(id)
+                        hold(id, run)
                         return
                     }
                     if (withCover && isCoverError(e)) {
@@ -462,8 +555,8 @@ class DownloadService : Service() {
                     // Most failures are an outdated yt-dlp. Only when the person turned on automatic updating: update it
                     // once and retry. Otherwise the job fails as it is, and the person can update the engine from the menu
                     // (or from the failed download's message) and use Retry.
-                    if (autoUpdateEngine && attempt++ == 0 && !engineUpdatedThisRun) {
-                        engineUpdatedThisRun = true
+                    // (Only one job does it, even when several fail at the same moment: they all use the same engine.)
+                    if (autoUpdateEngine && attempt++ == 0 && engineUpdatedThisRun.compareAndSet(false, true)) {
                         update(id, force = true) {
                             it.copy(status = JobStatus.UPDATING, percent = -1, speed = "", eta = "", size = "")
                         }
@@ -473,14 +566,14 @@ class DownloadService : Service() {
                     return
                 }
             }
-            if (cancelRequested) {
+            if (run.cancelRequested) {
                 notifyResult(getString(R.string.downloadCancelled), null)
                 return
             }
             // Stopped for a pause without an error being thrown: its unfinished parts are still there.
-            if (pauseRequested && workDir.listFiles()?.any { it.name.endsWith(".part") || it.name.endsWith(".ytdl") } == true) {
+            if (run.pauseRequested && workDir.listFiles()?.any { it.name.endsWith(".part") || it.name.endsWith(".ytdl") } == true) {
                 keepWork = true
-                hold(id)
+                hold(id, run)
                 return
             }
 
@@ -590,59 +683,68 @@ class DownloadService : Service() {
      * A plain file found in the browser, downloaded over HTTP by [FileDownloader] (not by yt-dlp and not by the system's
      * download manager). The job's title is the file's name. Progress, cancel and retry work as for any other job.
      */
-    private fun processFile(job: DownloadJob) {
+    private fun processFile(job: DownloadJob, run: Run) {
         val id = job.id
         // A paused file continues with the same downloader: the bytes already written stay where they are.
-        val downloader = synchronized(lock) { pausedFiles.remove(id) } ?: FileDownloader(this, job.url, job.title, object : FileDownloader.Listener {
-            override fun onName(name: String) {
-                if (job.title.isBlank()) update(id, force = true) { it.copy(title = name) }
-            }
-
-            override fun onProgress(progress: FileDownloader.Progress) {
-                update(id) {
-                    it.copy(
-                        status = JobStatus.DOWNLOADING, percent = progress.percent, speed = progress.speed,
-                        eta = progress.eta, size = progress.size, part = 1, parts = 1,
-                    )
+        // Its speed limit is asked again before every read, so a change in the settings reaches it at once.
+        val downloader = synchronized(lock) { pausedFiles.remove(id) } ?: FileDownloader(
+            this, job.url, job.title,
+            object : FileDownloader.Listener {
+                override fun onName(name: String) {
+                    if (job.title.isBlank()) update(id, force = true) { it.copy(title = name) }
                 }
-            }
-        })
-        currentFile = downloader
+
+                override fun onProgress(progress: FileDownloader.Progress) {
+                    update(id) {
+                        it.copy(
+                            status = JobStatus.DOWNLOADING, percent = progress.percent, speed = progress.speed,
+                            eta = progress.eta, size = progress.size, part = 1, parts = 1,
+                        )
+                    }
+                }
+            },
+            speedLimit = { limits.bytesPerSecond },
+        )
+        run.file = downloader
         try {
             // Cancelled between being picked up and now.
-            if (cancelRequested) downloader.cancel()
+            if (run.cancelRequested) downloader.cancel()
             val saved = downloader.run()
             reportSaved(getString(R.string.downloadSaved, saved.name), 1)
         } catch (e: FileDownloader.Paused) {
             synchronized(lock) { pausedFiles[id] = downloader }
-            hold(id)
+            hold(id, run)
         } catch (e: FileDownloader.Cancelled) {
             notifyResult(getString(R.string.downloadCancelled), null)
         } catch (e: Throwable) {
             fail(id, e.message ?: e.javaClass.simpleName)
         } finally {
-            currentFile = null
+            run.file = null
         }
     }
 
-    /** Files saved while more jobs were still waiting; they are announced together when the queue is empty. */
+    /** Files saved while more jobs were still waiting; they are announced together when the queue is empty. Guarded by [lock]. */
     private var quietSaves = 0
 
     /**
      * One notification per saved file is right for a single download, but a playlist would bury the phone in them:
-     * while more jobs are waiting nothing is posted, and the last one announces them all.
+     * while more jobs are waiting nothing is posted, and the last one announces them all. (With several downloads at
+     * once the files are saved on different threads, hence the lock.)
      */
     private fun reportSaved(text: String, files: Int) {
-        if (pendingJobs.get() > 1) {
-            quietSaves += files
-            return
+        val announce: String? = synchronized(lock) {
+            if (pendingJobs.get() > 1) {
+                quietSaves += files
+                null
+            } else if (quietSaves > 0) {
+                val total = quietSaves + files
+                quietSaves = 0
+                getString(R.string.filesSavedMany, total)
+            } else {
+                text
+            }
         }
-        if (quietSaves > 0) {
-            notifyResult(getString(R.string.filesSavedMany, quietSaves + files), openLibrary = true)
-            quietSaves = 0
-        } else {
-            notifyResult(text, openLibrary = true)
-        }
+        if (announce != null) notifyResult(announce, openLibrary = true)
     }
 
     /** True when yt-dlp's error text points at the thumbnail / tagging step rather than at the download itself. */
@@ -651,8 +753,10 @@ class DownloadService : Service() {
         return listOf("thumbnail", "mutagen", "atomicparsley", "postprocessing", "ffmpeg").any { it in text }
     }
 
-    private fun download(job: DownloadJob, workDir: File, withCover: Boolean) {
+    private fun download(job: DownloadJob, run: Run, workDir: File, withCover: Boolean) {
         val options = job.options
+        // Read once: this download keeps the limit it started with (yt-dlp cannot be told a new one while it runs).
+        val limitKb = limits.speedLimitKb
         val request = YoutubeDLRequest(job.url).apply {
             if (job.item > 0) {
                 // A page with several videos and no address for each: ask for this one by its position.
@@ -663,9 +767,16 @@ class DownloadService : Service() {
                 addOption("--no-playlist")
             }
             addOption("--no-mtime")
-            // A stream (HLS / DASH) arrives as hundreds of small fragments: asking for several at once is much faster
-            // than one after the other. A video that is a single file is one piece, so this changes nothing for it.
-            addOption("--concurrent-fragments", CONCURRENT_FRAGMENTS.toString())
+            if (limitKb > 0) {
+                // The speed limit of each download (Library: download settings), kept by yt-dlp itself. Fragments are
+                // fetched one at a time then, so that the limit is for the whole download and not for each fragment.
+                addOption("--limit-rate", "${limitKb}K")
+                addOption("--concurrent-fragments", "1")
+            } else {
+                // A stream (HLS / DASH) arrives as hundreds of small fragments: asking for several at once is much
+                // faster than one after the other. A video that is a single file is one piece, so this changes nothing.
+                addOption("--concurrent-fragments", CONCURRENT_FRAGMENTS.toString())
+            }
             addOption("-o", "${workDir.absolutePath}/%(title).80s.%(ext)s")
             // A file found in the browser: the server is sent what the page sent (referer, user agent, cookies).
             for ((name, value) in RequestHeaders.headersOf(job.url)) addOption("--add-header", "$name:$value")
@@ -709,7 +820,9 @@ class DownloadService : Service() {
             }
         }
         val processId = UUID.randomUUID().toString()
-        currentProcessId = processId
+        run.processId = processId
+        // Cancelled before the process existed to be stopped: it must not start at all.
+        if (run.cancelRequested) throw IllegalStateException("cancelled")
         // A resumed download starts the bar where it stopped (the percentage never goes backwards).
         val tracker = ProgressTracker(job.id, job.title, job.percent)
         // yt-dlp prints many lines a second; the tracker reads each one and the queue throttles what is broadcast.
@@ -828,16 +941,28 @@ class DownloadService : Service() {
         }
     }
 
-    /** One notification for the whole queue: the current job's title and progress, plus how many are waiting. */
+    /**
+     * One notification for the whole queue: the current job's title and progress, plus how many are waiting. While
+     * several downloads run at once it shows how many, and their average progress.
+     */
     private fun ongoingNotification(live: List<DownloadJob>): Notification {
-        val current = live.firstOrNull { it.isActive } ?: live.firstOrNull { it.status == JobStatus.PAUSED } ?: live.firstOrNull()
+        val running = live.filter { it.isActive }
+        val several = running.size > 1
+        val current = running.firstOrNull() ?: live.firstOrNull { it.status == JobStatus.PAUSED } ?: live.firstOrNull()
         val waiting = live.count { it.status == JobStatus.QUEUED }
 
         var title = getString(R.string.app_name)
         var text = getString(R.string.downloadPreparing)
         var percent = -1
         var paused = false
-        if (current != null) {
+        if (several) {
+            title = getString(R.string.downloadsRunning, running.size)
+            val known = running.filter { it.percent >= 0 }
+            if (known.isNotEmpty()) {
+                percent = known.sumOf { it.percent } / known.size
+                text = getString(R.string.downloadProgress, percent)
+            }
+        } else if (current != null) {
             if (current.title.isNotBlank()) title = current.title
             when (current.status) {
                 JobStatus.UPDATING -> text = getString(R.string.engineUpdating)
@@ -876,18 +1001,23 @@ class DownloadService : Service() {
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
             )
-        // Pause for the download that is running, Resume for the one that is paused, then Cancel for either.
-        if (current != null && current.status == JobStatus.DOWNLOADING) {
-            builder.addAction(0, getString(R.string.jobPauseAction), servicePending(REQUEST_PAUSE, ACTION_PAUSE, current.id))
+        if (several) {
+            // Which one would Pause mean? Each download has its own button in the Library; here only everything at once.
+            builder.addAction(0, getString(R.string.jobCancelAllAction), servicePending(REQUEST_CANCEL_ALL, ACTION_CANCEL_ALL, null))
+        } else {
+            // Pause for the download that is running, Resume for the one that is paused, then Cancel for either.
+            if (current != null && current.status == JobStatus.DOWNLOADING) {
+                builder.addAction(0, getString(R.string.jobPauseAction), servicePending(REQUEST_PAUSE, ACTION_PAUSE, current.id))
+            }
+            if (paused && current != null) {
+                builder.addAction(0, getString(R.string.jobResumeAction), servicePending(REQUEST_RESUME, ACTION_RESUME, current.id))
+            }
+            // The job is named, so the button cancels this one even if another has become the first by the time it is tapped.
+            builder.addAction(
+                0, getString(android.R.string.cancel),
+                servicePending(REQUEST_CANCEL, ACTION_CANCEL, current?.id)
+            )
         }
-        if (paused && current != null) {
-            builder.addAction(0, getString(R.string.jobResumeAction), servicePending(REQUEST_RESUME, ACTION_RESUME, current.id))
-        }
-        // No id: the running job. A paused job is not running, so it is named.
-        builder.addAction(
-            0, getString(android.R.string.cancel),
-            servicePending(REQUEST_CANCEL, ACTION_CANCEL, if (paused) current?.id else null)
-        )
         if (waiting > 0) builder.setSubText(getString(R.string.downloadWaitingCount, waiting))
         return builder.build()
     }
@@ -958,11 +1088,13 @@ class DownloadService : Service() {
         private const val ACTION_CANCEL = "com.mwmods.wardtube.CANCEL_DOWNLOAD"
         private const val ACTION_PAUSE = "com.mwmods.wardtube.PAUSE_DOWNLOAD"
         private const val ACTION_RESUME = "com.mwmods.wardtube.RESUME_DOWNLOAD"
+        private const val ACTION_CANCEL_ALL = "com.mwmods.wardtube.CANCEL_ALL_DOWNLOADS"
 
         // Request codes of the notification's buttons (0 and 1 are taken by Cancel and by opening the Library).
         private const val REQUEST_CANCEL = 0
         private const val REQUEST_PAUSE = 3
         private const val REQUEST_RESUME = 4
+        private const val REQUEST_CANCEL_ALL = 5
 
         /** Progress is broadcast at most this often (status changes always go out at once). */
         private const val PUBLISH_INTERVAL_MS = 400L
@@ -989,12 +1121,14 @@ class DownloadService : Service() {
 
         /** [title] is shown while the job waits; yt-dlp's own file name replaces it if it is empty. */
         fun start(context: Context, url: String, options: DownloadOptions, title: String? = null, item: Int = 0) {
+            val prefs = Prefs(context)
             val intent = Intent(context, DownloadService::class.java)
                 .putExtra(EXTRA_URL, url)
                 .putExtra(EXTRA_ITEM, item)
                 .putExtra(EXTRA_OPTIONS, options.toJson())
                 .putExtra(EXTRA_TITLE, title.orEmpty())
-                .putExtra(EXTRA_AUTO_UPDATE, Prefs(context).autoUpdateEngine)
+                .putExtra(EXTRA_AUTO_UPDATE, prefs.autoUpdateEngine)
+            DownloadLimits.of(prefs).putInto(intent)
             ContextCompat.startForegroundService(context, intent)
         }
 
@@ -1014,10 +1148,12 @@ class DownloadService : Service() {
                     JSONObject().put("url", target.url).put("title", target.title.orEmpty()).put("item", target.item)
                 )
             }
+            val prefs = Prefs(context)
             val intent = Intent(context, DownloadService::class.java)
                 .putExtra(EXTRA_ITEMS, array.toString())
                 .putExtra(EXTRA_OPTIONS, options.toJson())
-                .putExtra(EXTRA_AUTO_UPDATE, Prefs(context).autoUpdateEngine)
+                .putExtra(EXTRA_AUTO_UPDATE, prefs.autoUpdateEngine)
+            DownloadLimits.of(prefs).putInto(intent)
             ContextCompat.startForegroundService(context, intent)
         }
 

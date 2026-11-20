@@ -91,6 +91,20 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(AUTO_UPDATE_ENGINE, false)
         set(value) = sp.edit { putBoolean(AUTO_UPDATE_ENGINE, value) }
 
+    /**
+     * How many downloads run at the same time, 1..[MAX_PARALLEL_DOWNLOADS] (Library: download settings). The download
+     * service runs in its own process, so it is not read there: it is sent with each start request and, while the
+     * service is running, in a broadcast when the person changes it (see [com.mwmods.wardtube.download.DownloadLimits]).
+     */
+    var maxParallelDownloads: Int
+        get() = sp.getInt(MAX_PARALLEL, DEFAULT_PARALLEL_DOWNLOADS).coerceIn(1, MAX_PARALLEL_DOWNLOADS)
+        set(value) = sp.edit { putInt(MAX_PARALLEL, value.coerceIn(1, MAX_PARALLEL_DOWNLOADS)) }
+
+    /** The speed limit of each download in KiB per second; 0 = no limit. Reaches the service the same way. */
+    var speedLimitKb: Int
+        get() = sp.getInt(SPEED_LIMIT_KB, 0).coerceAtLeast(0)
+        set(value) = sp.edit { putInt(SPEED_LIMIT_KB, value.coerceAtLeast(0)) }
+
     /** The last choices made in the Download dialog, as [com.mwmods.wardtube.download.DownloadOptions] JSON. */
     var downloadOptionsJson: String
         get() = sp.getString(DOWNLOAD_OPTIONS, "") ?: ""
@@ -131,6 +145,15 @@ class Prefs(context: Context) {
         const val THEME_LIGHT = 1
         const val THEME_DARK = 2
 
+        /** The most downloads that may run at once: every video download is a yt-dlp process, heavy for a small phone. */
+        const val MAX_PARALLEL_DOWNLOADS = 5
+
+        /** One at a time, as before the setting existed: nothing changes until the person asks for more. */
+        const val DEFAULT_PARALLEL_DOWNLOADS = 1
+
+        /** The speed limits the download settings offer, KiB per second (0 = no limit). */
+        val SPEED_LIMITS_KB = intArrayOf(0, 128, 256, 512, 1024, 2048, 5120)
+
         private const val HOMEPAGE = "homepage"
         private const val BACKGROUND_PLAY = "backgroundPlayEnabled"
         private const val PIP_AUTO = "pipAuto"
@@ -147,6 +170,8 @@ class Prefs(context: Context) {
         private const val ALL_FILES_ASKED = "allFilesAsked"
         private const val AUTO_UPDATE_ENGINE = "autoUpdateEngine"
         private const val DOWNLOAD_OPTIONS = "downloadOptions"
+        private const val MAX_PARALLEL = "maxParallelDownloads"
+        private const val SPEED_LIMIT_KB = "speedLimitKb"
         private const val DETECT_X = "browserDetectX"
         private const val DETECT_Y = "browserDetectY"
         private const val SEARCH_ENGINE = "browserSearchEngine"

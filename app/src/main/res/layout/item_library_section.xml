@@ -1,15 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Heading above a group of rows in the Library ("Downloads", "Files"). -->
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    Heading above a group of rows in the Library ("Downloads", "Files"). The "Downloads" heading also has a button that
+    opens the download settings (LibraryAdapter.SectionHolder shows it only there).
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/tvSection"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
     android:paddingStart="16dp"
-    android:paddingTop="14dp"
-    android:paddingEnd="16dp"
-    android:paddingBottom="4dp"
-    android:textColor="@color/brandText"
-    android:textSize="13sp"
-    android:textStyle="bold"
-    tools:text="Downloads • 3" />
+    android:paddingEnd="8dp">
+
+    <TextView
+        android:id="@+id/tvSection"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:paddingTop="14dp"
+        android:paddingBottom="4dp"
+        android:textColor="@color/brandText"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        tools:text="Downloads • 3" />
+
+    <ImageButton
+        android:id="@+id/btnSectionSettings"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/downloadSettings"
+        android:padding="8dp"
+        android:src="@drawable/ic_tune_24dp"
+        android:visibility="gone"
+        app:tint="@color/brandText" />
+</LinearLayout>

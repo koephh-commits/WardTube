@@ -1,5 +1,68 @@
 # Changelog
 
+## 2.6.113
+- Added: **download settings in the Library: how many downloads run at the same time, and a speed limit for each**
+  (`download/DownloadService.kt`, `download/DownloadLimits.kt`, `download/SpeedLimiter.kt`, `download/FileDownloader.kt`,
+  `ui/LibraryActivity.kt`, `ui/LibraryAdapter.kt`, `Prefs.kt`, `layout/dialog_download_settings.xml`).
+  - Where: the sliders button on the **Downloads** heading of the Library, or **Download settings** in the Library's
+    three dots (that one is there even when nothing is downloading). One dialog, no Save button: a choice is saved and sent
+    to the download service at once.
+  - **Downloads at the same time: 1 to 5.** The default is **1**, which is how it worked before: nothing changes until
+    you pick more. (A video download is a yt-dlp process, heavy for a small phone, so the top is 5. The default is
+    `Prefs.DEFAULT_PARALLEL_DOWNLOADS`.)
+  - **Speed limit for each download:** no limit, 128 KB/s, 256 KB/s, 512 KB/s, 1 MB/s, 2 MB/s or 5 MB/s. It is for each
+    download, so with 3 at once and 1 MB/s the total can reach 3 MB/s; the dialog shows that total while a limit is set.
+    A video gets it as yt-dlp's `--limit-rate` (and takes its stream fragments one at a time then, so the limit is for the
+    whole download and not for each fragment); a plain file (zip, pdf, apk...) is paced by the new `SpeedLimiter` in
+    `FileDownloader`, which asks for the limit before every read.
+  - **Live:** a higher number of downloads starts waiting jobs at once. A lower number stops nothing: the running
+    downloads finish and no new one starts until fewer than the new number are running. A plain file takes a new speed
+    limit at once; a video keeps the limit it started with until it is paused and resumed (yt-dlp cannot be told a new one
+    while it runs), and the dialog says so.
+  - How: the service used one thread (`newSingleThreadExecutor`) and kept the job it was working on in single fields
+    (`currentJobId`, `currentProcessId`, `currentFile`, `cancelRequested`, `pauseRequested`, `heldRun`). Now each job
+    that is being worked on has a `Run` of its own with those fields, and **`dispatch()`** starts waiting jobs, first in
+    line first, while fewer than the allowed number are active. It runs when a job is added, resumed, paused or ended,
+    and when the settings change. A job leaves "waiting" under the lock when it is started, so it can never start twice.
+  - The settings reach the service (it runs in its own process, so it cannot read them) with every start request, and in
+    a package-restricted broadcast (`DownloadLimits.ACTION_CHANGED`) while it is running.
+  - Cancel, Pause and Resume work for each download on its own. A cancel that comes in the moment a job is picked up can
+    no longer let it download to the end: the run is registered together with the check that the job still exists, and a
+    job cancelled before its process exists does not start it. A job that is cancelled while it still waits is counted
+    out of the pending jobs, which the single worker used to do when it found the job gone (otherwise the service would
+    never stop).
+  - Several downloads at once: the saved-file messages are kept per queue under the lock (`reportSaved`), only one job
+    updates the engine when several fail together, and the notification shows **"N downloads running"** with their
+    average progress and **Cancel all** (Pause is in each card in the Library). With one download it is as before, except that
+    its Cancel button now names its job.
+  - Texts in Arabic and English. README (both) and the file list in it updated.
+  - **Not built and not run on a phone** (written without an Android SDK). The speed pacing (`SpeedLimiter`) was run on a
+    JVM with a fake clock: 256 KB/s asked, 257 KB/s measured; 1 MB/s asked, 1028 KB/s; a slow source is not sped up, and a
+    source that was slow and turns fast does not burst above the limit. The rest was checked by compiling the changed
+    sources with the Kotlin compiler without Android, where only the missing Android classes were reported.
+
+## 2.6.112
+- Fixed: **the "Download video" row did not show in the three dots of the videos in search results** (`assets/wardtube/menu-download.js`).
+  - Why: the script added its row before the first row of the page that `getClientRects()` called "shown". That test is
+    also true for a menu YouTube keeps in the page without showing it (hidden with `visibility` or `opacity`, or moved off
+    the screen), and such a menu comes first in the page. The row went into that menu, was never seen, and the script then
+    took the job for done and looked no further. A menu whose rows have names the script does not know got no row at all.
+    (Both were reproduced on a stand-in page in a desktop Chromium with the old script, and are gone with this one.)
+  - Now a row of the menu counts only when it is **really on the screen**: it has a box inside the window and what is drawn at
+    its centre (`elementFromPoint`) is the row itself. The top such row gets the "Download video" row before it.
+  - A menu whose rows have **names this script does not know** is found by how it is drawn: wide boxes (half the window or
+    more, 36 to 110 px tall) with text, one above the other, inside a layer fixed to the screen, never inside a card, a bar of
+    the page or the player. The row goes before the top one. This is tried 0.4 s after the tap, when the known names found nothing.
+  - **Last resort:** if a menu is open (a fixed layer that covers the page is on top) and still no row is in it after 1.4 s,
+    or the row was added and cannot be seen there (after 0.5 s it is taken out), a **"Download video" button of the script's
+    own** is shown above the menu. It goes when the menu goes, and is never shown when no menu is open or on a watch page
+    (which has its own button).
+  - The menu is looked at at most every 80 ms (it was on every change of the page), a tap on the row ends the wait for that
+    menu, and the watch page's row of buttons works as before.
+  - Tried on stand-in pages in a desktop Chromium (known menu, a hidden / off-screen / transparent menu in the page before
+    it, unknown tags, a slow menu, rows too small to find, a menu that hides what it does not know, no menu at all, and the
+    watch page with and without the three dots). Not built and not run on a phone, and not tried against live YouTube.
+
 ## 2.6.111
 - Changed: **the x in the browser's link field now shows only while the field is being used** (`browser/BrowserActivity.kt`).
   Before, it showed whenever the field had text, so on the main screen and on an open page (where the field holds the

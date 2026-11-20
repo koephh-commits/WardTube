@@ -22,9 +22,10 @@ library that works offline. Free software under the [GPL-3.0](LICENSE).
 - **Picture in picture**: press Home while a video plays and it keeps going in the system's small floating window,
   with a play / pause button (Android 8+; can be turned off in the menu).
 - **Sleep timer**: ready-made times or a time you type (up to 24 hours).
-- **Downloads** done on the device (yt-dlp + ffmpeg): MP4, MP3 or M4A, with subtitles. A queue shows progress.
+- **Downloads** done on the device (yt-dlp + ffmpeg): MP4, MP3 or M4A, with subtitles. A queue shows progress; you choose
+  how many downloads run at the same time (1 to 5) and a speed limit for each one.
 - **Playlists**: share or paste a playlist, Mix or channel link (YouTube, and any other site yt-dlp reads as a list),
-  tick the videos you want and they join the queue one by one.
+  tick the videos you want and they join the queue.
 - **Download by sharing**: share a video link from any app and pick Ward Tube.
 - **Library** of your downloads, available without internet. Rename a file from its menu, or select several files to share or delete them together.
 - **Browser** (globe button): paste a link of a video from any site and download it, or open the page and download
@@ -109,7 +110,7 @@ app/src/main/java/com/mwmods/wardtube/
   ui/                        MenuController (bottom bar and overflow menu), LibraryActivity/LibraryAdapter,
                              MultiSelection, ThumbnailLoader, RemoteThumbnails (pictures of a playlist's videos), AboutSheet, ThemeHelper, Insets
   download/                  Downloader (format dialog), DownloadService (queue + yt-dlp, runs in its own process),
-                             DownloadJob (queue entry + broadcast codec), DownloadOptions, SubtitleLister/
+                             DownloadJob (queue entry + broadcast codec), DownloadLimits (how many at once + speed limit, app → service), SpeedLimiter, DownloadOptions, SubtitleLister/
                              SubtitleCleaner, PlaylistLister (reads a link's videos with yt-dlp; ListProbe runs it
                              in the background), YtDlpEngine
   util/                      UrlUtils, ShareLinks, PlaylistLinks (video or list?), CookieHelper, Permissions,
@@ -174,13 +175,18 @@ and applied by `ui/ThemeHelper.kt` (called from `WardTubeApp` before any activit
 - **Library** (bottom bar): lists every file downloaded from inside the app (`Download/WardTube`), with search, play, share, rename and delete, one file at a time or several at once (long-press to select).
   The *Download* menu item downloads on the device itself (bundled yt-dlp + ffmpeg via youtubedl-android, no external website):
   pick MP4 1080/720/480 or MP3/M4A, the finished file lands in the Library.
-  Several downloads can be started in a row: they run one after another, and the Library shows the whole queue at the top.
-  The running one has a progress ring and bar (percent, speed, time left; a video is video + audio, so the percentage covers both),
-  the ones behind it say *Waiting* with their place in line and move up as the earlier ones finish. Each card has a cancel button,
-  and the one that is moving also has a pause button (the notification has Pause / Resume too): the download stops but keeps what it
+  Several downloads can be started in a row: they wait in a queue, and the Library shows the whole queue at the top.
+  *Download settings* (the sliders button on the *Downloads* heading, or the Library's menu) set **how many run at the same time**
+  (1 to 5; 1 by default, which is one after another) and a **speed limit for each download** (no limit, or 128 KB/s up to 5 MB/s;
+  with several downloads the total can reach the limit times their number, and the dialog says how much). A choice is saved and
+  sent to the running service at once: a higher number starts waiting jobs now, a lower one lets the running ones finish; a
+  plain file takes a new speed limit at once, a video when it starts or is resumed.
+  Each running download has a progress ring and bar (percent, speed, time left; a video is video + audio, so the percentage covers both),
+  the ones behind them say *Waiting* with their place in line and move up as the earlier ones finish. Each card has a cancel button,
+  and the ones that are moving also have a pause button (the notification has Pause / Resume too): the download stops but keeps what it
   has (yt-dlp's `.part` files, or the half-written file of a plain download), the next one starts, and *Resume* puts it back at the
-  end of the line, where it continues from the same byte; a failed download stays on screen with *Try again* / *Dismiss*. The notification shows the same (current job + how many are waiting)
-  and opens the Library when tapped.
+  end of the line, where it continues from the same byte; a failed download stays on screen with *Try again* / *Dismiss*. The notification shows the same (the current job, or how many are running and their average progress with *Cancel all*,
+  + how many are waiting) and opens the Library when tapped.
   If YouTube changes and a download fails, update the engine with *Update download engine* in the menu (or the *Update engine* button in the failed download's message) and use *Try again*. *Update the engine automatically* (menu, off by default) makes a failed download update the engine once and retry by itself.
 - **Voice search**: mic button in the bottom bar (system speech recognizer → YouTube search). YouTube's own mic button also works: the
   WebView asks for `RECORD_AUDIO`, which is only ever granted to youtube.com pages.
