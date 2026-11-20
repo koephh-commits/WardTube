@@ -39,7 +39,7 @@
   var CLIP_MS = 500;       // a row that was added and is still not in sight after this long is taken out
 
   // Links that name a video, inside a card.
-  var LINKS = 'a[href*="/watch?v="], a[href*="/shorts/"]';
+  var LINKS = 'a[href*="/watch?v="], a[href*="/shorts/"], img[src*="ytimg.com/vi"], img[data-src*="ytimg.com/vi"], img[src*="ytimg.com/an_webp"]';
   // The cards YouTube draws a video in (mobile page, old and new layouts).
   var CARDS = 'ytm-rich-item-renderer, ytm-media-item, ytm-video-with-context-renderer, ytm-compact-video-renderer, ' +
     'ytm-playlist-video-renderer, ytm-grid-video-renderer, ytm-reel-item-renderer, ytm-shorts-lockup-view-model, ' +
@@ -82,6 +82,11 @@
   // ---- Which video is this card? ----
 
   function parse(a) {
+      if (a.tagName === 'IMG') { // the picture of a card: its address holds the video's id (no <a> link needed)
+        var tm = /ytimg\.com\/(?:vi|vi_webp|an_webp)\/([A-Za-z0-9_-]{11})\//.exec(a.getAttribute('src') || a.getAttribute('data-src') || '');
+        return tm ? { kind: 'video', id: tm[1] } : null;
+      }
+
     var h = a.getAttribute('href') || '';
     var m = /[?&]v=([A-Za-z0-9_-]{11})/.exec(h);
     if (m && h.indexOf('/watch') !== -1) return { kind: 'video', id: m[1] };
@@ -99,6 +104,14 @@
       if (!first) first = v;
       else if (v.id !== first.id) return 'many';
     }
+    if (!first) { // no link and no picture: the data YouTube keeps on the card's element
+        try {
+          var dd = root.data || null;
+          var vid = dd && (dd.videoId || (dd.navigationEndpoint && dd.navigationEndpoint.watchEndpoint && dd.navigationEndpoint.watchEndpoint.videoId) ||
+            (dd.onTap && dd.onTap.innertubeCommand && dd.onTap.innertubeCommand.watchEndpoint && dd.onTap.innertubeCommand.watchEndpoint.videoId));
+          if (vid && /^[A-Za-z0-9_-]{11}$/.test(vid)) first = { kind: 'video', id: vid };
+        } catch (e) { /* no data */ }
+      }
     return first;
   }
 

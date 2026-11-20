@@ -534,6 +534,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             (browseUrl != null && isListPage(browseUrl)) ||
             cardUrl != null
         menuController.setDownloadVisible(somethingToDownload)
+        menuController.setDownloadArmed(cardUrl != null) // lit and pulsing for a video whose three dots were tapped
     }
 
     /** The bars are dark while a video is full screen, in the app's colour while browsing. */

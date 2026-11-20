@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.6.119
+- Fixed: **the download button did not find the video of the three dots in Search results and Watch history.**
+  The video of a card was found only from its `<a href="/watch?v=...">` links. It is now also read from the card's thumbnail
+  address (`i.ytimg.com/vi/<id>/...`) and, last, from the data YouTube keeps on the card's element
+  (`web/CardProbe.kt`, `web/TapProbe.kt`, `assets/wardtube/menu-download.js`).
+- Added: **the download button of the bottom bar turns red and pulses after the three dots of any video are tapped**, also while a
+  video is playing in the mini player (the button was already at full strength then, so nothing showed)
+  (`ui/MenuController.kt`, `MainActivity.kt`).
+- Not built and not run on a phone: written without an Android SDK.
+
 ## 2.6.117
 - Fixed: **the download button did not show for the three dots of the videos in Watch history and Search results, only on Home**
   (`web/CardProbe.kt`, `MainActivity.kt`, `values/strings.xml`, `values-ar/strings.xml`).

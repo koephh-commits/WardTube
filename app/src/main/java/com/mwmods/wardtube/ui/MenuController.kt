@@ -4,6 +4,8 @@
 package com.mwmods.wardtube.ui
 
 import android.content.Intent
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.content.res.ColorStateList
 import android.graphics.drawable.Drawable
 import android.text.InputType
@@ -12,6 +14,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MenuItem
 import android.view.View
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.WebView
 import android.widget.EditText
 import android.widget.ImageView
@@ -131,8 +134,50 @@ class MenuController(
     fun setDownloadVisible(visible: Boolean) {
         if (!::actionMenu.isInitialized || visible == downloadAvailable) return
         downloadAvailable = visible
+        applyDownloadIcon()
+    }
+
+    /** True while the download button is lit for a video whose three dots were just tapped (see [setDownloadArmed]). */
+    private var downloadArmed = false
+    private var downloadPulse: ObjectAnimator? = null
+
+    /**
+     * The video whose three dots were just tapped (anywhere: Home, search, history ...) is waiting for the download
+     * button: it turns red and pulses until the offer ends. This is separate from [setDownloadVisible] on purpose: with
+     * a video playing in the mini player the button is already at full strength, and the tap on the three dots
+     * would show no sign at all.
+     */
+    fun setDownloadArmed(armed: Boolean) {
+        if (!::actionMenu.isInitialized || armed == downloadArmed) return
+        downloadArmed = armed
+        applyDownloadIcon()
+        downloadPulse?.cancel()
+        downloadPulse = null
+        val view = actionMenu.findViewById<View>(R.id.action_download) ?: return
+        if (armed) {
+            downloadPulse = ObjectAnimator.ofPropertyValuesHolder(
+                view,
+                PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.3f),
+                PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.3f),
+            ).apply {
+                duration = 450
+                repeatMode = ObjectAnimator.REVERSE
+                repeatCount = ObjectAnimator.INFINITE
+                interpolator = AccelerateDecelerateInterpolator()
+                start()
+            }
+        } else {
+            view.scaleX = 1f
+            view.scaleY = 1f
+        }
+    }
+
+    private fun applyDownloadIcon() {
         val item = actionMenu.menu.findItem(R.id.action_download) ?: return
-        item.setIcon(slotIcon(R.drawable.ic_download_24dp, if (visible) FULL_ALPHA else DIMMED_ALPHA))
+        val lit = downloadArmed || downloadAvailable == true
+        val icon = slotIcon(R.drawable.ic_download_24dp, if (lit) FULL_ALPHA else DIMMED_ALPHA)
+        if (downloadArmed) icon?.setTint(ContextCompat.getColor(activity, R.color.menuAccentRed))
+        item.setIcon(icon)
     }
 
     /** A private copy of an icon (so the other users of the drawable keep their look) drawn at [alpha] (0-255). */

@@ -48,11 +48,16 @@ object CardProbe {
       'ytm-menu-popup-renderer, yt-contextual-sheet-layout, yt-sheet-view-model, ytm-pivot-bar-renderer, ' +
       'ytm-mobile-topbar-renderer, header, nav, [role="tablist"], ytm-chip-cloud-renderer, video, [data-wt-dl]';
     var PRESS = 'button, [role="button"], yt-icon-button, button-view-model, yt-button-shape, ytm-menu, ytm-menu-renderer';
-    var LINKS = 'a[href*="/watch?"], a[href*="/shorts/"]';
+    var LINKS = 'a[href*="/watch?"], a[href*="/shorts/"], img[src*="ytimg.com/vi"], img[data-src*="ytimg.com/vi"], img[src*="ytimg.com/an_webp"]';
     var MORE = /more|menu|action|option|المزيد|إجراء|إجراءات|خيارات|القائمة|plus|más|mehr|altro|もっと|更多|더보기|mais|еще|daha/i;
     var T = ['h3', 'h4', '[role="heading"]', '.media-item-headline', '[class*="title" i]'];
 
     function parse(a) {
+      if (a.tagName === 'IMG') { // the picture of a card: its address holds the video's id (no <a> link needed)
+        var tm = /ytimg\.com\/(?:vi|vi_webp|an_webp)\/([A-Za-z0-9_-]{11})\//.exec(a.getAttribute('src') || a.getAttribute('data-src') || '');
+        return tm ? { k: 'video', i: tm[1] } : null;
+      }
+
       var h = a.getAttribute('href') || '';
       var m = /[?&]v=([A-Za-z0-9_-]{11})/.exec(h);
       if (m && h.indexOf('/watch') !== -1) return { k: 'video', i: m[1] };
@@ -66,6 +71,14 @@ object CardProbe {
         if (!v) continue;
         if (!first) first = v;
         else if (v.i !== first.i) return 'many';
+      }
+      if (!first) { // no link and no picture: the data YouTube keeps on the card's element
+        try {
+          var dd = root.data || null;
+          var vid = dd && (dd.videoId || (dd.navigationEndpoint && dd.navigationEndpoint.watchEndpoint && dd.navigationEndpoint.watchEndpoint.videoId) ||
+            (dd.onTap && dd.onTap.innertubeCommand && dd.onTap.innertubeCommand.watchEndpoint && dd.onTap.innertubeCommand.watchEndpoint.videoId));
+          if (vid && /^[A-Za-z0-9_-]{11}$/.test(vid)) first = { k: 'video', i: vid };
+        } catch (e) { /* no data */ }
       }
       return first;
     }
