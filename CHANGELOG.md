@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.6.126
+- Changed: **the download tip stays on screen until the person presses OK.** It used to go away by itself after 8 seconds,
+  which was too short to read; now it is shown with `Snackbar.LENGTH_INDEFINITE` (`MainActivity.showVideoPressTip`) and the
+  unused `VIDEO_PRESS_TIP_MS` is removed. It is still shown only once.
+- Not changed: the text of the tip, where it shows, and when.
+
+## 2.6.125
+- Changed: **the text that explains how to download a video now says that the long press does not work in the custom
+  Subscriptions page** (there the video's three-dots menu has its own *Download* row).
+  - Both texts are changed, in English and Arabic: the one-time tip (`videoPressTip`) and the dialog of the bottom bar's
+    download button (`error_select_video_to_download`).
+  - The tip's notice may now take three lines instead of two, so the longer text is not cut (`MainActivity.showVideoPressTip`).
+- Not changed: the long press, the sheet, and the Subscriptions screen itself.
+
 ## 2.6.124
 - Added: **the way to download a video is now said in the app**, because a long press is not something a person finds alone
   (and the three-dots row it replaced is gone).

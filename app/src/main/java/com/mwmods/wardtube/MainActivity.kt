@@ -1327,17 +1327,19 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
     /**
      * Once, the first time a page with video cards is on screen: a long press on a video is how it is downloaded, and
-     * nothing on the page says so. It is a plain notice above the bar (not a dialog), so it never stands in the way, and it
-     * is never shown again (also for someone who used the three-dots row that this replaced).
+     * nothing on the page says so. It is a plain notice above the bar (not a dialog), so it never stands in the way; it
+     * stays until the person presses OK (it does not go away on its own), and it is never shown again (also for someone who used the three-dots row that this replaced).
      */
     private fun showVideoPressTip(url: String?) {
         if (prefs.videoPressTipSeen || !isPageWithVideos(url)) return
         if (errorSnackbar?.isShownOrQueued == true || !canOpenVideoSheet(webView)) return
         prefs.videoPressTipSeen = true
-        Snackbar.make(appWindow, R.string.videoPressTip, VIDEO_PRESS_TIP_MS)
+        val tip = Snackbar.make(appWindow, R.string.videoPressTip, Snackbar.LENGTH_INDEFINITE)
             .setAnchorView(bottomBar)
             .setAction(android.R.string.ok) {}
-            .show()
+        // The tip is longer than a Snackbar's default two lines (it also says where the long press does not work).
+        tip.view.findViewById<android.widget.TextView>(com.google.android.material.R.id.snackbar_text)?.maxLines = 3
+        tip.show()
     }
 
     /** The home page, the results, a feed, a channel or a playlist on YouTube's own host (not a sign-in page, not a video). */
@@ -1673,8 +1675,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val BAR_ANIMATION_MS = 150L
         const val BAR_SCROLL_THRESHOLD_DP = 24f
 
-        // The one-time tip about the long press on a video (see showVideoPressTip): how long it stays, and the pages it is for.
-        const val VIDEO_PRESS_TIP_MS = 8_000
+        // The one-time tip about the long press on a video (see showVideoPressTip): the pages it is for.
         val VIDEO_LIST_PATHS = listOf("/results", "/feed/", "/@", "/channel/", "/playlist", "/hashtag/")
 
         // Pull down to refresh: the longest the spinner stays when the page never reports that it has loaded, and the

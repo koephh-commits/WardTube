@@ -442,6 +442,6 @@
     <!-- The sheet a long press on a video's picture or title opens (VideoLongPress, VideoSheet) -->
     <string name="videoSheetDownload">تنزيل الفيديو</string>
     <string name="videoSheetUntitled">فيديو يوتيوب</string>
-    <string name="videoPressTip">نصيحة: اضغط مطولًا على أي فيديو لتنزيله.</string>
-    <string name="error_select_video_to_download">افتح فيديو لتنزيله. ولتنزيل فيديو من قائمة (الرئيسية، البحث، قناة ...) اضغط مطولًا على صورته أو عنوانه ثم اختر «تنزيل الفيديو».</string>
+    <string name="videoPressTip">نصيحة: اضغط مطولًا على أي فيديو لتنزيله. لا يعمل ذلك في صفحة الاشتراكات المخصصة.</string>
+    <string name="error_select_video_to_download">افتح فيديو لتنزيله. ولتنزيل فيديو من قائمة (الرئيسية، البحث، قناة ...) اضغط مطولًا على صورته أو عنوانه ثم اختر «تنزيل الفيديو». لا يعمل ذلك في صفحة الاشتراكات المخصصة.</string>
 </resources>
