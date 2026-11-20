@@ -434,4 +434,7 @@
     <string name="subsUndo">Undo</string>
     <!-- The app's own button for the three dots of a video's card (MainActivity.onCardMenuTapped) -->
     <string name="cardDownloadChip">Download video</string>
+    <string name="cardProbeMiss">The download button could not find this video</string>
+    <string name="cardProbeCopy">Copy details</string>
+    <string name="cardProbeCopied">Copied. Paste it in the chat</string>
 </resources>

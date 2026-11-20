@@ -10,6 +10,8 @@ import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -165,6 +167,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private var probeTap = false
     private var probeDone = false
     private var probeHit: CardProbe.Hit? = null
+    private var probeDiag: String? = null // what the probe says about three dots it found no video for
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
     private lateinit var subs: SubsController
@@ -1689,6 +1692,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 probeTap = false
                 probeDone = false
                 probeHit = null
+                probeDiag = null
                 probeOnOffer = touchIn(cardChip, ev) || touchIn(bottomBar, ev)
                 if (probeOnOffer || !canProbe(ev)) return
                 val seq = probeSeq
@@ -1697,6 +1701,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 webView.evaluateJavascript(CardProbe.script(ev.rawX - at[0], ev.rawY - at[1])) { raw ->
                     if (seq != probeSeq || isDestroyed) return@evaluateJavascript
                     probeHit = CardProbe.parse(raw)
+                    probeDiag = if (probeHit == null) CardProbe.diagnostic(raw) else null
                     probeDone = true
                     if (probeUp && probeTap) fireProbe()
                 }
@@ -1729,10 +1734,32 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     private fun fireProbe() {
-        val hit = probeHit ?: return
+        val hit = probeHit
+        if (hit == null) {
+            // Three dots that no video could be found for: say so, and offer what the page looks like (to be copied and sent).
+            val diag = probeDiag
+            probeDiag = null
+            if (diag != null) showProbeMiss(diag)
+            return
+        }
         probeHit = null
         if (!::menuDownload.isInitialized) return
         onCardMenuTapped(menuDownload, hit.url, hit.title)
+    }
+
+    /**
+     * The three dots of a card were tapped and no video could be found for them (see [CardProbe]): a short message with a
+     * button that copies a description of what the page is made of there, so it can be pasted and sent for a fix.
+     */
+    private fun showProbeMiss(diag: String) {
+        if (isDestroyed || isFullscreen) return
+        Snackbar.make(appWindow, R.string.cardProbeMiss, Snackbar.LENGTH_LONG)
+            .setAction(R.string.cardProbeCopy) {
+                val clipboard = getSystemService(ClipboardManager::class.java)
+                runCatching { clipboard?.setPrimaryClip(ClipData.newPlainText("WardTube", diag)) }
+                Snackbar.make(appWindow, R.string.cardProbeCopied, Snackbar.LENGTH_SHORT).show()
+            }
+            .show()
     }
 
     /** The phone's share sheet with a video's link (the "Share" row of the Subscriptions screen's menu). */

@@ -441,4 +441,7 @@
     <string name="subsUndo">تراجع</string>
     <!-- The app's own button for the three dots of a video's card (MainActivity.onCardMenuTapped) -->
     <string name="cardDownloadChip">تنزيل الفيديو</string>
+    <string name="cardProbeMiss">تعذّر على زر التنزيل تحديد هذا الفيديو</string>
+    <string name="cardProbeCopy">نسخ التفاصيل</string>
+    <string name="cardProbeCopied">تم النسخ. ألصقه في المحادثة</string>
 </resources>

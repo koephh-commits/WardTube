@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.6.117
+- Fixed: **the download button did not show for the three dots of the videos in Watch history and Search results, only on Home**
+  (`web/CardProbe.kt`, `MainActivity.kt`, `values/strings.xml`, `values-ar/strings.xml`).
+  - **What was wrong.** The app-side look at a touch (2.6.116) only recognised three dots when *all* of this held: the touched
+    thing is a `button` / `role=button` / `ytm-menu`..., it is not inside a link, nothing transparent is drawn over it, and, going
+    up from it, the first box that links a video links exactly one. That matches how Home draws a card. Watch history and Search
+    draw it differently and any one of those four was enough to get no answer, with no button and no message.
+  - **Now nothing depends on how a card is built.** The touched thing can be a button of any kind or any small box with a drawing in
+    it; what is drawn *under* the top layer is looked at too (a transparent layer over the dots no longer hides them); three dots
+    inside a link are accepted (they are recognised by their `ytm-menu` box, their label or their drawing); and the video is found
+    first by structure as before, and when that fails by position: the video whose links (picture, title) are nearest to the finger,
+    a link on the finger's line counting for more than one beside it and one further down belonging to the next card.
+    A layer that covers the page (YouTube's open menu and its dimmed page) still means "nothing here", so a tap that only closes
+    the menu is never taken for the dots.
+  - **If it still finds no video for the three dots** the app now says so instead of staying silent: a message *"The download
+    button could not find this video"* with a **Copy details** button. It copies a short description of what the page is made of
+    around the dots (tags, sizes, how many videos each box links, the nearest links): paste it in the chat and the next fix is
+    built on what the page really is. (Only for things that look like three dots, so ordinary taps never show it.)
+  - Tried in a headless Chromium on 14 stand-in layouts (Home's old card, the `yt-lockup-view-model` card, Watch history's
+    horizontal card, a row of Shorts tiles, dots outside the card, dots with no `button`, dots inside a link, a transparent layer
+    over the card, title not a link, right-to-left page, three pixel ratios) and 8 taps that must find nothing (picture, title, channel avatar,
+    chip bar, top bar, a channel card's Subscribe button, an open menu and its dimmed page). The 2.6.116 probe found nothing in 5
+    of the 14 (dots outside the card, no `button`, inside a link, under a transparent layer); the new one answers all of them with
+    the right video and title and answers nothing for each of the 8. **The Kotlin side is not built and not run on a phone**
+    (written without an Android SDK) and nothing was tried against live YouTube.
+
 ## 2.6.116
 - Fixed: **the app's own "Download video" button did not show for the three dots of the videos in search results**
   (`web/CardProbe.kt` new, `MainActivity.kt`, `web/MenuDownload.kt`, `subs/SubsController.kt`).
