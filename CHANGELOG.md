@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.6.122
+- Added: **NouTube's two ways of naming a video, ported** (read from NouTube's `menu.ts` and `NouTubeView.kt`).
+  - **Long press on a video's link** (the picture or the title, on any page: Home, Search, Watch history ...): Android's own
+    hit test of the WebView (`hitTestResult`, `requestFocusNodeHref`) gives the link under the finger and the menu offers
+    *Download video*. It does not look at how the card is built (`MainActivity.kt`: `onCreateContextMenu`, `addLinkMenu`).
+  - **A tap anywhere inside a video's card waits for a menu** (as NouTube's `menu.ts` does, with its list of cards, including
+    `ytm-video-card-renderer` and `yt-lockup-metadata-view-model`): when a menu opens after the tap, the card's video is
+    offered (lit, pulsing download button) even if the tap was not on a button this script knows. A tap that only opens the
+    video offers nothing (`assets/wardtube/menu-download.js`).
+- Not built and not run on a phone (written without an Android SDK).
+
+## 2.6.121
+- Added: **the video is named by its link alone.** Two ways that do not depend on how the page is built:
+  - **A copied video link is the video to download.** When a YouTube video link (watch, Shorts, live, youtu.be) lands on the
+    clipboard (YouTube's own *Share > Copy link*), the bottom bar's download button lights up and pulses, and one tap downloads
+    it (`MainActivity.kt`: `watchCopiedLinks`, `videoLinkIn`).
+  - **The tap's own data.** The page script also reads the video id from the data of the elements the tap went through
+    (`composedPath`), when no link or picture names it (`assets/wardtube/menu-download.js`).
+- Not built and not run on a phone (written without an Android SDK).
+
+## 2.6.120
+- Fixed: **the download button still worked only on Home, not in Search and Watch history.**
+  - **What was wrong.** When the two looks at a touch (`CardProbe`, `TapProbe`) both found nothing, the app stopped there:
+    `fireProbe` returned when the second look had no answer, so nothing waited for YouTube's menu and nothing was offered.
+  - **Now the menu itself is the sign.** After a tap the app waits for YouTube's menu to open because of it (also when the
+    two looks said nothing), then reads the video with the new `web/MenuVideo.kt`: first from the data of the open menu's rows
+    (the video id that YouTube built them from), then from the picture or link at the finger's line. Nothing depends on how a
+    card, its three dots or its links are built (`MainActivity.kt`: `awaitMenuOpenBlind`, `extractFromOpenMenu`).
+  - Not built and not run on a phone (written without an Android SDK); the new script was only syntax-checked.
+
 ## 2.6.119
 - Fixed: **the download button did not find the video of the three dots in Search results and Watch history.**
   The video of a card was found only from its `<a href="/watch?v=...">` links. It is now also read from the card's thumbnail

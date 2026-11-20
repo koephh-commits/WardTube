@@ -437,4 +437,6 @@
     <string name="cardProbeMiss">The download button could not find this video</string>
     <string name="cardProbeCopy">Copy details</string>
     <string name="cardProbeCopied">Copied. Paste it in the chat</string>
+    <string name="linkDownloadVideo">Download video</string>
+    <string name="linkLoading">Loading link…</string>
 </resources>

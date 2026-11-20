@@ -59,6 +59,11 @@
   var NOT_MENU = CARDS + ', ytm-pivot-bar-renderer, ytm-mobile-topbar-renderer, header, nav, [role="tablist"], ' +
     'ytm-chip-cloud-renderer, video, [data-wt-dl], [data-wt-dlb]';
   var PRESSABLE = 'button, [role="button"]';
+  // NouTube's way: a click anywhere inside a video's card is the start of a possible menu; the menu is waited for, and
+  // only when one opens is the video of that card offered (a tap on the picture just opens the video: nothing happens).
+  var NOU_CARDS = 'ytm-media-item, ytm-compact-video-renderer, ytm-video-card-renderer, ytm-playlist-video-renderer, ' +
+    'ytm-video-with-context-renderer, ytm-rich-item-renderer, yt-lockup-view-model, yt-lockup-metadata-view-model, ' +
+    'ytd-video-renderer, ytd-grid-video-renderer';
   // What the label of the three dots can say (read only inside the row of buttons of a watch page).
   var MORE_RE = /more|المزيد|إضافي|أخرى|plus|más|mehr|altro|もっと|更多|더보기|mais|еще|daha/i;
 
@@ -130,6 +135,20 @@
       if (v === 'many') return null;
       if (v) return { v: v, el: n };
       n = n.parentElement;
+      hops++;
+    }
+    return null;
+  }
+
+  // The card a click is inside, by NouTube's list of cards; a card that holds no link itself (the metadata part of a
+  // lockup) is looked for again in the card around it.
+  function cardNou(t) {
+    var el = t.closest(NOU_CARDS), hops = 0;
+    while (el && hops < 4) {
+      var v = videoIn(el);
+      if (v === 'many') return null;
+      if (v) return { v: v, el: el };
+      el = el.parentElement ? el.parentElement.closest(NOU_CARDS) : null;
       hops++;
     }
     return null;
@@ -394,6 +413,10 @@
     var now = Date.now();
     if (now - scanAt < SCAN_GAP_MS) return;
     scanAt = now;
+    if (last.late && !last.told && (overlayUp() || menuRows().length)) { // a menu opened after the click: it is this card's
+      last.told = true;
+      tellApp();
+    }
     var mine = document.querySelector('[data-wt-dl="1"]');
     if (mine) {
       if (mine.isConnected && seen(mine)) {
@@ -746,11 +769,52 @@
   // A tap on `t` (not on the script's own row or button, not inside a menu). On the three dots of a card the menu that
   // opens gets the row, and the app is told which video the menu is for; on the three dots under the video of a watch
   // page the row is waited for in the same way; anywhere else the wait for a menu ends.
-  function noteTap(t) {
+  // The video named by the data YouTube keeps on an element (a bounded look: no cycles, no page nodes).
+  function idInData(o, depth, seen, budget) {
+    if (!o || depth > 8 || budget.n-- < 0 || typeof o !== 'object' || o.nodeType || o === window) return '';
+    if (seen.indexOf(o) >= 0) return '';
+    seen.push(o);
+    var keys = ['videoId', 'addedVideoId', 'removedVideoId'];
+    for (var i = 0; i < keys.length; i++) {
+      var v = o[keys[i]];
+      if (typeof v === 'string' && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
+    }
+    var n = 0;
+    for (var k in o) {
+      if (n++ > 40) break;
+      var r = '';
+      try { r = idInData(o[k], depth + 1, seen, budget); } catch (e) { r = ''; }
+      if (r) return r;
+    }
+    return '';
+  }
+
+  // The tap itself says which video: the elements it went through (the card, the button, the three dots) carry the data
+  // their page part was built from, whatever the card looks like. e.composedPath() is the list from the touched
+  // element up.
+  function cardFromPath(e) {
+    try {
+      var path = e && e.composedPath ? e.composedPath() : [];
+      for (var i = 0; i < path.length && i < 30; i++) {
+        var el = path[i];
+        if (!el || el.nodeType !== 1 || el === document.body) continue;
+        if (el.closest && el.closest('[data-wt-dl], [data-wt-dlb]')) return null;
+        var data = null;
+        try { data = el.data || el.__data || null; } catch (x) { data = null; }
+        var id = data ? idInData(data, 0, [], { n: 1500 }) : '';
+        if (id) return { v: { kind: 'video', id: id }, el: el };
+      }
+    } catch (x) { /* nothing from the path */ }
+    return null;
+  }
+
+  function noteTap(t, e) {
     var btn = t.closest(BUTTONS);
     var watching = watchVideo();
     var more = !!(btn && watching && isMoreTap(btn));
     var card = !more && btn ? cardOf(btn, !!watching) : null;
+    if (!more && btn && !card && !watching) card = cardFromPath(e);
+    var late = !more && !card && !watching ? cardNou(t) : null; // inside a card, not on a known button: wait for a menu
     var now = Date.now();
     var vid = more ? watching : card ? card.v : null;
     if (vid && last && !!last.cur === more && last.v.id === vid.id && now - last.at < SAME_TAP_MS) return;
@@ -762,6 +826,9 @@
       last = { v: card.v, title: titleOf(card.el), at: now };
       startPolling();
       tellApp();
+    } else if (late) {
+      last = { v: late.v, title: titleOf(late.el), at: now, late: true, told: false };
+      startPolling(); // the app is told when a menu really opens (see scan)
     } else {
       last = null;
     }
@@ -789,7 +856,7 @@
         last = null;
         return;
       }
-      noteTap(t);
+      noteTap(t, e);
     } catch (x) { /* never break the page */ }
   }, true);
 
@@ -806,7 +873,7 @@
       if (!d || Date.now() - d.at > TAP_MS || Math.abs(e.clientX - d.x) > TAP_PX || Math.abs(e.clientY - d.y) > TAP_PX) return;
       var t = e.target;
       if (!t || !t.closest || t.closest('[data-wt-dl], [data-wt-dlb]') || t.closest(SHEETS)) return;
-      noteTap(t);
+      noteTap(t, e);
     } catch (x) { /* never break the page */ }
   }, true);
 

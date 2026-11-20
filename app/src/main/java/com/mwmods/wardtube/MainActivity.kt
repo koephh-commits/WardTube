@@ -32,8 +32,11 @@ import android.speech.RecognizerIntent
 import android.content.pm.ActivityInfo
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.util.Rational
 import android.view.MotionEvent
+import android.view.ContextMenu
+import android.view.Menu
 import android.view.View
 import android.view.WindowManager
 import android.view.ViewConfiguration
@@ -85,6 +88,7 @@ import com.mwmods.wardtube.web.CardProbe
 import com.mwmods.wardtube.web.TapProbe
 import com.mwmods.wardtube.web.ErrorKind
 import com.mwmods.wardtube.web.MenuDownload
+import com.mwmods.wardtube.web.MenuVideo
 import com.mwmods.wardtube.web.NativeBridge
 import com.mwmods.wardtube.web.PageEvents
 import com.mwmods.wardtube.web.PageScripts
@@ -174,6 +178,11 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private var geoDone = false
     private var geoResult: TapProbe.Result? = null
     private var probeFired = false
+    // Where the finger went down in the WebView (device pixels) and which menus were open then: the last look
+    // (MenuVideo) runs after YouTube's menu opens, whatever the card is made of.
+    private var probeTx = 0f
+    private var probeTy = 0f
+    private var downMenuBits = 0
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
     private lateinit var subs: SubsController
@@ -257,6 +266,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
         prefs = Prefs(this)
         webView = findViewById(R.id.webView)
+        registerForContextMenu(webView) // a long press on a video's link offers "Download video" (see onCreateContextMenu)
         pullRefresh = findViewById(R.id.pullRefresh)
         webArea = findViewById(R.id.webArea)
         appWindow = findViewById(R.id.appWindow)
@@ -293,6 +303,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             onRowShown = { onCardRowShown() },
         )
         menuDownload.install()
+        watchCopiedLinks()
         scripts.install(webView)
         watchScrollDirection(webView)
         setUpPullRefresh()
@@ -1344,6 +1355,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     override fun onDestroy() {
+        clipListener?.let { runCatching { getSystemService(ClipboardManager::class.java)?.removePrimaryClipChangedListener(it) } }
+        clipListener = null
         unregisterPipReceiver()
         // Leaving the app for real (not a rebuild for a theme change) cancels the timer.
         if (isFinishing && !recreating) SleepTimer.cancel()
@@ -1541,6 +1554,72 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
     }
 
+    // ---- A long press on a video's link ----
+    // NouTube's way: Android's own hit test of the WebView says which link is under the finger, whatever the page is made
+    // of (Home, Search, Watch history ...). The picture of a card is a link, so a long press on it names the video.
+
+    override fun onCreateContextMenu(menu: ContextMenu, v: View, menuInfo: ContextMenu.ContextMenuInfo?) {
+        super.onCreateContextMenu(menu, v, menuInfo)
+        if (v !== webView || isDestroyed) return
+        val result = webView.hitTestResult
+        when (result.type) {
+            WebView.HitTestResult.SRC_ANCHOR_TYPE -> result.extra?.let { addLinkMenu(menu, it, null) }
+            WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                // The address of a link around a picture comes a moment later: a line that waits is shown meanwhile.
+                menu.add(LINK_LOADING_GROUP, Menu.NONE, Menu.NONE, R.string.linkLoading).isEnabled = false
+                val msg = Message.obtain(Handler(Looper.getMainLooper()) { m ->
+                    menu.removeGroup(LINK_LOADING_GROUP)
+                    m.data?.getString("url")?.let { addLinkMenu(menu, it, m.data?.getString("title")) }
+                    true
+                })
+                webView.requestFocusNodeHref(msg)
+            }
+        }
+    }
+
+    private fun addLinkMenu(menu: ContextMenu, link: String, title: String?) {
+        val url = videoLinkIn(link) ?: return
+        menu.add(R.string.linkDownloadVideo).setOnMenuItemClickListener {
+            dropCardDownload()
+            startMenuDownload(url, title?.trim()?.takeUnless { it.isEmpty() })
+            true
+        }
+    }
+
+    // ---- A video link that is copied ----
+    // The surest way to name a video is its link itself: YouTube's own "Share > Copy link" puts it on the clipboard. When
+    // the text that lands there is a link to a YouTube video, it is offered like the video of a card's three dots (the
+    // bottom bar's download button lights up and pulses; one tap downloads it). Nothing depends on how the page is built.
+
+    private var clipListener: ClipboardManager.OnPrimaryClipChangedListener? = null
+    private var lastClipUrl: String? = null
+    private var lastClipAt = 0L
+
+    private fun watchCopiedLinks() {
+        val clipboard = getSystemService(ClipboardManager::class.java) ?: return
+        val listener = ClipboardManager.OnPrimaryClipChangedListener {
+            if (isDestroyed) return@OnPrimaryClipChangedListener
+            val text = runCatching {
+                clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+            }.getOrNull() ?: return@OnPrimaryClipChangedListener
+            val url = videoLinkIn(text) ?: return@OnPrimaryClipChangedListener
+            val now = SystemClock.uptimeMillis()
+            if (url == lastClipUrl && now - lastClipAt < 1500) return@OnPrimaryClipChangedListener // one copy, told twice
+            lastClipUrl = url
+            lastClipAt = now
+            if (::menuDownload.isInitialized) onCardMenuTapped(menuDownload, url, null)
+        }
+        clipListener = listener
+        clipboard.addPrimaryClipChangedListener(listener)
+    }
+
+    /** The video link in [text] (a watch, Shorts, live or youtu.be link), as the address the app downloads from; else null. */
+    private fun videoLinkIn(text: String): String? {
+        val m = VIDEO_LINK.find(text.trim()) ?: return null
+        val id = m.groupValues[1]
+        return if (m.value.contains("/shorts/")) "https://m.youtube.com/shorts/$id" else "https://m.youtube.com/watch?v=$id"
+    }
+
     // ---- Downloads ----
 
     private fun startDownloadFlow(url: String) {
@@ -1710,6 +1789,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 webView.getLocationOnScreen(at)
                 val tx = ev.rawX - at[0]
                 val ty = ev.rawY - at[1]
+                probeTx = tx
+                probeTy = ty
+                downMenuBits = 0
+                webView.evaluateJavascript(TapProbe.menuScript()) { raw ->
+                    if (seq == probeSeq && !isDestroyed) downMenuBits = TapProbe.menuBits(raw)
+                }
                 webView.evaluateJavascript(CardProbe.script(tx, ty)) { raw ->
                     if (seq != probeSeq || isDestroyed) return@evaluateJavascript
                     probeHit = CardProbe.parse(raw)
@@ -1768,7 +1853,13 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             return
         }
         // 2. The second look: by the video links only. A touch that is not on a card's area (a link, a bar, a menu) is nothing.
-        val geo = geoResult ?: return
+        val geo = geoResult
+        if (geo == null) {
+            // Neither look could say anything about this touch (the page is not built as they expect): wait for
+            // YouTube's menu to open because of it and read the video from the menu itself.
+            awaitMenuOpenBlind()
+            return
+        }
         val found = geo.hit
         if (found != null && geo.strong) {
             // A small button right inside the video's card: the offer starts at once.
@@ -1796,8 +1887,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                     val found = geo.hit
                     if (found != null) {
                         onCardMenuTapped(menuDownload, found.url, found.title)
-                    } else if (!geo.onShorts && geo.diag.isNotEmpty()) {
-                        showProbeMiss(geo.diag)
+                    } else if (!geo.onShorts) {
+                        extractFromOpenMenu(seq, geo.diag.takeIf { it.isNotEmpty() })
                     }
                 } else if (SystemClock.uptimeMillis() - started < MENU_WAIT_MS) {
                     webArea.postDelayed({ poll() }, MENU_POLL_MS)
@@ -1805,6 +1896,45 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             }
         }
         poll()
+    }
+
+    /** Like [awaitMenuOpen], for a touch that neither look could place: the menu opening is the only sign there is. */
+    private fun awaitMenuOpenBlind() {
+        val seq = probeSeq
+        val before = downMenuBits
+        val started = SystemClock.uptimeMillis()
+        fun poll() {
+            if (seq != probeSeq || isDestroyed || !::webView.isInitialized) return
+            webView.evaluateJavascript(TapProbe.menuScript()) { raw ->
+                if (seq != probeSeq || isDestroyed) return@evaluateJavascript
+                if ((TapProbe.menuBits(raw) and before.inv()) != 0) {
+                    extractFromOpenMenu(seq, null)
+                } else if (SystemClock.uptimeMillis() - started < MENU_WAIT_MS) {
+                    webArea.postDelayed({ poll() }, MENU_POLL_MS)
+                }
+            }
+        }
+        poll()
+    }
+
+    /**
+     * YouTube's menu is open because of the touch: the video is read from the menu's own data, else from the picture or
+     * link at the finger's line (see [MenuVideo]). [diag] is offered to be copied when even that finds nothing.
+     */
+    private fun extractFromOpenMenu(seq: Int, diag: String?) {
+        // A moment for the menu's rows to be drawn with their data.
+        webArea.postDelayed({
+            if (seq != probeSeq || isDestroyed || !::webView.isInitialized || !::menuDownload.isInitialized) return@postDelayed
+            webView.evaluateJavascript(MenuVideo.script(probeTx, probeTy)) { raw ->
+                if (seq != probeSeq || isDestroyed) return@evaluateJavascript
+                val hit = CardProbe.parse(raw)
+                if (hit != null) {
+                    onCardMenuTapped(menuDownload, hit.url, hit.title)
+                } else if (diag != null) {
+                    showProbeMiss(diag)
+                }
+            }
+        }, MENU_DATA_DELAY_MS)
     }
 
     /**
@@ -1928,6 +2058,11 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         // The app's own download button for a card's three dots: how long the page is given to show the row in the menu
         // before the button is drawn, how long the offer lasts if nothing else ends it, and its fade.
         const val CARD_CHIP_DELAY_MS = 900L
+        const val LINK_LOADING_GROUP = 7101
+        val VIDEO_LINK = Regex(
+            "https?://(?:www\\.|m\\.|music\\.)?(?:youtu\\.be/|youtube\\.com/(?:watch\\?(?:[^\\s#]*&)?v=|shorts/|live/))([A-Za-z0-9_-]{11})"
+        )
+        const val MENU_DATA_DELAY_MS = 150L
         const val CARD_SAME_TAP_MS = 1500L // one tap told twice (by the app's own look and by the page) counts once
         const val CARD_TAP_MAX_MS = 600L   // a touch that lasts longer is not a tap
         const val CARD_CHIP_LIFETIME_MS = 20_000L

@@ -444,4 +444,6 @@
     <string name="cardProbeMiss">تعذّر على زر التنزيل تحديد هذا الفيديو</string>
     <string name="cardProbeCopy">نسخ التفاصيل</string>
     <string name="cardProbeCopied">تم النسخ. ألصقه في المحادثة</string>
+    <string name="linkDownloadVideo">تنزيل الفيديو</string>
+    <string name="linkLoading">جارٍ تحميل الرابط…</string>
 </resources>
