@@ -42,6 +42,7 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -139,6 +140,14 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
     /** The same for the player WebView (the watch page): made again with each player, null while there is none. */
     private var playerMenuDownload: MenuDownload? = null
+
+    // The video of a card whose three dots were just tapped, for the app's own download button (see onCardMenuTapped).
+    private var cardChip: View? = null
+    private var cardUrl: String? = null
+    private var cardTitle: String? = null
+    private var cardSource: MenuDownload? = null
+    private val showCardChip = Runnable { revealCardChip() }
+    private val expireCard = Runnable { dropCardDownload() }
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
     private lateinit var subs: SubsController
@@ -228,6 +237,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         statusBarSpace = findViewById(R.id.statusBarSpace)
         bottomBar = findViewById(R.id.bottomBar)
         navBarSpace = findViewById(R.id.navBarSpace)
+        cardChip = findViewById<View>(R.id.cardDownloadChip).also { chip ->
+            chip.setOnClickListener { downloadPendingCard() }
+        }
 
         applyWindowInsets()
 
@@ -251,6 +263,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         menuDownload = MenuDownload(
             webView,
             onDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
+            onCardMenu = { source, url, title -> onCardMenuTapped(source, url, title) },
+            onRowShown = { onCardRowShown() },
         )
         menuDownload.install()
         scripts.install(webView)
@@ -298,7 +312,15 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             onAutoHideBarChanged = { if (!prefs.autoHideBar) setBarHidden(false) },
             pipAvailable = pipSupported,
             onPipChanged = { updatePipParams() },
-            onNativeSubsChanged = { subs.onPage(webView.url) }
+            onNativeSubsChanged = { subs.onPage(webView.url) },
+            beforeBarAction = { id ->
+                if (id == R.id.action_download) {
+                    downloadPendingCard() // the video whose three dots were just tapped, if any
+                } else {
+                    dropCardDownload() // any other button ends the offer
+                    false
+                }
+            },
         )
         menuController.setUp(findViewById<ActionMenuView>(R.id.menu_main))
 
@@ -308,6 +330,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                dropCardDownload() // Back closes YouTube's menu: the offer for its video goes with it
                 when {
                     isFullscreen -> exitFullscreen()
                     playerHost.mode == PlayerHost.Mode.EXPANDED -> playerHost.minimize()
@@ -442,6 +465,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             view,
             onDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
             onDownloadCurrent = { url -> if (!isDestroyed) startDownloadFlow(url) },
+            onCardMenu = { source, url, title -> onCardMenuTapped(source, url, title) },
+            onRowShown = { onCardRowShown() },
         ).also { it.install() }
         view.keepVisible = prefs.backgroundPlay
         playerNavigatedAwayFrom = null
@@ -472,14 +497,16 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     /**
      * [إصلاح] The download button of the bottom bar is only at full strength (otherwise dimmed, never hidden, so the
      * other buttons do not move) while there is something to download: a video open
-     * in the player (full screen or in the mini player), a Short on the browsing page, or a playlist / channel page
-     * (downloaded as a list). [browseUrl] is the page of the browsing WebView.
+     * in the player (full screen or in the mini player), a Short on the browsing page, a playlist / channel page
+     * (downloaded as a list), or a video whose card's three dots were just tapped (see [onCardMenuTapped]).
+     * [browseUrl] is the page of the browsing WebView.
      */
     private fun updateDownloadButton(browseUrl: String? = webView.url) {
         if (!::menuController.isInitialized || !::playerHost.isInitialized) return
         val somethingToDownload = playerHost.isActive ||
             UrlUtils.isShortsPage(browseUrl) ||
-            (browseUrl != null && isListPage(browseUrl))
+            (browseUrl != null && isListPage(browseUrl)) ||
+            cardUrl != null
         menuController.setDownloadVisible(somethingToDownload)
     }
 
@@ -1225,6 +1252,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     override fun onPause() {
         super.onPause()
         resumed = false
+        dropCardDownload()
         sleepHandler.removeCallbacks(sleepTick)
         // Turning into the small picture-in-picture window (or about to): the video stays in view and goes on playing,
         // so nothing is paused and the screen, the poll and the headphone receiver keep going.
@@ -1517,8 +1545,100 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * so the player (which may hold another video, even a live one) is not asked about it, and the page's own title
      * is not its name: the card's title is used when there is one.
      */
-    private fun startMenuDownload(url: String, cardTitle: String?) {
-        beginDownload(url, knownTitle = cardTitle, fromBrowse = true)
+    private fun startMenuDownload(url: String, title: String?) {
+        dropCardDownload() // the offer for this video (the app's own button) is used up
+        beginDownload(url, knownTitle = title, fromBrowse = true)
+    }
+
+    // ---- The app's own download button for the three dots of a card ----
+    // The row that menu-download.js adds to YouTube's menu depends on how that menu is built, and YouTube changes it
+    // (it did not show in the menu of the videos in search results). So the page also tells the app, the moment the three
+    // dots of a card are tapped, which video the card is. Unless the row is then seen in the menu, the app shows a
+    // "Download video" button of its own over the top of the page (clear of the menu, which comes from the bottom), and the
+    // download button of the bottom bar goes to full strength and downloads that video too. Any other touch, the Back
+    // button or leaving the screen ends the offer, and so does a time limit.
+
+    private fun onCardMenuTapped(source: MenuDownload, url: String, title: String?) {
+        if (isDestroyed || isFullscreen) return
+        cardUrl = url
+        cardTitle = title
+        cardSource = source
+        webArea.removeCallbacks(showCardChip)
+        webArea.removeCallbacks(expireCard)
+        // A moment's wait: when the row does show in the menu, the page says so (onCardRowShown) and no button is drawn.
+        webArea.postDelayed(showCardChip, CARD_CHIP_DELAY_MS)
+        webArea.postDelayed(expireCard, CARD_CHIP_LIFETIME_MS)
+        updateDownloadButton()
+    }
+
+    private fun revealCardChip() {
+        val chip = cardChip ?: return
+        if (isDestroyed || cardUrl == null) return
+        val name = cardTitle
+        chip.findViewById<TextView>(R.id.cardDownloadChipTitle).apply {
+            text = name.orEmpty()
+            visibility = if (name.isNullOrBlank()) View.GONE else View.VISIBLE
+        }
+        chip.animate().cancel()
+        chip.alpha = 0f
+        chip.visibility = View.VISIBLE
+        chip.animate().alpha(1f).setDuration(CARD_CHIP_FADE_MS).start()
+    }
+
+    /** The row is in YouTube's menu and in sight: the app's own button is not drawn (the bottom bar's one still works). */
+    private fun onCardRowShown() {
+        if (!::webArea.isInitialized) return
+        webArea.removeCallbacks(showCardChip)
+        cardChip?.let {
+            it.animate().cancel()
+            it.visibility = View.GONE
+        }
+    }
+
+    /** Ends the offer: the button goes, the bottom bar's download button goes back to what the page says. */
+    private fun dropCardDownload() {
+        if (!::webArea.isInitialized) return
+        webArea.removeCallbacks(showCardChip)
+        webArea.removeCallbacks(expireCard)
+        cardChip?.let {
+            it.animate().cancel()
+            it.visibility = View.GONE
+        }
+        val had = cardUrl != null
+        cardUrl = null
+        cardTitle = null
+        cardSource = null
+        if (had) updateDownloadButton()
+    }
+
+    /**
+     * Downloads the video whose three dots were just tapped (the app's own button, or the bottom bar's download button).
+     * False when there is none. YouTube's menu, which is still open under the format window, is closed.
+     */
+    private fun downloadPendingCard(): Boolean {
+        val url = cardUrl ?: return false
+        val title = cardTitle
+        val source = cardSource
+        dropCardDownload()
+        source?.closeMenu()
+        startMenuDownload(url, title)
+        return true
+    }
+
+    private fun touchIn(view: View?, ev: MotionEvent): Boolean {
+        if (view == null) return false
+        val r = Rect()
+        return view.getGlobalVisibleRect(r) && r.contains(ev.rawX.toInt(), ev.rawY.toInt())
+    }
+
+    /** Only watches: a touch anywhere but on the app's own button or the bottom bar ends the offer for a card's video. */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN && cardUrl != null &&
+            !touchIn(cardChip, ev) && !touchIn(bottomBar, ev)
+        ) {
+            dropCardDownload()
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     /** The phone's share sheet with a video's link (the "Share" row of the Subscriptions screen's menu). */
@@ -1623,6 +1743,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val SEARCH_URL = "https://m.youtube.com/results?search_query="
         const val BAR_ANIMATION_MS = 150L
         const val BAR_SCROLL_THRESHOLD_DP = 24f
+
+        // The app's own download button for a card's three dots: how long the page is given to show the row in the menu
+        // before the button is drawn, how long the offer lasts if nothing else ends it, and its fade.
+        const val CARD_CHIP_DELAY_MS = 1200L
+        const val CARD_CHIP_LIFETIME_MS = 20_000L
+        const val CARD_CHIP_FADE_MS = 150L
 
         // Pull down to refresh: the longest the spinner stays when the page never reports that it has loaded, and the
         // script that asks the page whether it (or the list under the finger) is scrolled away from its top. It is a

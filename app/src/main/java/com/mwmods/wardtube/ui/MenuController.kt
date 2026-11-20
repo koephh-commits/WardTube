@@ -70,6 +70,11 @@ class MenuController(
     private val pipAvailable: Boolean = false,
     private val onPipChanged: () -> Unit = {},
     private val onNativeSubsChanged: () -> Unit = {},
+    /**
+     * Called with the id of a bar button before it acts; true when the app already handled the tap (the download button
+     * of a video whose three dots were just tapped: see MainActivity.downloadPendingCard).
+     */
+    private val beforeBarAction: (itemId: Int) -> Boolean = { false },
 ) : ActionMenuView.OnMenuItemClickListener {
 
     private lateinit var actionMenu: ActionMenuView
@@ -155,6 +160,7 @@ class MenuController(
     }
 
     override fun onMenuItemClick(item: MenuItem): Boolean {
+        if (beforeBarAction(item.itemId)) return true
         when (item.itemId) {
             R.id.action_minimize -> if (videoFullScreen == true) onMinimize() else onVoiceSearch()
             R.id.action_home -> {

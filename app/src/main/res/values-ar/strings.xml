@@ -439,4 +439,6 @@
     <string name="subsHidden">تم إخفاء الفيديو</string>
     <string name="subsPostHidden">تم إخفاء المنشور</string>
     <string name="subsUndo">تراجع</string>
+    <!-- The app's own button for the three dots of a video's card (MainActivity.onCardMenuTapped) -->
+    <string name="cardDownloadChip">تنزيل الفيديو</string>
 </resources>

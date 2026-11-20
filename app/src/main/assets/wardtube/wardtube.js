@@ -682,8 +682,27 @@
     if (!root) return;
     var on = mini && cfg.route === 'player';
     if (on !== root.hasAttribute('data-wt-mini')) {
-      if (on) root.setAttribute('data-wt-mini', ''); else root.removeAttribute('data-wt-mini');
+      if (on) {
+        root.setAttribute('data-wt-mini', '');
+      } else {
+        root.removeAttribute('data-wt-mini');
+        kickLayout();
+      }
     }
+  }
+
+  // The page was a small box (the video pinned to the corner by the rules above) and is not any more: YouTube sized its
+  // player while the box was pinned, and only sizes it again when the page tells it that the window changed, which
+  // nothing did here. Without it the video could show for a moment after the player came back (from the picture in
+  // picture window, most of all) and then go black. A few resize events, the first once the page is laid out again and the
+  // others while YouTube may still be opening the next video.
+  function kickLayout() {
+    var fire = function () {
+      try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+    };
+    setTimeout(fire, 50);
+    setTimeout(fire, 400);
+    setTimeout(fire, 1200);
   }
 
   // Scrolls the window and every container around the player back to the top.

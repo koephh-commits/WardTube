@@ -1,5 +1,59 @@
 # Changelog
 
+## 2.6.115
+- Fixed: **the player showing for a second and then going black after the picture-in-picture window is left**, mostly
+  when the video had just ended and the next one was opening (`player/PlayerHost.kt`, `assets/wardtube/wardtube.js`).
+  - **Cause.** Entering the window ran a sequence that tells the page its state, sends it a resize, lays it out a few
+    pixels narrower for a split second and measures the video again, several times over about 1.4 s (`pipSettle`), because
+    YouTube sizes its player for whatever size the page has at that moment and can stay stuck on an in-between one.
+    Leaving the window had nothing of the kind: `exitPip()` gave the player its size back in one step and sent
+    `setMini(false)` once. The window then grows for a while, and a player that is just opening the next video can be
+    sized for one of the in-between moments: the video shows, then YouTube sizes it again wrongly and the box goes black
+    (the sound goes on). A player that is not changing video takes the size change well, hence "sometimes".
+  - **Now** `exitPip()` starts `exitSettle`: for about 4.2 s after leaving, six looks (0.2, 0.5, 1.0, 1.7, 2.7 and
+    4.2 s in) tell the page whether it is full screen or the floating box, send it a `resize`, and at the second and the
+    fifth look lay the page out 6 px narrower for 140 ms (`nudgeAfterExit`, not while a finger moves the player or the
+    box changes size). In the floating box the video is also measured again at each look. If the page changes meanwhile
+    (the next video opens) the sequence starts over; entering the window again, or closing the player, stops it.
+  - **The page** (`markMini`) now sends three `resize` events (50 ms, 0.4 s, 1.2 s) every time it stops being a small
+    box, whatever the app does, so the player is also sized again when the floating box is opened full screen.
+  - Tried in a desktop Chromium on a stand-in page: the mini rules switch on and off (by `setMini` and by the app's
+    answer alone), no `resize` while mini, three after, no script errors. **The Kotlin side is not built and not run on a
+    phone** (written without an Android SDK) and nothing was tried against live YouTube. Try it: play a video in a
+    playlist or a mix, press Home (the window comes), let the video end and the next one open, tap the window to
+    return: the video should stay in the player. If it still goes black, tell me what the player does (sound, how long it
+    shows).
+
+## 2.6.114
+- Fixed: **no download offer in the three dots of the videos in search results** (`assets/wardtube/menu-download.js`,
+  `web/MenuDownload.kt`, `MainActivity.kt`, `ui/MenuController.kt`, `layout/activity_main.xml`,
+  `drawable/bg_card_download_chip.xml`). Not fixed by 2.6.112, and the reason is why this one does not put its trust in the page:
+  2.6.112 was written and tried on stand-in pages only, and the "Download video" row it adds *inside* YouTube's menu, and the
+  button it drew over the page, both depended on how YouTube builds that menu (names of rows, layers, what is drawn where), which
+  cannot be seen from here. On the real search page neither showed.
+  - **Now the app does not need the menu.** The moment the three dots of a video's card are tapped, the page tells the app which
+    video the card is (`Bridge.cardMenu`, with the card's title). If the row is then seen in YouTube's menu (`Bridge.rowShown`)
+    nothing else is shown. If it is not (after 1.2 s), the app draws **its own "Download video" button** over the top of the
+    page (a dark pill with the download icon, "Download video" and the title of the video), clear of YouTube's menu, which
+    comes from the bottom. A tap on it opens the usual format window for that video and closes YouTube's menu.
+  - **The download button of the bottom bar** goes to full strength while that offer is open, and downloads the same video
+    (`MenuController.beforeBarAction`, asked before any bar button acts; any other bar button ends the offer).
+  - The offer ends on any other touch (the bottom bar excepted), on Back, when the app is left, when the download starts and
+    after 20 s. A scroll or a tap on a link never starts one.
+  - The page now also notes a tap on `pointerup`, not only on `click`: a page that opens its menu from the touch and cancels
+    the click that follows would never have been seen. `pointerup` and `click` of one tap count once. A touch that moved
+    more than 12 px or lasted more than 0.7 s (a scroll, a long press) is not a tap.
+  - The three dots are also looked for as `button-view-model`, `yt-button-shape` (besides `button`, `[role=button]`,
+    `yt-icon-button`, `ytm-menu`, `ytm-menu-renderer`).
+  - The button the script of 2.6.112 drew over the page ("the pill") is gone: the app's own replaces it. The row inside
+    YouTube's menu is still tried first, on a watch page as before.
+  - Tried on stand-in pages in a desktop Chromium (a menu whose rows cannot be seen from the page, a known menu, a page that
+    opens its menu from `touchend` and cancels the click, a tap on a video link, a drag over the dots): the app is told
+    once with the right id and title, `rowShown` only when the row is in the menu, no script errors. **The app side
+    (`MainActivity`, the layout) is not built and not run on a phone** (written without an Android SDK), and nothing was tried
+    against live YouTube. Try it: search for something, tap the three dots of a result: a "Download video" button should
+    show at the top, and the download button of the bottom bar should be lit.
+
 ## 2.6.113
 - Added: **download settings in the Library: how many downloads run at the same time, and a speed limit for each**
   (`download/DownloadService.kt`, `download/DownloadLimits.kt`, `download/SpeedLimiter.kt`, `download/FileDownloader.kt`,

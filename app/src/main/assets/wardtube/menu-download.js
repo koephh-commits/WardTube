@@ -12,8 +12,12 @@
 //      kept in the page hidden, transparent or off the screen is never used), the top one: the row goes before it;
 //   2. no such row (a menu whose rows have names this script does not know): the rows are found by how they are drawn
 //      (wide boxes with text, one above the other, in a layer fixed to the screen) and the row goes before the top one;
-//   3. still none, or the row cannot be seen where it was put: a "Download video" button of the script's own is shown
-//      above the menu, for as long as a layer covering the page is open. Nothing is shown when no menu is open.
+//   3. still none, or the row cannot be seen where it was put: nothing more is done in the page. The app was told (cardMenu)
+//      which video the card is the moment the three dots were tapped, and when the row is not seen in the menu (rowShown)
+//      it shows a "Download video" button of its own, drawn by the app over the page, and lights the download button of
+//      its bottom bar for that video. That works whatever the menu looks like, because it does not need the menu.
+//   (A tap is noted on `pointerup` as well as on `click`: a page that opens its menu from the touch and cancels the click
+//   would never have been seen.)
 //
 // On a watch page (the video's own row of buttons: like, dislike, share ... and the three dots) it works in this order:
 //   1. the three dots of that row are found: the row is added to the menu they open;
@@ -30,8 +34,9 @@
   var SYNC_MS = 500;    // how often, at most, the row of buttons of a watch page is looked at again
   var SCAN_GAP_MS = 80;     // how often, at most, the page is looked at for the menu (the page changes all the time)
   var DRAWN_AFTER_MS = 400; // the menu is looked for by how it is drawn only if its names were not known by then
-  var PILL_AFTER_MS = 1400; // still no row in the menu by then: a button of the script's own is shown over the page
-  var CLIP_MS = 500;        // a row that was added and is still not in sight after this long is taken out
+  var TAP_MS = 700;         // a touch that lasts longer, or moves further than TAP_PX, is not a tap on a button
+  var TAP_PX = 12;
+  var CLIP_MS = 500;       // a row that was added and is still not in sight after this long is taken out
 
   // Links that name a video, inside a card.
   var LINKS = 'a[href*="/watch?v="], a[href*="/shorts/"]';
@@ -65,7 +70,7 @@
   var clipped = false;    // the row was added to the menu and could not be seen there: it is not added again
   var insertedAt = 0;
   var scanAt = 0;
-  var pillTimer = 0;
+  var rowReported = false; // the app was told that the row can be seen in this menu
   var fallbackOn = false; // a menu could not take the row: the watch page gets its own button
   var hooked = null;      // the three dots of the watch page that the menu row is waited for from
   var syncTimer = 0;
@@ -351,7 +356,7 @@
     return rows.sort(byTop);
   }
 
-  // ---- The last resort: a button of the script's own over the page ----
+  // ---- Is a menu open? ----
 
   // True while a layer that covers the page is open (a menu and the dimmed page behind it): what is drawn at the top
   // of the window, above any menu, is inside a fixed layer about as big as the window, and is not a bar of the page.
@@ -369,59 +374,6 @@
     return false;
   }
 
-  function removePill() {
-    clearInterval(pillTimer);
-    var p = document.querySelector('[data-wt-dl="pill"]');
-    if (p && p.parentNode) p.parentNode.removeChild(p);
-  }
-
-  // A menu is open and no row could be put in it (rows not found, or a row that cannot be seen there): the page gets a
-  // "Download video" button above the menu, which goes when the menu does. Never shown when no menu is open.
-  function showPill(info) {
-    if (document.querySelector('[data-wt-dl]') || !overlayUp()) return;
-    var p = document.createElement('div');
-    p.setAttribute('data-wt-dl', 'pill');
-    p.setAttribute('role', 'button');
-    p.setAttribute('tabindex', '0');
-    var s = p.style;
-    s.position = 'fixed';
-    s.left = '50%';
-    s.top = '22%';
-    s.transform = 'translateX(-50%)';
-    s.zIndex = '2147483647';
-    s.display = 'flex';
-    s.alignItems = 'center';
-    s.columnGap = '10px';
-    s.boxSizing = 'border-box';
-    s.minHeight = '48px';
-    s.padding = '0 22px';
-    s.borderRadius = '24px';
-    s.backgroundColor = '#212121';
-    s.color = '#fff';
-    s.border = '1px solid rgba(255, 255, 255, 0.3)';
-    s.font = '500 15px/1.2 Roboto, Arial, sans-serif';
-    s.direction = isArabic() ? 'rtl' : 'ltr';
-    s.whiteSpace = 'nowrap';
-    s.cursor = 'pointer';
-    s.userSelect = 'none';
-    s.webkitUserSelect = 'none';
-    s.webkitTapHighlightColor = 'transparent';
-    var tx = document.createElement('span');
-    tx.textContent = isArabic() ? 'تنزيل الفيديو' : 'Download video';
-    p.appendChild(icon(24));
-    p.appendChild(tx);
-    // The page must not take the touch for a tap outside its menu (it could close it before the tap is a click).
-    ['pointerdown', 'touchstart'].forEach(function (name) {
-      p.addEventListener(name, function (e) { e.stopPropagation(); });
-    });
-    p.__wt = info;
-    (document.body || document.documentElement).appendChild(p);
-    clearInterval(pillTimer);
-    pillTimer = setInterval(function () {
-      if (!p.isConnected || !overlayUp()) removePill(); // the menu was closed
-    }, 300);
-  }
-
   // ---- Putting the row in the menu ----
 
   function scan() {
@@ -432,7 +384,7 @@
     var mine = document.querySelector('[data-wt-dl="1"]');
     if (mine) {
       if (mine.isConnected && seen(mine)) {
-        removePill();
+        reportRow();
         return; // already added to this menu, and in sight
       }
       if (now - insertedAt < CLIP_MS) return; // the menu may still be sliding in
@@ -461,17 +413,36 @@
       insertedAt = now;
       return;
     }
-    // (the watch page has a button of its own for this: see the end of startPolling)
-    if (!last.cur && now - last.at > PILL_AFTER_MS) {
-      showPill({ kind: last.v.kind, id: last.v.id, title: last.title, cur: false });
-    }
+    // (no row in the menu: the app offers its own button, see cardMenu; the watch page has a button of its own for this:
+    // see the end of startPolling)
+  }
+
+  // Tells the app that its own button is not needed for this menu: the row is in it and in sight.
+  function reportRow() {
+    if (rowReported) return;
+    rowReported = true;
+    try {
+      var api = bridge();
+      if (api && typeof api.rowShown === 'function') api.rowShown();
+    } catch (x) { /* the app is not there */ }
+  }
+
+  // Tells the app which video the three dots of a card belong to, the moment they are tapped: if the row does not show in
+  // the menu, the app offers the download itself (a button of its own, and its bottom bar's download button).
+  function tellApp() {
+    try {
+      var api = bridge();
+      if (api && last && !last.cur && typeof api.cardMenu === 'function') {
+        api.cardMenu(last.v.kind, last.v.id, last.title || '');
+      }
+    } catch (x) { /* the app is not there */ }
   }
 
   function startPolling() {
     clearInterval(poll);
-    removePill();
     inserted = false;
     clipped = false;
+    rowReported = false;
     insertedAt = 0;
     scanAt = 0;
     var runs = 0;
@@ -493,9 +464,9 @@
   // (whatever is on top there, unless it is a link, a button or part of the menu itself), then Escape.
   function closeSheet(from) {
     try {
-      var root = from.closest(SHEETS);
+      var root = from ? from.closest(SHEETS) : null;
       var el = document.elementFromPoint(Math.round(window.innerWidth / 2), 8);
-      if (el && !from.contains(el) && !(root && root.contains(el)) &&
+      if (el && !(from && from.contains(el)) && !(root && root.contains(el)) &&
           !el.closest('a, button, input, [role="button"], [role="menuitem"]')) {
         el.click();
       }
@@ -521,7 +492,6 @@
     if (!info) return;
     last = null; // this menu is done with: nothing more is added to it while it closes
     closeSheet(row);
-    if (row.getAttribute('data-wt-dl') === 'pill') removePill();
     send(info);
   }
 
@@ -756,7 +726,35 @@
     syncTimer = setTimeout(syncRow, SYNC_MS);
   }
 
-  // The first listener on the page (capture, window), so YouTube cannot stop the event before it is seen.
+  // What can be the three dots: a button of a card, or of the row under the video of a watch page.
+  var BUTTONS = 'button, [role="button"], yt-icon-button, button-view-model, yt-button-shape, ytm-menu, ytm-menu-renderer';
+  var SAME_TAP_MS = 600; // `pointerup` and then `click` of one tap are one tap
+
+  // A tap on `t` (not on the script's own row or button, not inside a menu). On the three dots of a card the menu that
+  // opens gets the row, and the app is told which video the menu is for; on the three dots under the video of a watch
+  // page the row is waited for in the same way; anywhere else the wait for a menu ends.
+  function noteTap(t) {
+    var btn = t.closest(BUTTONS);
+    var watching = watchVideo();
+    var more = !!(btn && watching && isMoreTap(btn));
+    var card = !more && btn ? cardOf(btn, !!watching) : null;
+    var now = Date.now();
+    var vid = more ? watching : card ? card.v : null;
+    if (vid && last && !!last.cur === more && last.v.id === vid.id && now - last.at < SAME_TAP_MS) return;
+    clearRows();
+    if (more) { // the three dots of the row under the video
+      last = { v: watching, title: '', at: now, cur: true };
+      startPolling();
+    } else if (card) {
+      last = { v: card.v, title: titleOf(card.el), at: now };
+      startPolling();
+      tellApp();
+    } else {
+      last = null;
+    }
+  }
+
+  // The first listeners on the page (capture, window), so YouTube cannot stop the event before it is seen.
   window.addEventListener('click', function (e) {
     try {
       var t = e.target;
@@ -778,23 +776,34 @@
         last = null;
         return;
       }
-      clearRows();
-      var btn = t.closest('button, [role="button"], yt-icon-button, ytm-menu, ytm-menu-renderer');
-      var watching = watchVideo();
-      if (btn && watching && isMoreTap(btn)) { // the three dots of the row under the video
-        last = { v: watching, title: '', at: Date.now(), cur: true };
-        startPolling();
-        return;
-      }
-      var card = btn ? cardOf(btn, !!watching) : null;
-      if (card) {
-        last = { v: card.v, title: titleOf(card.el), at: Date.now() };
-        startPolling();
-      } else {
-        last = null;
-      }
+      noteTap(t);
     } catch (x) { /* never break the page */ }
   }, true);
+
+  // The same tap, seen when the finger lifts: a page that opens its menu from the touch and cancels the click that
+  // follows it would not be seen by the listener above. A touch that moved (a scroll) or lasted long is not a tap.
+  var down = null;
+  window.addEventListener('pointerdown', function (e) {
+    down = { x: e.clientX, y: e.clientY, at: Date.now() };
+  }, true);
+  window.addEventListener('pointerup', function (e) {
+    try {
+      var d = down;
+      down = null;
+      if (!d || Date.now() - d.at > TAP_MS || Math.abs(e.clientX - d.x) > TAP_PX || Math.abs(e.clientY - d.y) > TAP_PX) return;
+      var t = e.target;
+      if (!t || !t.closest || t.closest('[data-wt-dl], [data-wt-dlb]') || t.closest(SHEETS)) return;
+      noteTap(t);
+    } catch (x) { /* never break the page */ }
+  }, true);
+
+  // The app calls this after its own "Download video" button was used: the YouTube menu that is still open is closed,
+  // the way a finger would (a tap on the dimmed page above it, then Escape).
+  window.__wtCloseMenu = function () {
+    try {
+      if (overlayUp()) closeSheet(null);
+    } catch (x) { /* nothing more to try */ }
+  };
 
   try {
     new MutationObserver(function () {

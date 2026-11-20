@@ -432,4 +432,6 @@
     <string name="subsHidden">Video hidden</string>
     <string name="subsPostHidden">Post hidden</string>
     <string name="subsUndo">Undo</string>
+    <!-- The app's own button for the three dots of a video's card (MainActivity.onCardMenuTapped) -->
+    <string name="cardDownloadChip">Download video</string>
 </resources>

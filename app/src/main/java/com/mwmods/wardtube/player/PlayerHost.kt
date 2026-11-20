@@ -163,6 +163,68 @@ class PlayerHost(
         }
     }
 
+    // The window was left (the person tapped it, or Android 12+ gave the app its full size back): the player goes back to
+    // full screen or to the floating box in one step, while the window is still growing and the page is still being sized
+    // by YouTube. It used to stop there, and YouTube's player could be left sized for one of the in-between moments (the
+    // video showed for a second and then went black, most often when the video had just ended and the next one was
+    // opening). So, like after entering, for a few seconds the page is told its state, sent a resize and, twice, laid out
+    // a few pixels narrower for a split second (a real change of width), and in the floating box the video is measured again.
+    private var exitSettleStep = 0
+    private var exitSettleUntil = 0L
+    private var exitNudging = false
+    private val exitSettle = object : Runnable {
+        override fun run() {
+            val view = webView ?: return
+            if (pip || mode == Mode.NONE) return
+            if (mode == Mode.MINI) tellPageMini()
+            else view.evaluateJavascript("window.__wardtube&&window.__wardtube.setMini(false)", null)
+            view.evaluateJavascript(RESIZE_SCRIPT, null)
+            if (exitSettleStep == EXIT_NUDGE_FIRST || exitSettleStep == EXIT_NUDGE_SECOND) nudgeAfterExit()
+            if (mode == Mode.MINI && !docked && !miniHidden) measureVideoBox()
+            exitSettleStep++
+            if (exitSettleStep < EXIT_SETTLE_MS.size) area.postDelayed(this, EXIT_SETTLE_MS[exitSettleStep])
+        }
+    }
+
+    /** Starts (or starts over, when the page changed meanwhile) the sequence above. */
+    private fun startExitSettle() {
+        if (webView == null || mode == Mode.NONE || pip) return
+        exitSettleStep = 0
+        exitSettleUntil = SystemClock.uptimeMillis() + EXIT_SETTLE_TOTAL_MS
+        area.removeCallbacks(exitSettle)
+        area.postDelayed(exitSettle, EXIT_SETTLE_MS[0])
+    }
+
+    private fun stopExitSettle() {
+        exitSettleUntil = 0L
+        exitNudging = false
+        area.removeCallbacks(exitSettle)
+    }
+
+    /**
+     * Lays the page out [PIP_NUDGE_PX] narrower for [PIP_NUDGE_MS] and then gives it its size back, whatever the player is
+     * showing as now (full screen or the floating box), so that YouTube gets a real change of width and sizes the video to
+     * its box again. Not while a finger is moving the player or the box is changing size.
+     */
+    private fun nudgeAfterExit() {
+        val view = webView ?: return
+        val w = view.width
+        val h = view.height
+        if (pip || exitNudging || w <= PIP_NUDGE_PX * 4 || h <= 0) return
+        if (swipe == Swipe.DRAGGING || dragging || resizeAnimator != null) return
+        exitNudging = true
+        view.layoutParams = FrameLayout.LayoutParams(w - PIP_NUDGE_PX, h, Gravity.TOP or Gravity.LEFT)
+        area.postDelayed({
+            exitNudging = false
+            if (webView !== view || pip) return@postDelayed
+            if (mode == Mode.EXPANDED) {
+                view.layoutParams = FrameLayout.LayoutParams(MATCH, MATCH)
+            } else if (mode == Mode.MINI) {
+                applyMini()
+            }
+        }, PIP_NUDGE_MS)
+    }
+
     /** True when there is a video to show in a picture-in-picture window: not closed, not hidden for a Short, not tucked away. */
     val canPip: Boolean get() = webView != null && mode != Mode.NONE && !miniHidden && !docked
 
@@ -414,6 +476,9 @@ class PlayerHost(
 
     /** Measures the video's box again in a moment (the page has just changed or finished loading). */
     fun remeasureSoon() {
+        // The page changed (the next video opened) while the window has only just been left: the sequence of
+        // exitSettle starts over, so the new page is sized after the change and not only before it.
+        if (!pip && mode != Mode.NONE && SystemClock.uptimeMillis() < exitSettleUntil) startExitSettle()
         if (mode != Mode.MINI && !pip) return
         tellPageMini() // a page that has just (re)loaded starts out knowing nothing about the box
         area.removeCallbacks(remeasure)
@@ -473,6 +538,7 @@ class PlayerHost(
     fun close() {
         val view = webView ?: return
         endPip()
+        stopExitSettle()
         PlayerController.detach(view)
         container.removeView(view)
         webView = null
@@ -530,9 +596,9 @@ class PlayerHost(
     /** Asks the page where its video is, then places the box again with the real size. */
     private fun measureVideoBox() {
         val view = webView ?: return
-        if (pipNudging) return
+        if (pipNudging || exitNudging) return
         view.evaluateJavascript(MEASURE_SCRIPT) { value ->
-            if ((mode != Mode.MINI && !pip) || webView !== view || pipNudging) return@evaluateJavascript
+            if ((mode != Mode.MINI && !pip) || webView !== view || pipNudging || exitNudging) return@evaluateJavascript
             val parts = value?.trim('"')?.split('|') ?: return@evaluateJavascript
             if (parts.size < 6) return@evaluateJavascript
             val n = FloatArray(parts.size)
@@ -759,6 +825,7 @@ class PlayerHost(
         val view = webView ?: return
         if (mode == Mode.NONE || pip) return
         pip = true
+        stopExitSettle()
         pipNudging = false
         pipNudgesLeft = PIP_NUDGE_MAX
         pipNudgedAt = 0L
@@ -826,6 +893,7 @@ class PlayerHost(
             }
             Mode.NONE -> Unit
         }
+        startExitSettle()
     }
 
     /** Drops the picture-in-picture state; the caller lays the player out again for the mode it is in. */
@@ -1302,6 +1370,14 @@ class PlayerHost(
         const val PIP_NUDGE_MS = 140L
         const val PIP_NUDGE_MAX = 2
         const val PIP_NUDGE_GAP_MS = 900L
+
+        // After the window is left (see exitSettle): the wait before each look (about 4.2 s in all), the looks at which the
+        // page is nudged, and the event that makes YouTube size its player again.
+        val EXIT_SETTLE_MS = longArrayOf(200L, 300L, 500L, 700L, 1000L, 1500L)
+        const val EXIT_SETTLE_TOTAL_MS = 4500L
+        const val EXIT_NUDGE_FIRST = 1
+        const val EXIT_NUDGE_SECOND = 4
+        const val RESIZE_SCRIPT = "try{window.dispatchEvent(new Event('resize'))}catch(e){}"
         const val SNAP_MS = 180L
         const val FADE_DELAY_MS = 3000L
         const val RESIZE_MS = 500L

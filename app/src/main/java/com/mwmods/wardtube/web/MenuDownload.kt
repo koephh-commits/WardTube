@@ -22,11 +22,20 @@ import com.mwmods.wardtube.util.UrlUtils
  * video is the one the page is showing, so it calls [Bridge.downloadCurrent] and [onDownloadCurrent] runs, which is
  * the flow of the download button of the bottom bar (it asks the player whether the video is live first). With no
  * [onDownloadCurrent] the video is handled like a card's, without a title.
+ *
+ * The row can fail to show in a menu whose layout the script does not know, so the page also tells the app, the moment the
+ * three dots of a card are tapped, which video the card is ([Bridge.cardMenu] -> [onCardMenu]) and, when the row is seen
+ * in the menu, that the app's own button is not needed ([Bridge.rowShown] -> [onRowShown]). The app then offers the
+ * download itself, whatever the menu looks like.
  */
 class MenuDownload(
     private val webView: WebView,
     private val onDownload: (url: String, title: String?) -> Unit,
     private val onDownloadCurrent: ((url: String) -> Unit)? = null,
+    /** The three dots of a video's card were tapped; [source] is the instance whose page the card is on. */
+    private val onCardMenu: ((source: MenuDownload, url: String, title: String?) -> Unit)? = null,
+    /** The row was put in the menu that is open and can be seen there. */
+    private val onRowShown: (() -> Unit)? = null,
 ) {
     /** True when the script runs by itself at the start of every YouTube page; false when [injectNow] must be used. */
     var documentStart = false
@@ -56,8 +65,27 @@ class MenuDownload(
         webView.evaluateJavascript(js, null)
     }
 
+    /** Closes the YouTube menu that is open on the page (the app's own button was used instead of the row). */
+    fun closeMenu() {
+        runCatching { webView.evaluateJavascript("window.__wtCloseMenu&&window.__wtCloseMenu()", null) }
+    }
+
     inner class Bridge {
         private val main = Handler(Looper.getMainLooper())
+
+        /** The three dots of the card of this video were tapped (the menu is opening): same arguments as [download]. */
+        @JavascriptInterface
+        fun cardMenu(kind: String?, id: String?, title: String?) {
+            val url = urlOf(kind, id) ?: return
+            val name = title?.trim()?.take(200)?.takeUnless { it.isEmpty() }
+            main.post { onCardMenu?.invoke(this@MenuDownload, url, name) }
+        }
+
+        /** The row is in the menu and can be seen there. */
+        @JavascriptInterface
+        fun rowShown() {
+            main.post { onRowShown?.invoke() }
+        }
 
         /** [kind] is "video" or "shorts"; [id] is YouTube's 11-character video id. */
         @JavascriptInterface
