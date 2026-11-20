@@ -82,6 +82,7 @@ import com.mwmods.wardtube.util.PlaylistLinks
 import com.mwmods.wardtube.util.UrlUtils
 import com.mwmods.wardtube.web.BackgroundWebView
 import com.mwmods.wardtube.web.CardProbe
+import com.mwmods.wardtube.web.TapProbe
 import com.mwmods.wardtube.web.ErrorKind
 import com.mwmods.wardtube.web.MenuDownload
 import com.mwmods.wardtube.web.NativeBridge
@@ -168,6 +169,11 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private var probeDone = false
     private var probeHit: CardProbe.Hit? = null
     private var probeDiag: String? = null // what the probe says about three dots it found no video for
+    // The second look (TapProbe): by the video links only, and by whether the touch opened a menu. It answers when the
+    // first one found nothing (it found nothing on the search results and on the watch history).
+    private var geoDone = false
+    private var geoResult: TapProbe.Result? = null
+    private var probeFired = false
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
     private lateinit var subs: SubsController
@@ -1693,17 +1699,28 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 probeDone = false
                 probeHit = null
                 probeDiag = null
+                geoDone = false
+                geoResult = null
+                probeFired = false
                 probeOnOffer = touchIn(cardChip, ev) || touchIn(bottomBar, ev)
                 if (probeOnOffer || !canProbe(ev)) return
                 val seq = probeSeq
                 val at = IntArray(2)
                 webView.getLocationOnScreen(at)
-                webView.evaluateJavascript(CardProbe.script(ev.rawX - at[0], ev.rawY - at[1])) { raw ->
+                val tx = ev.rawX - at[0]
+                val ty = ev.rawY - at[1]
+                webView.evaluateJavascript(CardProbe.script(tx, ty)) { raw ->
                     if (seq != probeSeq || isDestroyed) return@evaluateJavascript
                     probeHit = CardProbe.parse(raw)
                     probeDiag = if (probeHit == null) CardProbe.diagnostic(raw) else null
                     probeDone = true
-                    if (probeUp && probeTap) fireProbe()
+                    maybeFireProbe()
+                }
+                webView.evaluateJavascript(TapProbe.script(tx, ty)) { raw ->
+                    if (seq != probeSeq || isDestroyed) return@evaluateJavascript
+                    geoResult = TapProbe.parse(raw)
+                    geoDone = true
+                    maybeFireProbe()
                 }
             }
             MotionEvent.ACTION_MOVE -> {
@@ -1717,7 +1734,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 if (!probeTap) return
                 // A tap somewhere else ends the offer that was open (before a new one can start from this same tap).
                 if (cardUrl != null && !probeOnOffer) dropCardDownload()
-                if (probeDone) fireProbe()
+                maybeFireProbe()
             }
         }
     }
@@ -1733,18 +1750,60 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         return true
     }
 
+    /** Both looks have answered and the finger has lifted after a tap: act once. */
+    private fun maybeFireProbe() {
+        if (!probeUp || !probeTap || !probeDone || !geoDone || probeFired) return
+        probeFired = true
+        fireProbe()
+    }
+
     private fun fireProbe() {
+        if (!::menuDownload.isInitialized) return
+        // 1. The first look found the card's video (the Home feed): the offer starts.
         val hit = probeHit
-        if (hit == null) {
-            // Three dots that no video could be found for: say so, and offer what the page looks like (to be copied and sent).
-            val diag = probeDiag
-            probeDiag = null
-            if (diag != null) showProbeMiss(diag)
+        if (hit != null) {
+            probeHit = null
+            onCardMenuTapped(menuDownload, hit.url, hit.title)
             return
         }
-        probeHit = null
-        if (!::menuDownload.isInitialized) return
-        onCardMenuTapped(menuDownload, hit.url, hit.title)
+        // 2. The second look: by the video links only. A touch that is not on a card's area (a link, a bar, a menu) is nothing.
+        val geo = geoResult ?: return
+        val found = geo.hit
+        if (found != null && geo.strong) {
+            // A small button right inside the video's card: the offer starts at once.
+            onCardMenuTapped(menuDownload, found.url, found.title)
+            return
+        }
+        // 3. Not sure it was the three dots: the offer starts when the touch opens YouTube's menu.
+        awaitMenuOpen(geo)
+    }
+
+    /**
+     * Waits (a little over a second) for YouTube's menu to open because of the touch that just ended. When it does, the
+     * video found by [TapProbe] is offered; when it does and no video was found, what the page looks like is offered to be
+     * copied (not on a Short: the download button of the bottom bar is already there for it). A new touch ends the wait.
+     */
+    private fun awaitMenuOpen(geo: TapProbe.Result) {
+        val seq = probeSeq
+        val started = SystemClock.uptimeMillis()
+        fun poll() {
+            if (seq != probeSeq || isDestroyed || !::webView.isInitialized) return
+            webView.evaluateJavascript(TapProbe.menuScript()) { raw ->
+                if (seq != probeSeq || isDestroyed) return@evaluateJavascript
+                val now = TapProbe.menuBits(raw)
+                if ((now and geo.menuBefore.inv()) != 0) {
+                    val found = geo.hit
+                    if (found != null) {
+                        onCardMenuTapped(menuDownload, found.url, found.title)
+                    } else if (!geo.onShorts && geo.diag.isNotEmpty()) {
+                        showProbeMiss(geo.diag)
+                    }
+                } else if (SystemClock.uptimeMillis() - started < MENU_WAIT_MS) {
+                    webArea.postDelayed({ poll() }, MENU_POLL_MS)
+                }
+            }
+        }
+        poll()
     }
 
     /**
@@ -1872,6 +1931,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val CARD_TAP_MAX_MS = 600L   // a touch that lasts longer is not a tap
         const val CARD_CHIP_LIFETIME_MS = 20_000L
         const val CARD_CHIP_FADE_MS = 150L
+        const val MENU_WAIT_MS = 1300L     // how long a touch is given to open YouTube's menu (see awaitMenuOpen)
+        const val MENU_POLL_MS = 120L
 
         // Pull down to refresh: the longest the spinner stays when the page never reports that it has loaded, and the
         // script that asks the page whether it (or the list under the finger) is scrolled away from its top. It is a
