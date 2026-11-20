@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.6.116
+- Fixed: **the app's own "Download video" button did not show for the three dots of the videos in search results**
+  (`web/CardProbe.kt` new, `MainActivity.kt`, `web/MenuDownload.kt`, `subs/SubsController.kt`).
+  - **Why 2.6.114 could still show nothing.** The button was only ever started by the page script (`menu-download.js`)
+    telling the app that the three dots of a card were tapped. If the script was not running in the page, did not see the
+    tap, or did not recognise the card or the button, the app was never told and nothing showed, whatever the menu looked
+    like. Nothing could be checked against live YouTube from here.
+  - **Now the app looks at the touch itself.** `MainActivity.trackCardTouch` watches every touch on the browsing page. When a
+    finger goes down, `CardProbe` is handed to the page (`evaluateJavascript`, a self-contained function: no script in the
+    page, no bridge and no YouTube menu is needed). It looks at what is drawn under the finger *before* the tap can open
+    YouTube's menu (which dims the page): a small pressable that is not a link and not in a menu, dialog, bar, chip bar or
+    the player, inside a card that links exactly one video. If the finger then lifts without moving (a tap), the offer starts:
+    the same button as before (a dark pill with the download icon, "Download video" and the title, at the top of the page),
+    and the download button of the bottom bar lights up for that video.
+  - The page script still tells the app too; a tap that both see counts once (`CARD_SAME_TAP_MS`), and when the row does show
+    inside YouTube's menu the app's button is not drawn (as before). The button now waits 0.9 s for that (was 1.2 s).
+  - **A tap elsewhere ends the offer, a drag does not** (before, any finger-down did, so touching the menu while looking for
+    the row could take the button away). The button of the offer, the bottom bar, Back, leaving the screen, the download
+    starting and 20 s still end it. No offer starts under the player, the Subscriptions screen, in full screen or on a page
+    that is not YouTube (`canProbe`; `SubsController.isCovering` is new).
+  - Closing YouTube's menu after the button was used no longer needs the page script either (`MenuDownload.closeMenu` does
+    the same tap on the dimmed page and Escape by itself when the script is not there).
+  - Tried the probe in a desktop Chromium on stand-in pages (the old card, the `yt-lockup-view-model` card, a `role=button`
+    div, a Short with the dots over its picture): the right video id and title for each, nothing for the dots of a channel
+    card, a link, the thumbnail, a chip, the dimmed page or a row of the menu. **The Kotlin side is not built and not run on
+    a phone** (written without an Android SDK) and nothing was tried against live YouTube. Try it: search for something, tap
+    the three dots of a result: about a second later a "Download video" button should show at the top, and the download button
+    of the bottom bar should be lit; tapping either opens the format window.
+
 ## 2.6.115
 - Fixed: **the player showing for a second and then going black after the picture-in-picture window is left**, mostly
   when the video had just ended and the next one was opening (`player/PlayerHost.kt`, `assets/wardtube/wardtube.js`).

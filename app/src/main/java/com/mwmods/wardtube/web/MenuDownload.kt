@@ -65,9 +65,13 @@ class MenuDownload(
         webView.evaluateJavascript(js, null)
     }
 
-    /** Closes the YouTube menu that is open on the page (the app's own button was used instead of the row). */
+    /**
+     * Closes the YouTube menu that is open on the page (the app's own button was used instead of the row). The page script
+     * does it when it is there; when it is not (the app's own button works without it), the same is done here: a tap on
+     * the dimmed page above the menu (unless what is there is a link, a button or a row), then Escape.
+     */
     fun closeMenu() {
-        runCatching { webView.evaluateJavascript("window.__wtCloseMenu&&window.__wtCloseMenu()", null) }
+        runCatching { webView.evaluateJavascript(CLOSE_JS, null) }
     }
 
     inner class Bridge {
@@ -113,6 +117,12 @@ class MenuDownload(
     }
 
     private companion object {
+        const val CLOSE_JS = "(function(){try{if(window.__wtCloseMenu){window.__wtCloseMenu();return;}" +
+            "var el=document.elementFromPoint(Math.round(window.innerWidth/2),8);" +
+            "if(el&&!el.closest('a,button,input,[role=\"button\"],[role=\"menuitem\"]')){" +
+            "el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}));}" +
+            "document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',keyCode:27,bubbles:true}));" +
+            "}catch(e){}})()"
         const val ASSET = "wardtube/menu-download.js"
         const val JS_NAME = "WardTubeMenuDl"
         val ID = Regex("[A-Za-z0-9_-]{11}")

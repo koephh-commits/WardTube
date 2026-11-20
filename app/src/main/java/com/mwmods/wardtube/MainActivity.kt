@@ -34,7 +34,9 @@ import android.util.Rational
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.ViewConfiguration
 import android.view.ViewGroup
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 import android.webkit.PermissionRequest
 import android.webkit.WebSettings
@@ -77,6 +79,7 @@ import com.mwmods.wardtube.util.Permissions
 import com.mwmods.wardtube.util.PlaylistLinks
 import com.mwmods.wardtube.util.UrlUtils
 import com.mwmods.wardtube.web.BackgroundWebView
+import com.mwmods.wardtube.web.CardProbe
 import com.mwmods.wardtube.web.ErrorKind
 import com.mwmods.wardtube.web.MenuDownload
 import com.mwmods.wardtube.web.NativeBridge
@@ -146,8 +149,22 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private var cardUrl: String? = null
     private var cardTitle: String? = null
     private var cardSource: MenuDownload? = null
+    private var cardAt = 0L
     private val showCardChip = Runnable { revealCardChip() }
     private val expireCard = Runnable { dropCardDownload() }
+
+    // The app's own look at a touch on the browsing page (see trackCardTouch): it finds the three dots of a card without
+    // the page script. One finger-down at a time: [probeSeq] tells an answer that arrives late which touch it is for.
+    private var probeSeq = 0
+    private var probeDownAt = 0L
+    private var probeDownX = 0f
+    private var probeDownY = 0f
+    private var probeMoved = false
+    private var probeOnOffer = false
+    private var probeUp = false
+    private var probeTap = false
+    private var probeDone = false
+    private var probeHit: CardProbe.Hit? = null
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
     private lateinit var subs: SubsController
@@ -1560,6 +1577,17 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
     private fun onCardMenuTapped(source: MenuDownload, url: String, title: String?) {
         if (isDestroyed || isFullscreen) return
+        val now = SystemClock.uptimeMillis()
+        if (cardUrl == url && now - cardAt < CARD_SAME_TAP_MS) {
+            // The same tap, told twice (by the app's own look and by the page): nothing starts again, but a title that
+            // only one of them knew is kept.
+            if (cardTitle.isNullOrBlank() && !title.isNullOrBlank()) {
+                cardTitle = title
+                if (cardChip?.visibility == View.VISIBLE) revealCardChip()
+            }
+            return
+        }
+        cardAt = now
         cardUrl = url
         cardTitle = title
         cardSource = source
@@ -1631,14 +1659,80 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         return view.getGlobalVisibleRect(r) && r.contains(ev.rawX.toInt(), ev.rawY.toInt())
     }
 
-    /** Only watches: a touch anywhere but on the app's own button or the bottom bar ends the offer for a card's video. */
+    /**
+     * Watches every touch (the page script is not needed for this):
+     *  - a tap anywhere but on the app's own button or the bottom bar ends the offer for a card's video (a tap on the
+     *    dimmed page closes YouTube's menu, a tap on a row of it uses the menu); a drag does not;
+     *  - a finger going down on the browsing page is looked at by [CardProbe] right then, before a tap on the three dots
+     *    can open YouTube's menu (which dims the page): when it is the three dots of a card, and the finger then lifts
+     *    without having moved, the offer for that card's video starts ([onCardMenuTapped]).
+     */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.actionMasked == MotionEvent.ACTION_DOWN && cardUrl != null &&
-            !touchIn(cardChip, ev) && !touchIn(bottomBar, ev)
-        ) {
-            dropCardDownload()
+        try {
+            trackCardTouch(ev)
+        } catch (e: Exception) {
+            // never let this get in the way of a touch
         }
         return super.dispatchTouchEvent(ev)
+    }
+
+    private fun trackCardTouch(ev: MotionEvent) {
+        if (!::webView.isInitialized || !::playerHost.isInitialized) return
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                probeSeq++
+                probeDownAt = ev.eventTime
+                probeDownX = ev.rawX
+                probeDownY = ev.rawY
+                probeMoved = false
+                probeUp = false
+                probeTap = false
+                probeDone = false
+                probeHit = null
+                probeOnOffer = touchIn(cardChip, ev) || touchIn(bottomBar, ev)
+                if (probeOnOffer || !canProbe(ev)) return
+                val seq = probeSeq
+                val at = IntArray(2)
+                webView.getLocationOnScreen(at)
+                webView.evaluateJavascript(CardProbe.script(ev.rawX - at[0], ev.rawY - at[1])) { raw ->
+                    if (seq != probeSeq || isDestroyed) return@evaluateJavascript
+                    probeHit = CardProbe.parse(raw)
+                    probeDone = true
+                    if (probeUp && probeTap) fireProbe()
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val slop = ViewConfiguration.get(this).scaledTouchSlop
+                if (hypot(ev.rawX - probeDownX, ev.rawY - probeDownY) > slop) probeMoved = true
+            }
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> probeMoved = true
+            MotionEvent.ACTION_UP -> {
+                probeUp = true
+                probeTap = !probeMoved && ev.eventTime - probeDownAt < CARD_TAP_MAX_MS
+                if (!probeTap) return
+                // A tap somewhere else ends the offer that was open (before a new one can start from this same tap).
+                if (cardUrl != null && !probeOnOffer) dropCardDownload()
+                if (probeDone) fireProbe()
+            }
+        }
+    }
+
+    /** Can a touch here be on a card of the browsing page? Not under the player, the Subscriptions screen or full screen. */
+    private fun canProbe(ev: MotionEvent): Boolean {
+        if (isFullscreen || playerHost.mode == PlayerHost.Mode.EXPANDED) return false
+        if (::subs.isInitialized && subs.isCovering) return false
+        if (!webView.isShown || !UrlUtils.isYouTubeUrl(webView.url)) return false
+        if (!touchIn(webView, ev)) return false
+        // The small player floats over the page.
+        if (playerHost.isActive && touchIn(findViewById<View>(R.id.playerContainer), ev)) return false
+        return true
+    }
+
+    private fun fireProbe() {
+        val hit = probeHit ?: return
+        probeHit = null
+        if (!::menuDownload.isInitialized) return
+        onCardMenuTapped(menuDownload, hit.url, hit.title)
     }
 
     /** The phone's share sheet with a video's link (the "Share" row of the Subscriptions screen's menu). */
@@ -1746,7 +1840,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
         // The app's own download button for a card's three dots: how long the page is given to show the row in the menu
         // before the button is drawn, how long the offer lasts if nothing else ends it, and its fade.
-        const val CARD_CHIP_DELAY_MS = 1200L
+        const val CARD_CHIP_DELAY_MS = 900L
+        const val CARD_SAME_TAP_MS = 1500L // one tap told twice (by the app's own look and by the page) counts once
+        const val CARD_TAP_MAX_MS = 600L   // a touch that lasts longer is not a tap
         const val CARD_CHIP_LIFETIME_MS = 20_000L
         const val CARD_CHIP_FADE_MS = 150L
 

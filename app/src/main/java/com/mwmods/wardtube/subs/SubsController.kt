@@ -69,6 +69,9 @@ class SubsController(
     private var released = false
     private var onSubsPage = false
 
+    /** True while the app's own Subscriptions screen covers the browsing WebView (a touch then does not reach the page). */
+    val isCovering: Boolean get() = screen?.visibility == View.VISIBLE
+
     /** The address of the page the browsing WebView last reported (it may still be loading). */
     private var pageUrl: String? = null
 
