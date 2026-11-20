@@ -19,6 +19,15 @@ wide turns the phone upright), the system's own rotation animation, hiding the s
 focus back, and the "next Short when one ends" playback order. Ward Tube is a WebView app, so none of LiTube's native
 player code is used; the rules were re-written for it. Both projects are GPL-3.0.
 
+## Ideas taken from NouTube
+
+The way a video is named from a card follows [NouTube](https://github.com/nonbili/NouTube) by nonbili and contributors
+(AGPL-3.0, according to its repository page), an app that shows YouTube in a WebView: Android's own hit test of the
+WebView gives the link under a long press (`NouTubeView.kt`), and the title of the video is read from its card by the
+video's id (`content/link-title.ts`). Ward Tube is a different app with its own sheet and download flow, so none of
+NouTube's code is copied; the rules were re-written for it. GPL-3.0 allows combining its work with AGPL-3.0 work
+(section 13), but check NouTube's repository for its exact terms.
+
 ## Libraries and tools bundled in the APK
 
 | Component | License | Notes |

@@ -439,11 +439,9 @@
     <string name="subsHidden">تم إخفاء الفيديو</string>
     <string name="subsPostHidden">تم إخفاء المنشور</string>
     <string name="subsUndo">تراجع</string>
-    <!-- The app's own button for the three dots of a video's card (MainActivity.onCardMenuTapped) -->
-    <string name="cardDownloadChip">تنزيل الفيديو</string>
-    <string name="cardProbeMiss">تعذّر على زر التنزيل تحديد هذا الفيديو</string>
-    <string name="cardProbeCopy">نسخ التفاصيل</string>
-    <string name="cardProbeCopied">تم النسخ. ألصقه في المحادثة</string>
-    <string name="linkDownloadVideo">تنزيل الفيديو</string>
-    <string name="linkLoading">جارٍ تحميل الرابط…</string>
+    <!-- The sheet a long press on a video's picture or title opens (VideoLongPress, VideoSheet) -->
+    <string name="videoSheetDownload">تنزيل الفيديو</string>
+    <string name="videoSheetUntitled">فيديو يوتيوب</string>
+    <string name="videoPressTip">نصيحة: اضغط مطولًا على أي فيديو لتنزيله.</string>
+    <string name="error_select_video_to_download">افتح فيديو لتنزيله. ولتنزيل فيديو من قائمة (الرئيسية، البحث، قناة ...) اضغط مطولًا على صورته أو عنوانه ثم اختر «تنزيل الفيديو».</string>
 </resources>

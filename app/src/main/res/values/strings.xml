@@ -432,11 +432,9 @@
     <string name="subsHidden">Video hidden</string>
     <string name="subsPostHidden">Post hidden</string>
     <string name="subsUndo">Undo</string>
-    <!-- The app's own button for the three dots of a video's card (MainActivity.onCardMenuTapped) -->
-    <string name="cardDownloadChip">Download video</string>
-    <string name="cardProbeMiss">The download button could not find this video</string>
-    <string name="cardProbeCopy">Copy details</string>
-    <string name="cardProbeCopied">Copied. Paste it in the chat</string>
-    <string name="linkDownloadVideo">Download video</string>
-    <string name="linkLoading">Loading link…</string>
+    <!-- The sheet a long press on a video's picture or title opens (VideoLongPress, VideoSheet) -->
+    <string name="videoSheetDownload">Download video</string>
+    <string name="videoSheetUntitled">YouTube video</string>
+    <string name="videoPressTip">Tip: press and hold any video to download it.</string>
+    <string name="error_select_video_to_download">Open a video to download it. To download a video from a list (Home, search, a channel ...), press and hold its picture or title, then choose \"Download video\".</string>
 </resources>

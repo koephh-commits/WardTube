@@ -10,8 +10,6 @@ import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -32,16 +30,12 @@ import android.speech.RecognizerIntent
 import android.content.pm.ActivityInfo
 import android.os.Handler
 import android.os.Looper
-import android.os.Message
 import android.util.Rational
 import android.view.MotionEvent
 import android.view.ContextMenu
-import android.view.Menu
 import android.view.View
 import android.view.WindowManager
-import android.view.ViewConfiguration
 import android.view.ViewGroup
-import kotlin.math.hypot
 import kotlin.math.roundToInt
 import android.webkit.PermissionRequest
 import android.webkit.WebSettings
@@ -49,7 +43,6 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ProgressBar
-import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -84,14 +77,11 @@ import com.mwmods.wardtube.util.Permissions
 import com.mwmods.wardtube.util.PlaylistLinks
 import com.mwmods.wardtube.util.UrlUtils
 import com.mwmods.wardtube.web.BackgroundWebView
-import com.mwmods.wardtube.web.CardProbe
-import com.mwmods.wardtube.web.TapProbe
 import com.mwmods.wardtube.web.ErrorKind
-import com.mwmods.wardtube.web.MenuDownload
-import com.mwmods.wardtube.web.MenuVideo
 import com.mwmods.wardtube.web.NativeBridge
 import com.mwmods.wardtube.web.PageEvents
 import com.mwmods.wardtube.web.PageScripts
+import com.mwmods.wardtube.web.VideoLongPress
 import com.mwmods.wardtube.web.WardTubeChromeClient
 import com.mwmods.wardtube.web.WardTubeWebViewClient
 import com.mwmods.wardtube.web.WebTargets
@@ -146,43 +136,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
     }
     private lateinit var scripts: PageScripts
-    private lateinit var menuDownload: MenuDownload
-
-    /** The same for the player WebView (the watch page): made again with each player, null while there is none. */
-    private var playerMenuDownload: MenuDownload? = null
-
-    // The video of a card whose three dots were just tapped, for the app's own download button (see onCardMenuTapped).
-    private var cardChip: View? = null
-    private var cardUrl: String? = null
-    private var cardTitle: String? = null
-    private var cardSource: MenuDownload? = null
-    private var cardAt = 0L
-    private val showCardChip = Runnable { revealCardChip() }
-    private val expireCard = Runnable { dropCardDownload() }
-
-    // The app's own look at a touch on the browsing page (see trackCardTouch): it finds the three dots of a card without
-    // the page script. One finger-down at a time: [probeSeq] tells an answer that arrives late which touch it is for.
-    private var probeSeq = 0
-    private var probeDownAt = 0L
-    private var probeDownX = 0f
-    private var probeDownY = 0f
-    private var probeMoved = false
-    private var probeOnOffer = false
-    private var probeUp = false
-    private var probeTap = false
-    private var probeDone = false
-    private var probeHit: CardProbe.Hit? = null
-    private var probeDiag: String? = null // what the probe says about three dots it found no video for
-    // The second look (TapProbe): by the video links only, and by whether the touch opened a menu. It answers when the
-    // first one found nothing (it found nothing on the search results and on the watch history).
-    private var geoDone = false
-    private var geoResult: TapProbe.Result? = null
-    private var probeFired = false
-    // Where the finger went down in the WebView (device pixels) and which menus were open then: the last look
-    // (MenuVideo) runs after YouTube's menu opens, whatever the card is made of.
-    private var probeTx = 0f
-    private var probeTy = 0f
-    private var downMenuBits = 0
+    /** A long press on a video's picture or title opens its sheet with the "Download video" button (see [VideoLongPress]). */
+    private lateinit var videoLongPress: VideoLongPress
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
     private lateinit var subs: SubsController
@@ -266,16 +221,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
         prefs = Prefs(this)
         webView = findViewById(R.id.webView)
-        registerForContextMenu(webView) // a long press on a video's link offers "Download video" (see onCreateContextMenu)
         pullRefresh = findViewById(R.id.pullRefresh)
         webArea = findViewById(R.id.webArea)
         appWindow = findViewById(R.id.appWindow)
         statusBarSpace = findViewById(R.id.statusBarSpace)
         bottomBar = findViewById(R.id.bottomBar)
         navBarSpace = findViewById(R.id.navBarSpace)
-        cardChip = findViewById<View>(R.id.cardDownloadChip).also { chip ->
-            chip.setOnClickListener { downloadPendingCard() }
-        }
 
         applyWindowInsets()
 
@@ -294,16 +245,16 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         webView.webChromeClient = chromeClient
         webView.webViewClient = WardTubeWebViewClient(adBlocker, scripts, this)
         webView.addJavascriptInterface(createBridge(), BRIDGE_NAME)
-        // The "Download video" row of YouTube's three-dots menu on the browsing page (the player WebView has its own,
-        // made with each player: see createPlayerWebView).
-        menuDownload = MenuDownload(
-            webView,
+        // Download from any card: a long press on a video's picture or title opens its sheet. The browsing page gets it
+        // here, the player's page (the list under the video) with each player (see createPlayerWebView).
+        videoLongPress = VideoLongPress(
+            activity = this,
+            snackbarAnchor = appWindow,
+            canOpen = { canOpenVideoSheet(it) },
             onDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
-            onCardMenu = { source, url, title -> onCardMenuTapped(source, url, title) },
-            onRowShown = { onCardRowShown() },
+            onShare = { link, title -> if (!isDestroyed) shareLink(link, title) },
         )
-        menuDownload.install()
-        watchCopiedLinks()
+        videoLongPress.attach(webView)
         scripts.install(webView)
         watchScrollDirection(webView)
         setUpPullRefresh()
@@ -350,14 +301,6 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             pipAvailable = pipSupported,
             onPipChanged = { updatePipParams() },
             onNativeSubsChanged = { subs.onPage(webView.url) },
-            beforeBarAction = { id ->
-                if (id == R.id.action_download) {
-                    downloadPendingCard() // the video whose three dots were just tapped, if any
-                } else {
-                    dropCardDownload() // any other button ends the offer
-                    false
-                }
-            },
         )
         menuController.setUp(findViewById<ActionMenuView>(R.id.menu_main))
 
@@ -367,7 +310,6 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                dropCardDownload() // Back closes YouTube's menu: the offer for its video goes with it
                 when {
                     isFullscreen -> exitFullscreen()
                     playerHost.mode == PlayerHost.Mode.EXPANDED -> playerHost.minimize()
@@ -496,15 +438,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         view.webChromeClient = chrome
         view.webViewClient = WardTubeWebViewClient(adBlocker, playerScripts, PlayerPageEvents())
         view.addJavascriptInterface(createBridge(), BRIDGE_NAME)
-        // The "Download video" row of the three dots under the video (and of the cards of the list below it). It runs
-        // the flow of the bottom bar's download button, so a live video is told so instead of failing later.
-        playerMenuDownload = MenuDownload(
-            view,
-            onDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
-            onDownloadCurrent = { url -> if (!isDestroyed) startDownloadFlow(url) },
-            onCardMenu = { source, url, title -> onCardMenuTapped(source, url, title) },
-            onRowShown = { onCardRowShown() },
-        ).also { it.install() }
+        // A long press on a video of the list under the player's video opens the same sheet as on the browsing page.
+        videoLongPress.attach(view)
         view.keepVisible = prefs.backgroundPlay
         playerNavigatedAwayFrom = null
         playerScripts.install(view)
@@ -512,7 +447,6 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     private fun releasePlayerWebView(view: BackgroundWebView) {
-        playerMenuDownload = null
         playerScripts.forget()
         playerChrome?.exitFullscreen()
         playerChrome = null
@@ -532,20 +466,18 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     /**
-     * [إصلاح] The download button of the bottom bar is only at full strength (otherwise dimmed, never hidden, so the
-     * other buttons do not move) while there is something to download: a video open
-     * in the player (full screen or in the mini player), a Short on the browsing page, a playlist / channel page
-     * (downloaded as a list), or a video whose card's three dots were just tapped (see [onCardMenuTapped]).
+     * The download button of the bottom bar is only at full strength (otherwise dimmed, never hidden, so the other
+     * buttons do not move) while there is something to download: a video open in the player (full screen or in the
+     * mini player), a Short on the browsing page, or a playlist / channel page (downloaded as a list). The video of a
+     * card is downloaded by a long press on it (see [VideoLongPress]).
      * [browseUrl] is the page of the browsing WebView.
      */
     private fun updateDownloadButton(browseUrl: String? = webView.url) {
         if (!::menuController.isInitialized || !::playerHost.isInitialized) return
         val somethingToDownload = playerHost.isActive ||
             UrlUtils.isShortsPage(browseUrl) ||
-            (browseUrl != null && isListPage(browseUrl)) ||
-            cardUrl != null
+            (browseUrl != null && isListPage(browseUrl))
         menuController.setDownloadVisible(somethingToDownload)
-        menuController.setDownloadArmed(cardUrl != null) // lit and pulsing for a video whose three dots were tapped
     }
 
     /** The bars are dark while a video is full screen, in the app's colour while browsing. */
@@ -561,7 +493,6 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private inner class PlayerPageEvents : PageEvents {
 
         override fun onPageChanged(url: String?) {
-            playerMenuDownload?.injectNow() // only a WebView too old to run the script at the start of a page needs this
             if (url == null || !UrlUtils.isYouTubeUrl(url)) return
             if (UrlUtils.isVideoUrl(url)) {
                 playerNavigatedAwayFrom = null
@@ -1290,7 +1221,6 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     override fun onPause() {
         super.onPause()
         resumed = false
-        dropCardDownload()
         sleepHandler.removeCallbacks(sleepTick)
         // Turning into the small picture-in-picture window (or about to): the video stays in view and goes on playing,
         // so nothing is paused and the screen, the poll and the headphone receiver keep going.
@@ -1355,8 +1285,6 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     override fun onDestroy() {
-        clipListener?.let { runCatching { getSystemService(ClipboardManager::class.java)?.removePrimaryClipChangedListener(it) } }
-        clipListener = null
         unregisterPipReceiver()
         // Leaving the app for real (not a rebuild for a theme change) cancels the timer.
         if (isFinishing && !recreating) SleepTimer.cancel()
@@ -1392,11 +1320,39 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (::subs.isInitialized) subs.onPageShown(url)
     }
 
-    override fun onPageFinished(url: String?) = endPullRefresh()
+    override fun onPageFinished(url: String?) {
+        endPullRefresh()
+        showVideoPressTip(url)
+    }
+
+    /**
+     * Once, the first time a page with video cards is on screen: a long press on a video is how it is downloaded, and
+     * nothing on the page says so. It is a plain notice above the bar (not a dialog), so it never stands in the way, and it
+     * is never shown again (also for someone who used the three-dots row that this replaced).
+     */
+    private fun showVideoPressTip(url: String?) {
+        if (prefs.videoPressTipSeen || !isPageWithVideos(url)) return
+        if (errorSnackbar?.isShownOrQueued == true || !canOpenVideoSheet(webView)) return
+        prefs.videoPressTipSeen = true
+        Snackbar.make(appWindow, R.string.videoPressTip, VIDEO_PRESS_TIP_MS)
+            .setAnchorView(bottomBar)
+            .setAction(android.R.string.ok) {}
+            .show()
+    }
+
+    /** The home page, the results, a feed, a channel or a playlist on YouTube's own host (not a sign-in page, not a video). */
+    private fun isPageWithVideos(url: String?): Boolean {
+        if (url == null || !UrlUtils.isYouTubeUrl(url) || UrlUtils.isVideoUrl(url) || UrlUtils.isShortsPage(url)) return false
+        val uri = Uri.parse(url)
+        val host = uri.host?.lowercase(java.util.Locale.ROOT) ?: return false
+        if (host != "youtube.com" && !host.endsWith(".youtube.com")) return false
+        val path = uri.path.orEmpty()
+        return path.isEmpty() || path == "/" ||
+            VIDEO_LIST_PATHS.any { path.startsWith(it) }
+    }
 
     override fun onPageChanged(url: String?) {
         allowAutoplayFor(url ?: webView.url)
-        if (::menuDownload.isInitialized) menuDownload.injectNow()
         if (::subs.isInitialized) subs.onPage(url ?: webView.url)
         if (::menuController.isInitialized) menuController.updateAdBlockTitle()
         updateDownloadButton(url ?: webView.url)
@@ -1554,70 +1510,29 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
     }
 
-    // ---- A long press on a video's link ----
-    // NouTube's way: Android's own hit test of the WebView says which link is under the finger, whatever the page is made
-    // of (Home, Search, Watch history ...). The picture of a card is a link, so a long press on it names the video.
+    // ---- A long press on a video's picture or title ----
+    // The way into a download from a card, on the browsing page and in the player's page alike (see [VideoLongPress]).
+    // The system's context menu that a long press asks for is left empty: the app's own sheet is shown instead.
 
     override fun onCreateContextMenu(menu: ContextMenu, v: View, menuInfo: ContextMenu.ContextMenuInfo?) {
         super.onCreateContextMenu(menu, v, menuInfo)
-        if (v !== webView || isDestroyed) return
-        val result = webView.hitTestResult
-        when (result.type) {
-            WebView.HitTestResult.SRC_ANCHOR_TYPE -> result.extra?.let { addLinkMenu(menu, it, null) }
-            WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
-                // The address of a link around a picture comes a moment later: a line that waits is shown meanwhile.
-                menu.add(LINK_LOADING_GROUP, Menu.NONE, Menu.NONE, R.string.linkLoading).isEnabled = false
-                val msg = Message.obtain(Handler(Looper.getMainLooper()) { m ->
-                    menu.removeGroup(LINK_LOADING_GROUP)
-                    m.data?.getString("url")?.let { addLinkMenu(menu, it, m.data?.getString("title")) }
-                    true
-                })
-                webView.requestFocusNodeHref(msg)
-            }
-        }
+        if (v is WebView && ::videoLongPress.isInitialized) videoLongPress.onContextMenu(v)
     }
 
-    private fun addLinkMenu(menu: ContextMenu, link: String, title: String?) {
-        val url = videoLinkIn(link) ?: return
-        menu.add(R.string.linkDownloadVideo).setOnMenuItemClickListener {
-            dropCardDownload()
-            startMenuDownload(url, title?.trim()?.takeUnless { it.isEmpty() })
-            true
+    /**
+     * May the sheet of a video open for a long press in [view]? Only in the page that can really be touched: the
+     * browsing page lies under the full-screen player and under the Subscriptions screen, and the player's page is
+     * only touched while it is full screen (the small box is dragged, not pressed).
+     */
+    private fun canOpenVideoSheet(view: WebView): Boolean {
+        if (isDestroyed || isFullscreen || pipUiOn || isInPictureInPictureMode || !view.isShown) return false
+        if (!::playerHost.isInitialized) return false
+        val expanded = playerHost.mode == PlayerHost.Mode.EXPANDED
+        return when {
+            view === playerHost.webView -> expanded
+            view === webView -> !expanded && !(::subs.isInitialized && subs.isCovering)
+            else -> false
         }
-    }
-
-    // ---- A video link that is copied ----
-    // The surest way to name a video is its link itself: YouTube's own "Share > Copy link" puts it on the clipboard. When
-    // the text that lands there is a link to a YouTube video, it is offered like the video of a card's three dots (the
-    // bottom bar's download button lights up and pulses; one tap downloads it). Nothing depends on how the page is built.
-
-    private var clipListener: ClipboardManager.OnPrimaryClipChangedListener? = null
-    private var lastClipUrl: String? = null
-    private var lastClipAt = 0L
-
-    private fun watchCopiedLinks() {
-        val clipboard = getSystemService(ClipboardManager::class.java) ?: return
-        val listener = ClipboardManager.OnPrimaryClipChangedListener {
-            if (isDestroyed) return@OnPrimaryClipChangedListener
-            val text = runCatching {
-                clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
-            }.getOrNull() ?: return@OnPrimaryClipChangedListener
-            val url = videoLinkIn(text) ?: return@OnPrimaryClipChangedListener
-            val now = SystemClock.uptimeMillis()
-            if (url == lastClipUrl && now - lastClipAt < 1500) return@OnPrimaryClipChangedListener // one copy, told twice
-            lastClipUrl = url
-            lastClipAt = now
-            if (::menuDownload.isInitialized) onCardMenuTapped(menuDownload, url, null)
-        }
-        clipListener = listener
-        clipboard.addPrimaryClipChangedListener(listener)
-    }
-
-    /** The video link in [text] (a watch, Shorts, live or youtu.be link), as the address the app downloads from; else null. */
-    private fun videoLinkIn(text: String): String? {
-        val m = VIDEO_LINK.find(text.trim()) ?: return null
-        val id = m.groupValues[1]
-        return if (m.value.contains("/shorts/")) "https://m.youtube.com/shorts/$id" else "https://m.youtube.com/watch?v=$id"
     }
 
     // ---- Downloads ----
@@ -1646,310 +1561,13 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         UrlUtils.isYouTubeUrl(url) && PlaylistLinks.analyze(url).kind == PlaylistLinks.Kind.LIST
 
     /**
-     * A video picked in the "Download video" row of YouTube's three-dots menu. It belongs to a card of the browsing page
-     * (or of the list under the video in the player),
-     * so the player (which may hold another video, even a live one) is not asked about it, and the page's own title
-     * is not its name: the card's title is used when there is one.
+     * A video picked from a card (the sheet of a long press, or the Subscriptions screen's menu). It belongs to a card
+     * of the browsing page (or of the list under the video in the player), so the player (which may hold another video,
+     * even a live one) is not asked about it, and the page's own title is not its name: the card's title is used when
+     * there is one.
      */
     private fun startMenuDownload(url: String, title: String?) {
-        dropCardDownload() // the offer for this video (the app's own button) is used up
         beginDownload(url, knownTitle = title, fromBrowse = true)
-    }
-
-    // ---- The app's own download button for the three dots of a card ----
-    // The row that menu-download.js adds to YouTube's menu depends on how that menu is built, and YouTube changes it
-    // (it did not show in the menu of the videos in search results). So the page also tells the app, the moment the three
-    // dots of a card are tapped, which video the card is. Unless the row is then seen in the menu, the app shows a
-    // "Download video" button of its own over the top of the page (clear of the menu, which comes from the bottom), and the
-    // download button of the bottom bar goes to full strength and downloads that video too. Any other touch, the Back
-    // button or leaving the screen ends the offer, and so does a time limit.
-
-    private fun onCardMenuTapped(source: MenuDownload, url: String, title: String?) {
-        if (isDestroyed || isFullscreen) return
-        val now = SystemClock.uptimeMillis()
-        if (cardUrl == url && now - cardAt < CARD_SAME_TAP_MS) {
-            // The same tap, told twice (by the app's own look and by the page): nothing starts again, but a title that
-            // only one of them knew is kept.
-            if (cardTitle.isNullOrBlank() && !title.isNullOrBlank()) {
-                cardTitle = title
-                if (cardChip?.visibility == View.VISIBLE) revealCardChip()
-            }
-            return
-        }
-        cardAt = now
-        cardUrl = url
-        cardTitle = title
-        cardSource = source
-        webArea.removeCallbacks(showCardChip)
-        webArea.removeCallbacks(expireCard)
-        // A moment's wait: when the row does show in the menu, the page says so (onCardRowShown) and no button is drawn.
-        webArea.postDelayed(showCardChip, CARD_CHIP_DELAY_MS)
-        webArea.postDelayed(expireCard, CARD_CHIP_LIFETIME_MS)
-        updateDownloadButton()
-    }
-
-    private fun revealCardChip() {
-        val chip = cardChip ?: return
-        if (isDestroyed || cardUrl == null) return
-        val name = cardTitle
-        chip.findViewById<TextView>(R.id.cardDownloadChipTitle).apply {
-            text = name.orEmpty()
-            visibility = if (name.isNullOrBlank()) View.GONE else View.VISIBLE
-        }
-        chip.animate().cancel()
-        chip.alpha = 0f
-        chip.visibility = View.VISIBLE
-        chip.animate().alpha(1f).setDuration(CARD_CHIP_FADE_MS).start()
-    }
-
-    /** The row is in YouTube's menu and in sight: the app's own button is not drawn (the bottom bar's one still works). */
-    private fun onCardRowShown() {
-        if (!::webArea.isInitialized) return
-        webArea.removeCallbacks(showCardChip)
-        cardChip?.let {
-            it.animate().cancel()
-            it.visibility = View.GONE
-        }
-    }
-
-    /** Ends the offer: the button goes, the bottom bar's download button goes back to what the page says. */
-    private fun dropCardDownload() {
-        if (!::webArea.isInitialized) return
-        webArea.removeCallbacks(showCardChip)
-        webArea.removeCallbacks(expireCard)
-        cardChip?.let {
-            it.animate().cancel()
-            it.visibility = View.GONE
-        }
-        val had = cardUrl != null
-        cardUrl = null
-        cardTitle = null
-        cardSource = null
-        if (had) updateDownloadButton()
-    }
-
-    /**
-     * Downloads the video whose three dots were just tapped (the app's own button, or the bottom bar's download button).
-     * False when there is none. YouTube's menu, which is still open under the format window, is closed.
-     */
-    private fun downloadPendingCard(): Boolean {
-        val url = cardUrl ?: return false
-        val title = cardTitle
-        val source = cardSource
-        dropCardDownload()
-        source?.closeMenu()
-        startMenuDownload(url, title)
-        return true
-    }
-
-    private fun touchIn(view: View?, ev: MotionEvent): Boolean {
-        if (view == null) return false
-        val r = Rect()
-        return view.getGlobalVisibleRect(r) && r.contains(ev.rawX.toInt(), ev.rawY.toInt())
-    }
-
-    /**
-     * Watches every touch (the page script is not needed for this):
-     *  - a tap anywhere but on the app's own button or the bottom bar ends the offer for a card's video (a tap on the
-     *    dimmed page closes YouTube's menu, a tap on a row of it uses the menu); a drag does not;
-     *  - a finger going down on the browsing page is looked at by [CardProbe] right then, before a tap on the three dots
-     *    can open YouTube's menu (which dims the page): when it is the three dots of a card, and the finger then lifts
-     *    without having moved, the offer for that card's video starts ([onCardMenuTapped]).
-     */
-    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        try {
-            trackCardTouch(ev)
-        } catch (e: Exception) {
-            // never let this get in the way of a touch
-        }
-        return super.dispatchTouchEvent(ev)
-    }
-
-    private fun trackCardTouch(ev: MotionEvent) {
-        if (!::webView.isInitialized || !::playerHost.isInitialized) return
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                probeSeq++
-                probeDownAt = ev.eventTime
-                probeDownX = ev.rawX
-                probeDownY = ev.rawY
-                probeMoved = false
-                probeUp = false
-                probeTap = false
-                probeDone = false
-                probeHit = null
-                probeDiag = null
-                geoDone = false
-                geoResult = null
-                probeFired = false
-                probeOnOffer = touchIn(cardChip, ev) || touchIn(bottomBar, ev)
-                if (probeOnOffer || !canProbe(ev)) return
-                val seq = probeSeq
-                val at = IntArray(2)
-                webView.getLocationOnScreen(at)
-                val tx = ev.rawX - at[0]
-                val ty = ev.rawY - at[1]
-                probeTx = tx
-                probeTy = ty
-                downMenuBits = 0
-                webView.evaluateJavascript(TapProbe.menuScript()) { raw ->
-                    if (seq == probeSeq && !isDestroyed) downMenuBits = TapProbe.menuBits(raw)
-                }
-                webView.evaluateJavascript(CardProbe.script(tx, ty)) { raw ->
-                    if (seq != probeSeq || isDestroyed) return@evaluateJavascript
-                    probeHit = CardProbe.parse(raw)
-                    probeDiag = if (probeHit == null) CardProbe.diagnostic(raw) else null
-                    probeDone = true
-                    maybeFireProbe()
-                }
-                webView.evaluateJavascript(TapProbe.script(tx, ty)) { raw ->
-                    if (seq != probeSeq || isDestroyed) return@evaluateJavascript
-                    geoResult = TapProbe.parse(raw)
-                    geoDone = true
-                    maybeFireProbe()
-                }
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val slop = ViewConfiguration.get(this).scaledTouchSlop
-                if (hypot(ev.rawX - probeDownX, ev.rawY - probeDownY) > slop) probeMoved = true
-            }
-            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> probeMoved = true
-            MotionEvent.ACTION_UP -> {
-                probeUp = true
-                probeTap = !probeMoved && ev.eventTime - probeDownAt < CARD_TAP_MAX_MS
-                if (!probeTap) return
-                // A tap somewhere else ends the offer that was open (before a new one can start from this same tap).
-                if (cardUrl != null && !probeOnOffer) dropCardDownload()
-                maybeFireProbe()
-            }
-        }
-    }
-
-    /** Can a touch here be on a card of the browsing page? Not under the player, the Subscriptions screen or full screen. */
-    private fun canProbe(ev: MotionEvent): Boolean {
-        if (isFullscreen || playerHost.mode == PlayerHost.Mode.EXPANDED) return false
-        if (::subs.isInitialized && subs.isCovering) return false
-        if (!webView.isShown || !UrlUtils.isYouTubeUrl(webView.url)) return false
-        if (!touchIn(webView, ev)) return false
-        // The small player floats over the page.
-        if (playerHost.isActive && touchIn(findViewById<View>(R.id.playerContainer), ev)) return false
-        return true
-    }
-
-    /** Both looks have answered and the finger has lifted after a tap: act once. */
-    private fun maybeFireProbe() {
-        if (!probeUp || !probeTap || !probeDone || !geoDone || probeFired) return
-        probeFired = true
-        fireProbe()
-    }
-
-    private fun fireProbe() {
-        if (!::menuDownload.isInitialized) return
-        // 1. The first look found the card's video (the Home feed): the offer starts.
-        val hit = probeHit
-        if (hit != null) {
-            probeHit = null
-            onCardMenuTapped(menuDownload, hit.url, hit.title)
-            return
-        }
-        // 2. The second look: by the video links only. A touch that is not on a card's area (a link, a bar, a menu) is nothing.
-        val geo = geoResult
-        if (geo == null) {
-            // Neither look could say anything about this touch (the page is not built as they expect): wait for
-            // YouTube's menu to open because of it and read the video from the menu itself.
-            awaitMenuOpenBlind()
-            return
-        }
-        val found = geo.hit
-        if (found != null && geo.strong) {
-            // A small button right inside the video's card: the offer starts at once.
-            onCardMenuTapped(menuDownload, found.url, found.title)
-            return
-        }
-        // 3. Not sure it was the three dots: the offer starts when the touch opens YouTube's menu.
-        awaitMenuOpen(geo)
-    }
-
-    /**
-     * Waits (a little over a second) for YouTube's menu to open because of the touch that just ended. When it does, the
-     * video found by [TapProbe] is offered; when it does and no video was found, what the page looks like is offered to be
-     * copied (not on a Short: the download button of the bottom bar is already there for it). A new touch ends the wait.
-     */
-    private fun awaitMenuOpen(geo: TapProbe.Result) {
-        val seq = probeSeq
-        val started = SystemClock.uptimeMillis()
-        fun poll() {
-            if (seq != probeSeq || isDestroyed || !::webView.isInitialized) return
-            webView.evaluateJavascript(TapProbe.menuScript()) { raw ->
-                if (seq != probeSeq || isDestroyed) return@evaluateJavascript
-                val now = TapProbe.menuBits(raw)
-                if ((now and geo.menuBefore.inv()) != 0) {
-                    val found = geo.hit
-                    if (found != null) {
-                        onCardMenuTapped(menuDownload, found.url, found.title)
-                    } else if (!geo.onShorts) {
-                        extractFromOpenMenu(seq, geo.diag.takeIf { it.isNotEmpty() })
-                    }
-                } else if (SystemClock.uptimeMillis() - started < MENU_WAIT_MS) {
-                    webArea.postDelayed({ poll() }, MENU_POLL_MS)
-                }
-            }
-        }
-        poll()
-    }
-
-    /** Like [awaitMenuOpen], for a touch that neither look could place: the menu opening is the only sign there is. */
-    private fun awaitMenuOpenBlind() {
-        val seq = probeSeq
-        val before = downMenuBits
-        val started = SystemClock.uptimeMillis()
-        fun poll() {
-            if (seq != probeSeq || isDestroyed || !::webView.isInitialized) return
-            webView.evaluateJavascript(TapProbe.menuScript()) { raw ->
-                if (seq != probeSeq || isDestroyed) return@evaluateJavascript
-                if ((TapProbe.menuBits(raw) and before.inv()) != 0) {
-                    extractFromOpenMenu(seq, null)
-                } else if (SystemClock.uptimeMillis() - started < MENU_WAIT_MS) {
-                    webArea.postDelayed({ poll() }, MENU_POLL_MS)
-                }
-            }
-        }
-        poll()
-    }
-
-    /**
-     * YouTube's menu is open because of the touch: the video is read from the menu's own data, else from the picture or
-     * link at the finger's line (see [MenuVideo]). [diag] is offered to be copied when even that finds nothing.
-     */
-    private fun extractFromOpenMenu(seq: Int, diag: String?) {
-        // A moment for the menu's rows to be drawn with their data.
-        webArea.postDelayed({
-            if (seq != probeSeq || isDestroyed || !::webView.isInitialized || !::menuDownload.isInitialized) return@postDelayed
-            webView.evaluateJavascript(MenuVideo.script(probeTx, probeTy)) { raw ->
-                if (seq != probeSeq || isDestroyed) return@evaluateJavascript
-                val hit = CardProbe.parse(raw)
-                if (hit != null) {
-                    onCardMenuTapped(menuDownload, hit.url, hit.title)
-                } else if (diag != null) {
-                    showProbeMiss(diag)
-                }
-            }
-        }, MENU_DATA_DELAY_MS)
-    }
-
-    /**
-     * The three dots of a card were tapped and no video could be found for them (see [CardProbe]): a short message with a
-     * button that copies a description of what the page is made of there, so it can be pasted and sent for a fix.
-     */
-    private fun showProbeMiss(diag: String) {
-        if (isDestroyed || isFullscreen) return
-        Snackbar.make(appWindow, R.string.cardProbeMiss, Snackbar.LENGTH_LONG)
-            .setAction(R.string.cardProbeCopy) {
-                val clipboard = getSystemService(ClipboardManager::class.java)
-                runCatching { clipboard?.setPrimaryClip(ClipData.newPlainText("WardTube", diag)) }
-                Snackbar.make(appWindow, R.string.cardProbeCopied, Snackbar.LENGTH_SHORT).show()
-            }
-            .show()
     }
 
     /** The phone's share sheet with a video's link (the "Share" row of the Subscriptions screen's menu). */
@@ -2055,20 +1673,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val BAR_ANIMATION_MS = 150L
         const val BAR_SCROLL_THRESHOLD_DP = 24f
 
-        // The app's own download button for a card's three dots: how long the page is given to show the row in the menu
-        // before the button is drawn, how long the offer lasts if nothing else ends it, and its fade.
-        const val CARD_CHIP_DELAY_MS = 900L
-        const val LINK_LOADING_GROUP = 7101
-        val VIDEO_LINK = Regex(
-            "https?://(?:www\\.|m\\.|music\\.)?(?:youtu\\.be/|youtube\\.com/(?:watch\\?(?:[^\\s#]*&)?v=|shorts/|live/))([A-Za-z0-9_-]{11})"
-        )
-        const val MENU_DATA_DELAY_MS = 150L
-        const val CARD_SAME_TAP_MS = 1500L // one tap told twice (by the app's own look and by the page) counts once
-        const val CARD_TAP_MAX_MS = 600L   // a touch that lasts longer is not a tap
-        const val CARD_CHIP_LIFETIME_MS = 20_000L
-        const val CARD_CHIP_FADE_MS = 150L
-        const val MENU_WAIT_MS = 1300L     // how long a touch is given to open YouTube's menu (see awaitMenuOpen)
-        const val MENU_POLL_MS = 120L
+        // The one-time tip about the long press on a video (see showVideoPressTip): how long it stays, and the pages it is for.
+        const val VIDEO_PRESS_TIP_MS = 8_000
+        val VIDEO_LIST_PATHS = listOf("/results", "/feed/", "/@", "/channel/", "/playlist", "/hashtag/")
 
         // Pull down to refresh: the longest the spinner stays when the page never reports that it has loaded, and the
         // script that asks the page whether it (or the list under the finger) is scrolled away from its top. It is a

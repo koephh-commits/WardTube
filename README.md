@@ -26,6 +26,8 @@ library that works offline. Free software under the [GPL-3.0](LICENSE).
   how many downloads run at the same time (1 to 5) and a speed limit for each one.
 - **Playlists**: share or paste a playlist, Mix or channel link (YouTube, and any other site yt-dlp reads as a list),
   tick the videos you want and they join the queue.
+- **Download from any video**: long-press a video's picture or title (Home, search, history, a channel, or the list under the
+  player) and tap *Download video*.
 - **Download by sharing**: share a video link from any app and pick Ward Tube.
 - **Library** of your downloads, available without internet. Rename a file from its menu, or select several files to share or delete them together.
 - **Browser** (globe button): paste a link of a video from any site and download it, or open the page and download

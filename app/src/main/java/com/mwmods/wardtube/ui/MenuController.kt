@@ -4,8 +4,6 @@
 package com.mwmods.wardtube.ui
 
 import android.content.Intent
-import android.animation.ObjectAnimator
-import android.animation.PropertyValuesHolder
 import android.content.res.ColorStateList
 import android.graphics.drawable.Drawable
 import android.text.InputType
@@ -14,7 +12,6 @@ import android.view.HapticFeedbackConstants
 import android.view.MenuItem
 import android.view.View
 import android.view.animation.DecelerateInterpolator
-import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.WebView
 import android.widget.EditText
 import android.widget.ImageView
@@ -73,11 +70,6 @@ class MenuController(
     private val pipAvailable: Boolean = false,
     private val onPipChanged: () -> Unit = {},
     private val onNativeSubsChanged: () -> Unit = {},
-    /**
-     * Called with the id of a bar button before it acts; true when the app already handled the tap (the download button
-     * of a video whose three dots were just tapped: see MainActivity.downloadPendingCard).
-     */
-    private val beforeBarAction: (itemId: Int) -> Boolean = { false },
 ) : ActionMenuView.OnMenuItemClickListener {
 
     private lateinit var actionMenu: ActionMenuView
@@ -137,47 +129,9 @@ class MenuController(
         applyDownloadIcon()
     }
 
-    /** True while the download button is lit for a video whose three dots were just tapped (see [setDownloadArmed]). */
-    private var downloadArmed = false
-    private var downloadPulse: ObjectAnimator? = null
-
-    /**
-     * The video whose three dots were just tapped (anywhere: Home, search, history ...) is waiting for the download
-     * button: it turns red and pulses until the offer ends. This is separate from [setDownloadVisible] on purpose: with
-     * a video playing in the mini player the button is already at full strength, and the tap on the three dots
-     * would show no sign at all.
-     */
-    fun setDownloadArmed(armed: Boolean) {
-        if (!::actionMenu.isInitialized || armed == downloadArmed) return
-        downloadArmed = armed
-        applyDownloadIcon()
-        downloadPulse?.cancel()
-        downloadPulse = null
-        val view = actionMenu.findViewById<View>(R.id.action_download) ?: return
-        if (armed) {
-            downloadPulse = ObjectAnimator.ofPropertyValuesHolder(
-                view,
-                PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.3f),
-                PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.3f),
-            ).apply {
-                duration = 450
-                repeatMode = ObjectAnimator.REVERSE
-                repeatCount = ObjectAnimator.INFINITE
-                interpolator = AccelerateDecelerateInterpolator()
-                start()
-            }
-        } else {
-            view.scaleX = 1f
-            view.scaleY = 1f
-        }
-    }
-
     private fun applyDownloadIcon() {
         val item = actionMenu.menu.findItem(R.id.action_download) ?: return
-        val lit = downloadArmed || downloadAvailable == true
-        val icon = slotIcon(R.drawable.ic_download_24dp, if (lit) FULL_ALPHA else DIMMED_ALPHA)
-        if (downloadArmed) icon?.setTint(ContextCompat.getColor(activity, R.color.menuAccentRed))
-        item.setIcon(icon)
+        item.setIcon(slotIcon(R.drawable.ic_download_24dp, if (downloadAvailable == true) FULL_ALPHA else DIMMED_ALPHA))
     }
 
     /** A private copy of an icon (so the other users of the drawable keep their look) drawn at [alpha] (0-255). */
@@ -205,7 +159,6 @@ class MenuController(
     }
 
     override fun onMenuItemClick(item: MenuItem): Boolean {
-        if (beforeBarAction(item.itemId)) return true
         when (item.itemId) {
             R.id.action_minimize -> if (videoFullScreen == true) onMinimize() else onVoiceSearch()
             R.id.action_home -> {
@@ -655,7 +608,8 @@ class MenuController(
                 action(page)
             }
         } else {
-            withWatchUrl(action)
+            // Nothing is open: say where a video of a list is downloaded from (a long press on it), not only "select one".
+            withWatchUrl(R.string.error_select_video_to_download, action)
         }
     }
 
@@ -724,8 +678,12 @@ class MenuController(
     /**
      * Runs [action] with the URL of the video being looked at; otherwise explains what to do. A Short plays in the
      * browsing page, not in the player, so while one is on screen its address (which follows the swipes) is the one.
+     * [noVideoMessage] is what the dialog says when there is none.
      */
-    private fun withWatchUrl(action: (String) -> Unit) {
+    private fun withWatchUrl(
+        @StringRes noVideoMessage: Int = R.string.error_select_video_and_retry,
+        action: (String) -> Unit,
+    ) {
         val shortUrl = targets.current.url?.takeIf { UrlUtils.isShortsPage(it) }
         val url = shortUrl ?: targets.video?.url
         if (url != null && (shortUrl != null || UrlUtils.isWatchPage(url))) {
@@ -733,7 +691,7 @@ class MenuController(
         } else {
             AlertDialog.Builder(activity)
                 .setTitle(R.string.error_no_video)
-                .setMessage(R.string.error_select_video_and_retry)
+                .setMessage(noVideoMessage)
                 .setPositiveButton(android.R.string.ok, null)
                 .show()
         }

@@ -64,6 +64,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(HOMEPAGE_LEARNED, false)
         set(value) = sp.edit { putBoolean(HOMEPAGE_LEARNED, value) }
 
+    /** The one-time tip that says a video is downloaded by a long press on it has been shown. */
+    var videoPressTipSeen: Boolean
+        get() = sp.getBoolean(VIDEO_PRESS_TIP_SEEN, false)
+        set(value) = sp.edit { putBoolean(VIDEO_PRESS_TIP_SEEN, value) }
+
     var notificationPermissionAsked: Boolean
         get() = sp.getBoolean(NOTIFICATION_ASKED, false)
         set(value) = sp.edit { putBoolean(NOTIFICATION_ASKED, value) }
@@ -163,6 +168,7 @@ class Prefs(context: Context) {
         private const val NATIVE_SUBS = "nativeSubs"
         private const val HOMEPAGE_LEARNED = "homepageLearned"
         private const val NOTIFICATION_ASKED = "notificationPermissionAsked"
+        private const val VIDEO_PRESS_TIP_SEEN = "videoPressTipSeen"
         private const val FILTERS_UPDATED_AT = "filtersUpdatedAt"
         /** Key of the removed favorites list; its leftover data is deleted when the app starts. */
         private const val LEGACY_BOOKMARKS = "bookmarks"

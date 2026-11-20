@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.6.124
+- Added: **the way to download a video is now said in the app**, because a long press is not something a person finds alone
+  (and the three-dots row it replaced is gone).
+  - A one-time tip, *Tip: press and hold any video to download it*, shows above the bottom bar the first time a page with
+    video cards is on screen (Home, results, a feed, a channel, a playlist). It is a notice, not a dialog; it waits while
+    the Subscriptions screen, the full-screen player or an error notice is up, and it is never shown again
+    (`MainActivity.showVideoPressTip`, `Prefs.videoPressTipSeen`).
+  - The bottom bar's download button, pressed with nothing to download, now says where a video of a list is downloaded from
+    (a long press on its picture or title) instead of only "select a video" (`MenuController.withWatchUrl`).
+- Not changed: the sheet, the long press itself, and the Subscriptions screen.
+
+## 2.6.123
+- Changed: **one way to download from a card: a long press on the video.** NouTube's way (Android's own hit test of the
+  WebView says which link is under the finger) is now the only one, in the browsing page and in the player's page (the list
+  under the video) alike. The attempts that came before it, which all depended on how YouTube builds a card, its three dots
+  and its menu, are removed.
+  - **A new sheet instead of the system's plain menu.** It shows the video (its picture and title, so it is plain which
+    video the press found), a big *Download video* button, and *Share* and *Copy the link* under it. It is drawn like the
+    three-dots menu (`ui/VideoSheet.kt`, `res/layout/bottom_sheet_video.xml`).
+  - **The title comes from the card.** As in NouTube's `link-title.ts`, the video is found by its id among the page's links
+    and the heading of its card is the title; a page that does not answer only costs the sheet its title. The title the hit
+    test gives (often only the picture's length or LIVE) is the second choice (`web/VideoLongPress.kt`).
+  - **The address is built from the 11-character id** (`util/VideoLinks.kt`), so a playlist, a start time or tracking data in
+    the page's link never travels with the video.
+  - **In the player's page too.** A long press on a video of the list under the playing video opens the same sheet (before,
+    only the browsing page had it). It opens only where the page can really be touched: not under the Subscriptions screen,
+    not under the full-screen player, not in full screen or in the small window.
+- Removed (the failed attempts): the *Download video* row added to YouTube's three-dots menu and the *Download* button added to
+  the watch page's row (`assets/wardtube/menu-download.js`, `web/MenuDownload.kt`); the looks at a touch (`web/CardProbe.kt`,
+  `web/TapProbe.kt`, `web/MenuVideo.kt`); the floating *Download video* chip over the page and its drawable; the bottom bar's
+  download button that lit up and pulsed for a tapped card (`MenuController.setDownloadArmed`, `beforeBarAction`); the watch of
+  copied links; the "could not find this video / copy details" message. The bottom bar's download button is as it was: it
+  downloads the video that is open in the player, a Short, or a playlist / channel page.
+- Not changed: the Subscriptions screen (its own menu, with *Download*, is untouched).
+- Not built and not run on a phone (written without an Android SDK). The title lookup and the link reading were run in
+  Chromium on a page that imitates YouTube's cards, and all the resources the sheet uses were checked to exist.
+
 ## 2.6.122
 - Added: **NouTube's two ways of naming a video, ported** (read from NouTube's `menu.ts` and `NouTubeView.kt`).
   - **Long press on a video's link** (the picture or the title, on any page: Home, Search, Watch history ...): Android's own
