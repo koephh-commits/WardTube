@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A queue row while it is being dragged: solid, so the rows it passes over do not show through it. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/queueRowDrag" />
+    <corners android:radius="16dp" />
+</shape>

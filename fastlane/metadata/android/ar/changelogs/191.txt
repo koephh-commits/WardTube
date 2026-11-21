@@ -1,0 +1,3 @@
+إصلاح: الشاشة لم تعد تنطفئ أثناء تشغيل فيديو في المشغّل المدمج.
+
+Fixed: the screen no longer goes dark while a video plays in the built-in player.

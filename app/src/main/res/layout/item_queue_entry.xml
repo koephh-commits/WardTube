@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One item of the player's queue (see QueueSheet): its picture (the one that is playing has moving bars over it), its name,
+    under it "Playing now" / "Up next" / its place in the list, a button that removes it, and a handle that drags it to a
+    new place (on the item that is playing it is a red lock instead: that item stays where it is). A tap on the row plays it;
+    swiping the row away removes it. The background (a soft red card for the item that is playing) is set in code.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/queueRow"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="10dp"
+    android:layout_marginTop="2dp"
+    android:layout_marginEnd="10dp"
+    android:layout_marginBottom="2dp"
+    android:background="@drawable/bg_queue_row"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center_vertical"
+    android:minHeight="72dp"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="2dp"
+    android:paddingBottom="8dp">
+
+    <FrameLayout
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:background="@drawable/bg_queue_thumb">
+
+        <ImageView
+            android:id="@+id/queueGlyph"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_music_note_24dp"
+            app:tint="@color/queueIcon" />
+
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/queueCover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            app:shapeAppearanceOverlay="@style/ThumbRounded" />
+
+        <FrameLayout
+            android:id="@+id/queueNowBadge"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_queue_now_badge"
+            android:visibility="gone">
+
+            <com.mwmods.wardtube.media.EqualizerView
+                android:id="@+id/queueBars"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                android:importantForAccessibility="no" />
+        </FrameLayout>
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="4dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <!-- anyRtl: a name with any Arabic letter reads right to left as a whole, so a mixed name is not scrambled. -->
+        <TextView
+            android:id="@+id/queueItemTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textAlignment="viewStart"
+            android:textColor="@color/queueText"
+            android:textDirection="anyRtl"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/queueItemSub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textAlignment="viewStart"
+            android:textColor="@color/queueTextDim"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/queueRemove"
+        android:layout_width="40dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/playerQueueRemove"
+        android:padding="8dp"
+        android:src="@drawable/ic_close_24dp"
+        android:tint="@color/queueIcon" />
+
+    <ImageView
+        android:id="@+id/queueDrag"
+        android:layout_width="40dp"
+        android:layout_height="48dp"
+        android:contentDescription="@string/playerQueueDrag"
+        android:padding="8dp"
+        android:src="@drawable/ic_drag_handle_24dp"
+        app:tint="@color/queueIcon" />
+</LinearLayout>

@@ -444,4 +444,45 @@
     <string name="videoSheetUntitled">فيديو يوتيوب</string>
     <string name="videoPressTip">نصيحة: اضغط مطولًا على أي فيديو لتنزيله. لا يعمل ذلك في صفحة الاشتراكات المخصصة.</string>
     <string name="error_select_video_to_download">افتح فيديو لتنزيله. ولتنزيل فيديو من قائمة (الرئيسية، البحث، قناة ...) اضغط مطولًا على صورته أو عنوانه ثم اختر «تنزيل الفيديو». لا يعمل ذلك في صفحة الاشتراكات المخصصة.</string>
+
+    <!-- المشغّل المدمج -->
+    <string name="playerBack">رجوع</string>
+    <string name="miniPlayerOpen">فتح المشغل</string>
+    <string name="playerError">تعذّر التشغيل. اضغط لإعادة المحاولة.</string>
+    <string name="playerPip">صورة داخل صورة</string>
+    <string name="playerPipUnavailable">ميزة صورة داخل صورة غير متاحة. اسمح بها لهذا التطبيق من إعدادات الهاتف.</string>
+    <!-- الوحدة بعد الرقم على ملصق النقر المزدوج في المشغّل: «+10 ث» -->
+    <string name="playerSecondsShort">ث</string>
+
+    <!-- المشغّل المدمج: قائمة الانتظار (QueueSheet) وزر الصوت فقط -->
+    <string name="playerQueue">قائمة الانتظار</string>
+    <string name="playerQueueSubtitle">قيد التشغيل %1$d من %2$d</string>
+    <string name="playerQueueClose">إغلاق قائمة الانتظار</string>
+    <string name="playerQueueNow">قيد التشغيل الآن</string>
+    <string name="playerQueueNext">التالي</string>
+    <string name="playerQueuePosition">%1$d من %2$d</string>
+    <string name="playerQueueRemove">إزالة من القائمة</string>
+    <string name="playerQueueDrag">اسحب لتغيير الترتيب</string>
+    <string name="playerQueueFixed">قيد التشغيل الآن: ثابت في مكانه</string>
+    <string name="playerQueueSubtitleLibrary">كل المكتبة · قيد التشغيل %1$d من %2$d</string>
+    <string name="playerQueueLibrary">تشغيل كل المكتبة (فيديوهات وأغاني)</string>
+    <string name="playerQueueLibraryOff">العودة إلى قائمة الانتظار السابقة</string>
+    <string name="playerQueueLibraryOnToast">صارت كل المكتبة هي قائمة الانتظار</string>
+    <string name="playerQueueLibraryOffToast">عُدت إلى قائمة الانتظار السابقة</string>
+    <string name="playerQueueLibraryFailed">تعذّرت قراءة المكتبة</string>
+    <string name="playerRotate">تدوير الشاشة</string>
+    <string name="playerAudioOnly">صوت فقط</string>
+    <string name="playerShowVideo">إظهار الفيديو</string>
+    <string name="playerAudioOnlyOn">صوت فقط: يستمر الصوت بدون صورة، وفي الخلفية أيضًا</string>
+
+    <!-- اختيار المشغّل: الشاشة التي يفتحها الضغط على فيديو أو أغنية في المكتبة (PlayerChoiceSheet) -->
+    <string name="playWith">تشغيل بواسطة…</string>
+    <string name="playerChoiceSection">التشغيل بواسطة</string>
+    <string name="playerChoiceBuiltIn">المشغّل المدمج</string>
+    <string name="playerChoiceBuiltInHint">يشغّل القائمة كاملة، ويعرض كلمات الأغاني، ويكمل في الخلفية، وفيه صورة داخل صورة</string>
+    <string name="playerChoiceOthers">مشغّلات أخرى على هذا الهاتف</string>
+    <string name="playerChoiceNone">لا يوجد تطبيق مشغّل آخر على هذا الهاتف.</string>
+    <string name="playerChoiceRemember">استخدم اختياري دائمًا</string>
+    <string name="playerChoiceRememberHint">يمكنك تغييره لاحقًا من قائمة الملف: تشغيل بواسطة…</string>
+    <string name="playerChoiceOpenFailed">تعذّر الفتح في %1$s. سيُشغَّل في المشغّل المدمج.</string>
 </resources>

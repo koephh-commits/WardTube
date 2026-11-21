@@ -59,7 +59,22 @@
     <color name="menuAccentRed">#E62118</color>
     <color name="menuAccentGray">#607D8B</color>
     <color name="menuCard">#F4F4F6</color>
+    <!-- The outlined card of the recommended player in the player chooser. -->
+    <color name="playerRecommendedBg">#FFF3F2</color>
     <color name="menuHandle">#33000000</color>
     <color name="menuLogoStart">#4F46E5</color>
     <color name="menuLogoEnd">#0EA5D6</color>
+
+    <!-- The queue sheet of the built-in player: dark in both day and night mode, like the player screen it opens over. -->
+    <color name="queueSheet">#1C1C1E</color>
+    <color name="queueAccent">#FF6B61</color>
+    <color name="queueText">#FFFFFF</color>
+    <color name="queueTextDim">#B3FFFFFF</color>
+    <color name="queueIcon">#99FFFFFF</color>
+    <color name="queueRowCurrent">#26FF6B61</color>
+    <color name="queueRowDrag">#2C2C2E</color>
+    <color name="queueRipple">#33FFFFFF</color>
+    <color name="queueDivider">#1FFFFFFF</color>
+    <color name="queueHandle">#4DFFFFFF</color>
+    <color name="queueThumb">#26FFFFFF</color>
 </resources>

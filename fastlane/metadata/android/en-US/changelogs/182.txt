@@ -1,0 +1,1 @@
+Changed: the item that is playing in the player's queue is now fixed in its place. It shows a lock instead of the drag handle, cannot be dragged, and no other item can be dragged past it.

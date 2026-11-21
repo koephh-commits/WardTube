@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- System bars are transparent: MainActivity draws edge-to-edge and colours its own bars. -->
     <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">@color/colorPrimary</item>
@@ -39,6 +39,14 @@
     </style>
 
     <!-- The browser screen: dark green from the first frame (no white flash while it opens). -->
+    <!-- Built-in player: black, no action bar, over the status bar. -->
+    <style name="PlayerTheme" parent="AppTheme">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="28">shortEdges</item>
+    </style>
+
     <style name="BrowserTheme" parent="AppTheme">
         <item name="android:windowBackground">@color/browserBg</item>
     </style>
@@ -96,6 +104,19 @@
         <item name="cornerSizeBottomRight">0dp</item>
     </style>
 
+    <!-- A small heading over a group of the player chooser ("Play with", "Other players on this phone"). -->
+    <style name="PlayerChoiceSection">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">20dp</item>
+        <item name="android:layout_marginEnd">20dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:textAlignment">viewStart</item>
+        <item name="android:textColor">?android:attr/textColorSecondary</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
     <!-- The three-dots menu: the row of quick actions on top (refresh, share, voice search), each a soft card. -->
     <style name="MenuQuickAction">
         <item name="android:layout_width">0dp</item>
@@ -133,5 +154,18 @@
         <item name="android:textColor">?android:attr/textColorPrimary</item>
         <item name="android:textSize">12sp</item>
         <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- The player's queue sheet: always dark (the player screen is black), with big rounded top corners. The navigation bar
+         takes the sheet's colour with light icons, so it never shows dark icons on the dark sheet in day mode. -->
+    <style name="QueueSheetDialog" parent="ThemeOverlay.MaterialComponents.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/QueueSheet</item>
+        <item name="android:navigationBarColor">@color/queueSheet</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
+    </style>
+
+    <style name="QueueSheet" parent="Widget.MaterialComponents.BottomSheet.Modal">
+        <item name="backgroundTint">@color/queueSheet</item>
+        <item name="shapeAppearanceOverlay">@style/MenuSheetShape</item>
     </style>
 </resources>

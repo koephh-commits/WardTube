@@ -1,0 +1,1 @@
+Added: the picture of the video or song in the notifications. The built-in player's notification and lock screen show a frame of the video or the song's cover; downloads show the video's thumbnail while running and a picture when saved. Several downloads read "Name +2".

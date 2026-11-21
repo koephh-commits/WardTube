@@ -1,0 +1,1 @@
+Fixed: the player crashed on Android 16 when a song's words were shown (a lyrics pattern the new system rejected). All such patterns are fixed.

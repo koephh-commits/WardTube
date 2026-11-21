@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dark rounded label the player's touch gestures show over the picture (the "+10 s" of a double tap, the place of a swipe). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#B3000000" />
+    <corners android:radius="28dp" />
+</shape>

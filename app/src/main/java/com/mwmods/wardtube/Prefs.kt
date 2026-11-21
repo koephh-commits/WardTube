@@ -38,6 +38,14 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(PIP_AUTO, true)
         set(value) = sp.edit { putBoolean(PIP_AUTO, value) }
 
+    /**
+     * What a tap on a video or a song of the Library opens: [PLAYER_ASK] (the chooser sheet asks every time),
+     * [PLAYER_BUILT_IN], or the package name of another player app the person asked to always use.
+     */
+    var playerChoice: String
+        get() = sp.getString(PLAYER_CHOICE, PLAYER_ASK) ?: PLAYER_ASK
+        set(value) = sp.edit { putString(PLAYER_CHOICE, value) }
+
     var cookies: Boolean
         get() = sp.getBoolean(COOKIES, true)
         set(value) = sp.edit { putBoolean(COOKIES, value) }
@@ -150,6 +158,12 @@ class Prefs(context: Context) {
         const val THEME_LIGHT = 1
         const val THEME_DARK = 2
 
+        /** [playerChoice]: nothing kept, the Library asks which player to use each time. */
+        const val PLAYER_ASK = ""
+
+        /** [playerChoice]: always the app's own player. */
+        const val PLAYER_BUILT_IN = "builtin"
+
         /** The most downloads that may run at once: every video download is a yt-dlp process, heavy for a small phone. */
         const val MAX_PARALLEL_DOWNLOADS = 5
 
@@ -162,6 +176,7 @@ class Prefs(context: Context) {
         private const val HOMEPAGE = "homepage"
         private const val BACKGROUND_PLAY = "backgroundPlayEnabled"
         private const val PIP_AUTO = "pipAuto"
+        private const val PLAYER_CHOICE = "libraryPlayerChoice"
         private const val COOKIES = "cookiesEnabled"
         private const val AD_BLOCK = "adBlockEnabled"
         private const val AUTO_HIDE_BAR = "autoHideBar"

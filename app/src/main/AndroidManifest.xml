@@ -34,6 +34,19 @@
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- Android 11+ hides other apps unless asked about: the player chooser lists the apps that can "view" a video or a song
+         of the Library (ExternalPlayers.find). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="audio/*" />
+        </intent>
+    </queries>
+
     <application
         android:name=".WardTubeApp"
         android:allowBackup="false"
@@ -152,6 +165,24 @@
             android:exported="false"
             android:launchMode="singleTop" />
 
+        <!-- Built-in video / music player for the Library files. -->
+        <activity
+            android:name=".media.PlayerActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/PlayerTheme" />
+
+        <!-- The player itself: lives here so music continues with the screen off (media notification, lock screen). -->
+        <service
+            android:name=".media.MediaPlayerService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
 
         <!-- Downloads run here so they continue when the app is in the background. -->
         <service

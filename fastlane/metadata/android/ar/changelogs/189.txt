@@ -1,0 +1,3 @@
+تغيير: في قائمة الانتظار، الأغنية التي تعمل الآن في بطاقة وحدها أعلى القائمة وثابتة لا تتحرك، وباقي القائمة تتمرّر تحتها.
+
+Changed: in the queue, the item that is playing is alone in a card at the top that does not move; the rest of the queue scrolls under it.

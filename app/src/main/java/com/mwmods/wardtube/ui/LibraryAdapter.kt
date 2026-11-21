@@ -65,6 +65,7 @@ sealed interface LibraryRow {
 class LibraryAdapter(
     private val onFileClick: (DownloadItem) -> Unit,
     private val onFileLongClick: (DownloadItem) -> Unit,
+    private val onPlayWith: (DownloadItem) -> Unit,
     private val onShare: (DownloadItem) -> Unit,
     private val onRename: (DownloadItem) -> Unit,
     private val onDelete: (DownloadItem) -> Unit,
@@ -218,11 +219,16 @@ class LibraryAdapter(
             bindSelection(item)
             more.setOnClickListener { anchor ->
                 PopupMenu(anchor.context, anchor).apply {
-                    menu.add(0, MENU_SHARE, 0, R.string.share)
-                    menu.add(0, MENU_RENAME, 1, R.string.rename)
-                    menu.add(0, MENU_DELETE, 2, R.string.delete)
+                    // The player chooser, even when a choice is kept: only for what a player opens (not a lyrics file).
+                    if (category == MediaCategory.VIDEO || category == MediaCategory.AUDIO) {
+                        menu.add(0, MENU_PLAY_WITH, 0, R.string.playWith)
+                    }
+                    menu.add(0, MENU_SHARE, 1, R.string.share)
+                    menu.add(0, MENU_RENAME, 2, R.string.rename)
+                    menu.add(0, MENU_DELETE, 3, R.string.delete)
                     setOnMenuItemClickListener { entry ->
                         when (entry.itemId) {
+                            MENU_PLAY_WITH -> onPlayWith(item)
                             MENU_SHARE -> onShare(item)
                             MENU_RENAME -> onRename(item)
                             MENU_DELETE -> onDelete(item)
@@ -416,6 +422,7 @@ class LibraryAdapter(
         const val MENU_SHARE = 1
         const val MENU_DELETE = 2
         const val MENU_RENAME = 3
+        const val MENU_PLAY_WITH = 4
 
         /** Payload of a redraw that only changes the ticks of the file rows. */
         const val PAYLOAD_SELECTION = "selection"

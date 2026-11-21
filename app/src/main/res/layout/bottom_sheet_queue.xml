@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The queue sheet of the built-in player (see QueueSheet): the list that is playing now, opened from the queue button of
+    the player's title bar. A dark sheet (the player screen is black): a header with the queue icon, the title and where the
+    playing item is ("3 of 12"), the Library button and the close button; then the item that is playing, alone in a card of
+    its own that never moves (queueNowSection: a label and a slot QueueSheet fills with item_queue_entry.xml); then the rows
+    (item_queue_entry.xml again, with a small "Next" label where the playing item was, item_queue_next.xml), which scroll
+    inside the sheet and never push it over the whole screen (MaxHeightRecyclerView).
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/bg_queue_handle" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="20dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="12dp">
+
+        <ImageView
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_queue_tile"
+            android:importantForAccessibility="no"
+            android:padding="10dp"
+            android:src="@drawable/ic_queue_music_24dp"
+            app:tint="@color/queueAccent" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="14dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/queueTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/playerQueue"
+                android:textAlignment="viewStart"
+                android:textColor="@color/queueText"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/queueSubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAlignment="viewStart"
+                android:textColor="@color/queueTextDim"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- Makes the whole Library (videos and songs) the queue, and brings the previous queue back (LibraryQueue). -->
+        <ImageButton
+            android:id="@+id/queueLibrary"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/bg_queue_toggle_off"
+            android:contentDescription="@string/playerQueueLibrary"
+            android:src="@drawable/ic_library_white_24dp"
+            android:tint="@color/queueIcon" />
+
+        <ImageButton
+            android:id="@+id/queueClose"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/playerQueueClose"
+            android:src="@drawable/ic_close_24dp"
+            android:tint="@color/queueIcon" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/queueDivider" />
+
+    <!-- The item that is playing: outside the list, so it stays in its place while the rows below it scroll. -->
+    <LinearLayout
+        android:id="@+id/queueNowSection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/queueNowLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="20dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="4dp"
+            android:text="@string/playerQueueNow"
+            android:textAlignment="viewStart"
+            android:textColor="@color/queueTextDim"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <FrameLayout
+            android:id="@+id/queueNowSlot"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="2dp" />
+    </LinearLayout>
+
+    <com.mwmods.wardtube.ui.MaxHeightRecyclerView
+        android:id="@+id/queueList"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:overScrollMode="never"
+        android:paddingTop="6dp"
+        android:paddingBottom="20dp" />
+</LinearLayout>

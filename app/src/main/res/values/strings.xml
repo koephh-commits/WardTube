@@ -218,6 +218,7 @@
     <string name="jobDismiss">Dismiss</string>
     <string name="jobCancelAllAction">Cancel all</string>
     <string name="downloadsRunning">%1$d downloads running</string>
+    <string name="nameAndOthers" translatable="false">%1$s &#8206;+%2$d</string>
 
     <!-- Library: download settings (how many downloads at once, speed limit) -->
     <string name="downloadSettings">Download settings</string>
@@ -437,4 +438,45 @@
     <string name="videoSheetUntitled">YouTube video</string>
     <string name="videoPressTip">Tip: press and hold any video to download it. This does not work in the custom Subscriptions page.</string>
     <string name="error_select_video_to_download">Open a video to download it. To download a video from a list (Home, search, a channel ...), press and hold its picture or title, then choose \"Download video\". This does not work in the custom Subscriptions page.</string>
+
+    <!-- Built-in player -->
+    <string name="playerBack">Back</string>
+    <string name="miniPlayerOpen">Open the player</string>
+    <string name="playerError">Could not play this. Tap to retry.</string>
+    <string name="playerPip">Picture in picture</string>
+    <string name="playerPipUnavailable">Picture in picture is not available. Allow it for this app in the phone\'s settings.</string>
+    <!-- The unit after the number on the player's double-tap label: "+10 s" -->
+    <string name="playerSecondsShort">s</string>
+
+    <!-- Built-in player: the queue sheet (QueueSheet) and the audio-only switch -->
+    <string name="playerQueue">Queue</string>
+    <string name="playerQueueSubtitle">Playing %1$d of %2$d</string>
+    <string name="playerQueueClose">Close the queue</string>
+    <string name="playerQueueNow">Playing now</string>
+    <string name="playerQueueNext">Up next</string>
+    <string name="playerQueuePosition">%1$d of %2$d</string>
+    <string name="playerQueueRemove">Remove from the queue</string>
+    <string name="playerQueueDrag">Drag to change the order</string>
+    <string name="playerQueueFixed">Playing now: fixed in its place</string>
+    <string name="playerQueueSubtitleLibrary">Whole Library · Playing %1$d of %2$d</string>
+    <string name="playerQueueLibrary">Play the whole Library (videos and songs)</string>
+    <string name="playerQueueLibraryOff">Back to the previous queue</string>
+    <string name="playerQueueLibraryOnToast">The whole Library is the queue now</string>
+    <string name="playerQueueLibraryOffToast">Back to the previous queue</string>
+    <string name="playerQueueLibraryFailed">Could not read the Library</string>
+    <string name="playerRotate">Rotate screen</string>
+    <string name="playerAudioOnly">Audio only</string>
+    <string name="playerShowVideo">Show the video</string>
+    <string name="playerAudioOnlyOn">Audio only: the sound keeps playing without the picture, also in the background</string>
+
+    <!-- Player chooser: the sheet a tap on a video or a song of the Library opens (PlayerChoiceSheet) -->
+    <string name="playWith">Play with…</string>
+    <string name="playerChoiceSection">Play with</string>
+    <string name="playerChoiceBuiltIn">Built-in player</string>
+    <string name="playerChoiceBuiltInHint">Plays the whole list, shows the lyrics, keeps going in the background and has picture in picture</string>
+    <string name="playerChoiceOthers">Other players on this phone</string>
+    <string name="playerChoiceNone">There is no other player app on this phone.</string>
+    <string name="playerChoiceRemember">Always use my choice</string>
+    <string name="playerChoiceRememberHint">Change it later from the file\'s menu: Play with…</string>
+    <string name="playerChoiceOpenFailed">Could not open it in %1$s. Playing it in the built-in player.</string>
 </resources>

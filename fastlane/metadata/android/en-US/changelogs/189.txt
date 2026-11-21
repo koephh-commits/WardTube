@@ -1,0 +1,1 @@
+Changed: in the queue, the item that is playing is alone in a card at the top that does not move; the rest of the queue scrolls under it.

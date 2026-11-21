@@ -161,6 +161,9 @@
                 android:indeterminateTint="@color/brandText" />
         </FrameLayout>
 
+        <!-- The song of the built-in player, with its controls; tap it to open the full player (MiniPlayerBar). -->
+        <include layout="@layout/view_mini_player" />
+
         <!-- Shown while files are ticked: share or delete all of them (LibraryActivity.onSelectionChanged). -->
         <LinearLayout
             android:id="@+id/selectionBar"

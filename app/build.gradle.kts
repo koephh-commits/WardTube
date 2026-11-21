@@ -11,8 +11,8 @@ android {
         applicationId = "com.mwmods.wardtube"
         minSdk = 24
         targetSdk = 35
-        versionCode = 172
-        versionName = "2.6.126"
+        versionCode = 191
+        versionName = "2.6.145"
 
         // The app is translated into English and Arabic only; the libraries (Material, AppCompat...) carry strings for
         // dozens of other languages that would never be shown. Other phone languages fall back to the default (English).
@@ -86,6 +86,10 @@ dependencies {
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.media)
+    // Built-in video / music player (Apache-2.0): ExoPlayer + MediaSession service + ready-made controls.
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.media3.ui)
     implementation(libs.material)
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")

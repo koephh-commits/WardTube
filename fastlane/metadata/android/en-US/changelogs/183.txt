@@ -1,0 +1,1 @@
+Added: a Library button in the player's queue. One tap makes every video and song of the Library the queue and keeps what is playing going without a break; another tap brings the previous queue back.

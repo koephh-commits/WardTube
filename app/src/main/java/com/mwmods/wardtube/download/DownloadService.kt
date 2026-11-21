@@ -13,6 +13,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -29,6 +31,7 @@ import com.mwmods.wardtube.R
 import com.mwmods.wardtube.ui.LibraryActivity
 import com.mwmods.wardtube.util.CrashLog
 import com.mwmods.wardtube.util.DownloadStore
+import com.mwmods.wardtube.util.VideoLinks
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import org.json.JSONArray
@@ -64,6 +67,16 @@ class DownloadService : Service() {
     /** Jobs that are waiting or running (a paused job is not counted): the service stops when this reaches 0. */
     private val pendingJobs = AtomicInteger(0)
     private val resultIds = AtomicInteger(RESULT_BASE_ID)
+
+    /**
+     * The picture in the ongoing notification: the thumbnail of the video that is downloading (YouTube links; a page
+     * of another site has none). It is fetched once per video on its own thread, and the notification is posted again
+     * when it arrives. Guarded by [coverLock].
+     */
+    private val coverLock = Any()
+    private var coverId = ""
+    private var coverBitmap: Bitmap? = null
+    private val coverLoader = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
 
     /** The queue in the order jobs were added; the ones that are not waiting or paused are being worked on. Guarded by [lock]. */
@@ -285,8 +298,19 @@ class DownloadService : Service() {
     private fun settle() {
         if (pendingJobs.decrementAndGet() != 0) return
         // The last job did not save anything (it failed or was cancelled): still announce the earlier ones.
-        val quiet = synchronized(lock) { quietSaves.also { quietSaves = 0 } }
-        if (quiet > 0) notifyResult(getString(R.string.filesSavedMany, quiet), openLibrary = true)
+        var quietCount = 0
+        var lastName: String? = null
+        var lastCover: Bitmap? = null
+        synchronized(lock) {
+            quietCount = quietJobs
+            lastName = quietName
+            lastCover = quietCover
+            clearQuiet()
+        }
+        val name = lastName
+        if (quietCount > 0 && name != null) {
+            notifyResult(savedWithOthers(name, quietCount - 1), openLibrary = true, cover = lastCover)
+        }
         if (hasPausedJobs()) {
             // Nothing is running, but a paused download waits for Resume: the service (and its notification,
             // which now offers Resume) stays, because the half-downloaded file belongs to this process.
@@ -318,6 +342,8 @@ class DownloadService : Service() {
             run.file?.cancel()
         }
         worker.shutdownNow()
+        coverLoader.shutdownNow()
+        synchronized(coverLock) { coverId = ""; coverBitmap = null }
         // A paused download's half-written file cannot outlive this process: throw it away.
         val paused = synchronized(lock) { pausedFiles.values.toList().also { pausedFiles.clear() } }
         for (file in paused) runCatching { file.discard() }
@@ -620,6 +646,7 @@ class DownloadService : Service() {
             // the " (1)" the system adds to a name that is taken) and the lyrics are not found. So the media is saved
             // first, its real name is read back, and the lyrics are named after that.
             var mediaBase: String? = null
+            var mediaUri: Uri? = null
             val savedNames = ArrayList<String>()
             for (output in outputs) {
                 val wanted = if (output == media) {
@@ -631,7 +658,10 @@ class DownloadService : Service() {
                     DownloadStore.save(this, wanted, mimeFor(output), input)
                 }
                 val actual = DownloadStore.displayNameOf(this, uri) ?: wanted
-                if (output == media) mediaBase = actual.substringBeforeLast('.')
+                if (output == media) {
+                    mediaBase = actual.substringBeforeLast('.')
+                    mediaUri = uri
+                }
                 savedNames.add(actual)
             }
             val savedText = when {
@@ -639,7 +669,8 @@ class DownloadService : Service() {
                 options.isSubsOnly -> getString(R.string.subsSavedMany, outputs.size)
                 else -> getString(R.string.filesSavedMany, outputs.size)
             }
-            reportSaved(savedText, outputs.size)
+            val cover = mediaUri?.let { runCatching { NotificationCovers.ofFile(this, it) }.getOrNull() }
+            reportSaved(savedText, savedNames[0], cover)
         } catch (e: Throwable) {
             fail(id, e.message ?: e.javaClass.simpleName)
         } finally {
@@ -710,7 +741,8 @@ class DownloadService : Service() {
             // Cancelled between being picked up and now.
             if (run.cancelRequested) downloader.cancel()
             val saved = downloader.run()
-            reportSaved(getString(R.string.downloadSaved, saved.name), 1)
+            val cover = runCatching { NotificationCovers.ofFile(this, saved.uri) }.getOrNull()
+            reportSaved(getString(R.string.downloadSaved, saved.name), saved.name, cover)
         } catch (e: FileDownloader.Paused) {
             synchronized(lock) { pausedFiles[id] = downloader }
             hold(id, run)
@@ -723,28 +755,47 @@ class DownloadService : Service() {
         }
     }
 
-    /** Files saved while more jobs were still waiting; they are announced together when the queue is empty. Guarded by [lock]. */
-    private var quietSaves = 0
+    /**
+     * Downloads saved while more jobs were still waiting: how many, the name and the picture of the last one. They are
+     * announced together when the queue is empty. Guarded by [lock].
+     */
+    private var quietJobs = 0
+    private var quietName: String? = null
+    private var quietCover: Bitmap? = null
 
     /**
      * One notification per saved file is right for a single download, but a playlist would bury the phone in them:
      * while more jobs are waiting nothing is posted, and the last one announces them all. (With several downloads at
      * once the files are saved on different threads, hence the lock.)
      */
-    private fun reportSaved(text: String, files: Int) {
+    private fun reportSaved(text: String, name: String, cover: Bitmap? = null) {
         val announce: String? = synchronized(lock) {
             if (pendingJobs.get() > 1) {
-                quietSaves += files
+                quietJobs += 1
+                quietName = name
+                quietCover = cover
                 null
-            } else if (quietSaves > 0) {
-                val total = quietSaves + files
-                quietSaves = 0
-                getString(R.string.filesSavedMany, total)
+            } else if (quietJobs > 0) {
+                // The earlier ones are only counted: "<this one's name> +2". The picture is this one's, like the name.
+                val others = quietJobs
+                clearQuiet()
+                savedWithOthers(name, others)
             } else {
                 text
             }
         }
-        if (announce != null) notifyResult(announce, openLibrary = true)
+        if (announce != null) notifyResult(announce, openLibrary = true, cover = cover)
+    }
+
+    /** "Saved to Library: <name> +<others>", or just the name when nothing else was saved. */
+    private fun savedWithOthers(name: String, others: Int): String =
+        getString(R.string.downloadSaved, if (others > 0) getString(R.string.nameAndOthers, name, others) else name)
+
+    /** Forgets the downloads that were saved quietly. Call with [lock] held. */
+    private fun clearQuiet() {
+        quietJobs = 0
+        quietName = null
+        quietCover = null
     }
 
     /** True when yt-dlp's error text points at the thumbnail / tagging step rather than at the download itself. */
@@ -943,7 +994,8 @@ class DownloadService : Service() {
 
     /**
      * One notification for the whole queue: the current job's title and progress, plus how many are waiting. While
-     * several downloads run at once it shows how many, and their average progress.
+     * several downloads run at once it shows the first one's name and how many others run beside it ("Name +2"), and
+     * their average progress.
      */
     private fun ongoingNotification(live: List<DownloadJob>): Notification {
         val running = live.filter { it.isActive }
@@ -955,8 +1007,17 @@ class DownloadService : Service() {
         var text = getString(R.string.downloadPreparing)
         var percent = -1
         var paused = false
+        // The job whose name and picture the notification shows.
+        var shown: DownloadJob? = current
         if (several) {
-            title = getString(R.string.downloadsRunning, running.size)
+            // The first one that has a name, and how many others run beside it (the count is all there is room for).
+            val named = running.firstOrNull { it.title.isNotBlank() }
+            shown = named
+            title = if (named != null) {
+                getString(R.string.nameAndOthers, named.title, running.size - 1)
+            } else {
+                getString(R.string.downloadsRunning, running.size)
+            }
             val known = running.filter { it.percent >= 0 }
             if (known.isNotEmpty()) {
                 percent = known.sumOf { it.percent } / known.size
@@ -993,6 +1054,8 @@ class DownloadService : Service() {
             .setContentText(text)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
+            // The picture of the video whose name is shown, when there is one.
+            .setLargeIcon(shown?.let { coverOf(it) })
             .setProgress(100, percent.coerceAtLeast(0), percent < 0 && !paused)
             // Tapping it opens the Library, where every job has its own progress bar.
             .setContentIntent(
@@ -1020,6 +1083,28 @@ class DownloadService : Service() {
         }
         if (waiting > 0) builder.setSubText(getString(R.string.downloadWaitingCount, waiting))
         return builder.build()
+    }
+
+    /** The ready picture of [job]'s video, or null: then it is fetched in the background and the notification refreshed. */
+    private fun coverOf(job: DownloadJob): Bitmap? {
+        val id = VideoLinks.parse(job.url)?.id ?: return null
+        synchronized(coverLock) {
+            if (id == coverId) return coverBitmap
+            // Set before the fetch, so a video without a picture is not asked for again at every progress update.
+            coverId = id
+            coverBitmap = null
+        }
+        runCatching {
+            coverLoader.execute {
+                val bitmap = NotificationCovers.ofLink(job.url) ?: return@execute
+                val current = synchronized(coverLock) {
+                    if (coverId == id) coverBitmap = bitmap
+                    coverId == id
+                }
+                if (current) updateNotification(synchronized(lock) { ArrayList(jobs.values) })
+            }
+        }
+        return null
     }
 
     /** A notification button that sends [action] (about [jobId], when given) back to this service. */
@@ -1053,12 +1138,14 @@ class DownloadService : Service() {
         getSystemService(NotificationManager::class.java).notify(ONGOING_ID, ongoingNotification(live))
     }
 
-    private fun notifyResult(text: String, openLibrary: Boolean?) {
+    /** [cover]: the saved video's picture (or the song's cover), when this announces one file. */
+    private fun notifyResult(text: String, openLibrary: Boolean?, cover: Bitmap? = null) {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setAutoCancel(true)
+        if (cover != null) builder.setLargeIcon(cover)
         if (openLibrary == true) {
             builder.setContentIntent(
                 PendingIntent.getActivity(

@@ -1,0 +1,1 @@
+Changed: the song's name is no longer repeated over the song's picture in the player; it stays in the title bar.

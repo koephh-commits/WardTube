@@ -1,5 +1,294 @@
 # Changelog
 
+## 2.6.145
+- Fixed: **the screen went dark after a while while a video was playing in the built-in player** (`media/PlayerActivity.kt`).
+  - The player screen never asked Android to keep the screen on, so the phone's screen timeout turned it off although the video
+    went on playing. The web player never had this, because `MainActivity` sets the window's keep-screen-on flag while the video
+    really plays. The built-in player now does the same: the flag is set while a picture is playing (also while it waits for
+    data, so a slow connection does not let the screen go dark) and taken off when the video is paused, ends, fails, is turned to
+    sound only (the headphones button), or when the screen is left (home, another app); it is set again when the screen returns.
+  - It stays on while the video is in the little picture-in-picture window, as in the web player.
+  - A song is not affected: it has no picture to watch, so its screen times out as in any music player.
+
+## 2.6.144
+- Fixed: **in the queue, the items that were already played showed right under the playing item's card, as if they came next**
+  (`media/QueueSheet.kt`, `res/layout/item_queue_next.xml`).
+  - Cause: 2.6.143 kept every item of the queue in the list, in the order of the queue, and only put the "Next" label in the
+    place of the playing item. The played items were above that label, but the list could not scroll far enough to push them out
+    of view when only a few items were left after the playing one, so they stood between the card and the label.
+  - Now, while the queue is in its plain order (no shuffle, no "repeat all"), the items before the playing one are not listed at
+    all: their lines have no height, so the list begins with the "Next" label and what comes after the playing item. They are
+    still in the player's queue (the Previous button goes back to them); the list only does not offer them as what comes next.
+  - With shuffle or "repeat all" the order of the queue says nothing about what comes next (with shuffle any item can come; with
+    "repeat all" the first ones come again after the last), so then every other item is listed, without the "Next" label, and only
+    the item the player goes to next is marked "Up next"; the list opens at it. Changing shuffle or repeat while the sheet is open
+    changes the list at once.
+
+## 2.6.143
+- Changed: **in the queue, the item that is playing now is alone in a card at the top that never moves** (`media/QueueSheet.kt`,
+  `res/layout/bottom_sheet_queue.xml`, `res/layout/item_queue_next.xml`), like the queue of the Wardio player.
+  - Under the header there is now a label "Playing now" and, under it, one card with the playing item: its picture with the
+    moving bars, its name, its place in the queue (`3 of 12`) and the x button. A tap on the card pauses / resumes it. The card
+    is outside the list, so it stays where it is while the rows below scroll.
+  - The list under the card has the rest of the queue, in the same order as before, with a small "Next" label in the place the
+    playing item has in that order: the ones after it are under the label, and the ones before it are above it (a scroll up).
+    The sheet opens with that label at the top of the list. Dragging, swiping away, the x button and a tap on a row work as
+    before, and no row can be dragged across the playing item's place. When nothing comes after the playing item the label is hidden.
+  - The part of the screen the sheet can take is now counted with the card in it (the list gets what is left, never less than a
+    few rows), so the sheet does not grow past the screen, also sideways. The extra room that was added under the last row so
+    the playing item could reach the top is gone: the playing item is no longer in the list.
+
+## 2.6.142
+- Changed: **the song's name is no longer drawn over the song's picture in the player** (`media/PlayerActivity.kt`,
+  `res/layout/activity_player.xml`).
+  - The music panel showed the title a second time (small, at the top of the picture when the song has words, big in the
+    middle when it has none), right under the title bar that already says it. The extra title and everything that fed it are
+    gone; the name stays only in the title bar, which is always on screen while a song plays. The picture, the words' card and
+    the controls are as they were.
+
+## 2.6.141
+- Changed: **the words of a song are shown the way the Wardio web player shows them** (`media/LyricsView.kt`,
+  `media/PlayerActivity.kt`, `res/layout/activity_player.xml`, `res/drawable/bg_lyrics_card.xml`).
+  - The long list of every line (with its faded, shrinking rows and the dark veil over the picture) is gone. In its place is
+    one dark, soft card at the bottom of the song's picture: the line being sung in the accent colour and bold, and the line
+    after it right under, plain. When the song moves on, the new line fades in with a small lift.
+  - The letters are no longer scaled by an animation (the old rows grew and shrank as the song moved, and the highlighted line
+    showed broken letters on one phone): the card only fades and moves, and the text keeps its own size.
+  - The picture is shown as it is, with no veil over it; the title above it has a soft shadow so it stays readable on it.
+  - The card takes no touch: the double tap, the swipe and the tap that shows the controls work over the words as everywhere else.
+    (Tapping a line no longer jumps to it; `PlayerGestures.lyricsListener` / `afterTapWindow` are not used by the player now.)
+  - Before the first line of a song is reached, the first line is shown, as the web player does. A pause row (the "♪") is
+    shown as the sung line during the pause, and is never offered as the line to come.
+- Added: **a "rotate screen" button in the video player's controls** (`media/PlayerActivity.kt`,
+  `res/drawable/ic_screen_rotation_24dp.xml`, `res/values/strings.xml`, `res/values-ar/strings.xml`).
+  - It sits in the controller's own row of buttons (with shuffle, repeat and the subtitles, just before the subtitles button),
+    not in the title bar. Shown only while a picture is playing.
+  - One press turns the screen sideways when it is upright and upright when it is sideways, and keeps it that way (either end
+    of the axis, by the sensor) until the button is pressed again or the player screen is closed.
+- Fixed: **the queue did not open with the playing item at the top** (`media/QueueSheet.kt`).
+  - The scroll to the playing item was asked before the list had its size, and a list also stops at its end, so an item near the
+    end of the queue could not reach the top. The scroll now waits for the list to be laid out, and a queue longer than the sheet
+    gets room under its last row so the playing item can always be the first one in view (the ones before it are a scroll up).
+    The same happens after the Library button finishes changing the queue.
+
+## 2.6.140
+- Fixed: **the release build failed with "Type checking has run into a recursive problem"** (`media/PlayerActivity.kt`).
+  - `queueSheet` and `libraryQueue` are `by lazy` properties that refer to each other (the queue sheet takes the library queue,
+    and the library queue calls `queueSheet.onLibraryChanged()` when it changes). With no declared type the compiler could not
+    infer either of them, and also reported `onLibraryChanged` as unresolved. Both now declare their type (`QueueSheet`,
+    `LibraryQueue`). Nothing changes at run time: the call back to the sheet only happens after both exist.
+
+## 2.6.139
+- Fixed: **the player crashed on Android 16 (API 36) when the words of a song were shown** (`media/LyricsText.kt`,
+  `media/LyricsParser.kt`, `media/LrcToSrt.kt`, `download/SubtitleCleaner.kt`).
+  - The crash was an `ExceptionInInitializerError` from `PatternSyntaxException` in `LyricsText`: the pattern for notes in
+    brackets had a bare `}` (`\{[^}]*}`), which Java accepts but the newer ICU regex engine of Android 16 rejects. It broke on the
+    first caption line of a song, so the player closed.
+  - Every regex of the app that had a bare `}` or `]` outside a character set now escapes it (`\}`, `\]`), and a `]` first in a
+    set is escaped too (`[\])]`): the lyrics parser's tag pattern, the LRC stamp and offset patterns, and the subtitle cleaner's LRC and
+    tag patterns. They match exactly what they matched before.
+
+## 2.6.138
+- Changed: **the "Up next" mark of the player's queue follows the player's real next item** (`media/QueueSheet.kt`).
+  - It used to mark the row under the playing one. With **shuffle on** the next item is another one, so the mark was wrong: it
+    now asks the player (`nextMediaItemIndex`), which also knows repeat (with repeat all, the last item is followed by the first).
+  - Nothing else changes with shuffle: the list keeps its own order, the playing item stays fixed in its place, and the Library
+    button adds and removes items around the playing one, so the shuffled order of the player goes on.
+
+## 2.6.137
+- Added: **the whole Library as the queue** (`media/LibraryQueue.kt`, `media/QueueSheet.kt`, `media/PlayerActivity.kt`,
+  `media/PlayerLauncher.kt`, `media/LyricsParser.kt`, `res/layout/bottom_sheet_queue.xml`, `res/drawable/bg_queue_toggle_on.xml`,
+  `res/drawable/bg_queue_toggle_off.xml`, `res/values/strings.xml`, `res/values-ar/strings.xml`).
+  - **A Library button in the header of the queue sheet**: one tap makes every video and every song of the Library the queue
+    (the Library's own order, newest first; the header then reads `Whole Library · Playing 3 of 120`) and the list scrolls to the
+    item that is playing. The button turns red while the mode is on.
+  - **What is playing does not stop or jump**: the item is left as it is in the player, and the Library's items before it are put
+    before it and the ones after it after it (no new start, no seek). Its words (lyrics / subtitles) go on as they were; the
+    other items get theirs from the Library like in any queue opened from it.
+  - **A second tap brings the previous queue back** around the item that is playing now (when the item is not in the old queue it
+    stays first and the old queue follows it; a file the Library no longer has is left out).
+  - **The mode ends with its queue**: opening a new queue from the Library switches it off. It is also kept while the player
+    screen is closed and the music goes on.
+  - The button waits (dimmed) while the Library is read and the queue is rebuilt; a toast says when the mode is on or off, or that
+    the Library could not be read (nothing is changed then).
+- Changed: `LyricsStore.put` can be called again for the same song and lyrics file without listing it twice, and the converted
+  SubRip copy of an LRC file is only written again when its text changed (a song that is playing is not rewritten under the player).
+
+## 2.6.136
+- Changed: **the item that is playing in the player's queue is fixed in its place** (`media/QueueSheet.kt`,
+  `res/layout/item_queue_entry.xml`, `res/values/strings.xml`, `res/values-ar/strings.xml`).
+  - **Its handle is a red lock**: the playing row cannot be picked up, so it can no longer be moved by mistake.
+  - **No other row can be dragged onto it or past it**: the ones before it stay before it and the ones after it stay after it, so
+    its place in the list (`3 of 12`) never changes by dragging. The dragged row stops at it like at a wall.
+  - **Safe at the drop**: a move that would touch the playing item (it changed while the finger was down) is not sent to the
+    player, and the list is read from the player again.
+  - The x button and the swipe to remove still work on every row, and a tap on the playing row still pauses / resumes it.
+
+## 2.6.135
+- Added: **the queue of the built-in player** (the one the Library opens, for videos and for songs) (`media/QueueSheet.kt`,
+  `media/EqualizerView.kt`, `media/PlayerActivity.kt`, `ui/MaxHeightRecyclerView.kt`, `ui/ThumbnailLoader.kt`,
+  `res/layout/bottom_sheet_queue.xml`, `res/layout/item_queue_entry.xml`, `res/layout/activity_player.xml`).
+  - **A queue button in the player's title bar opens the list that is playing**, as a dark sheet like the player screen: a header
+    with the title and where the playing item is (`Playing 3 of 12`), and one row per item with its picture (a frame of a video,
+    the cover of a song), its name (two lines, right-to-left names read correctly) and a line under it.
+  - **The item that is playing is easy to find**: a soft red card, its name in red, little bars moving over its picture while it
+    plays (standing still while it is paused), and the label *Playing now*. The next one is marked *Up next*; the others show
+    their place (`4 of 12`). The sheet opens scrolled to the playing item, so what comes after it is right under it.
+  - **The list works**: a tap plays the row (a tap on the one that is playing pauses / resumes it), the handle at the end of a
+    row drags it to another place (one move for the player, when the finger leaves), and the x button or a swipe sideways removes it.
+    The last item cannot be removed: the queue is never left empty.
+  - **It is always the real queue**: the sheet listens to the same player as the screen, so it follows the next / previous
+    buttons, the notification and the headset while it is open.
+- Added: **audio only for a video** (`media/PlayerActivity.kt`, `res/layout/activity_player.xml`).
+  - **A headphones button in the title bar** (shown for any file that has a picture) turns the picture off: only the sound plays,
+    nothing is decoded for the picture, and it **keeps playing in the background** when the screen is left. The button becomes a
+    tinted video camera that brings the picture back at the same place.
+  - **An audio-only video counts as music**: it shows the music panel (the title, and the words when the file has lyrics or
+    subtitles), the Library's mini player shows it, and the screen's close no longer stops it.
+  - **A queue that is opened new starts with its picture**: audio only belongs to what was playing.
+- Changed: `ThumbnailLoader.loadCover` can be asked to read a video's frame as well as a song's cover (`audio = null`); the mini
+  player keeps reading covers only. The way of reading is now part of the cache key.
+
+## 2.6.134
+- Added: **the picture of the video or song in the notifications** (`media/CoverBitmapLoader.kt`, `download/NotificationCovers.kt`,
+  `download/DownloadService.kt`, `media/MediaPlayerService.kt`, `media/PlayerActivity.kt`, `ui/ThumbnailLoader.kt`,
+  `ui/RemoteThumbnails.kt`).
+  - **The built-in player's media notification and the lock screen show a picture**: a frame of the video, or the cover of the
+    song. It is made only for the item that is playing, on a background thread, and kept while that item plays, so the
+    notification (rebuilt at every play / pause) does not open the file again each time. Items with no picture keep the plain look.
+  - **The ongoing download notification shows the thumbnail of the video that is downloading** (YouTube links; a page of another
+    site has none). It is fetched once per video, and the notification is posted again when it arrives.
+  - **The "saved" notification shows a frame of the saved video, or the cover of the saved song**, whatever site it came from.
+  - **The notification shows a name and a count of the others**: with several downloads running or saved together it reads
+    "Name +2" instead of "3 downloads running" / "3 files saved". The count is of downloads, not of files, so a lyrics file saved
+    beside a song no longer adds to it.
+- Changed: the picture loader decides by itself whether a file is a video or a song (it asks the file whether it has a picture
+  track), so one call serves both.
+
+## 2.6.133
+- Added: **touch gestures in the built-in player** (the one the Library opens, for videos and for songs) (`media/PlayerGestures.kt`,
+  `media/PlayerActivity.kt`, `res/layout/activity_player.xml`).
+  - **Double tap moves 10 seconds**: the right half of the screen goes forward, the left half goes back. It works in the video
+    player and in the music player alike (also over the lyrics). A label ("+10 s") shows on the side that was tapped. Right is
+    forward on every phone language: it is the side of the screen, not the reading direction.
+  - **Quick taps after a double tap keep adding 10 seconds** (20, 30, ...) while each tap comes less than 0.7 s after the last;
+    a tap on the other half starts again from 10 in that direction.
+  - **A sideways swipe on a video moves the position**: the label in the middle shows how far it moves and where it will go
+    (`+0:25` over `3:45 / 12:10`), and the video jumps there when the finger leaves (one seek, not one per move, so a slow phone is
+    not flooded). A swipe over the whole width moves an eighth of the video, never less than a minute nor more than five.
+  - **Nothing that worked before changed**: the buttons and the time bar keep their own touches (scrubbing the bar, or pressing
+    next twice quickly, never seeks); the lyrics list still scrolls and a tap on a line still jumps to it, only that the jump now
+    waits 0.3 s to be sure the tap is not the first half of a double tap; a file that cannot be moved (a live stream, one that failed)
+    keeps the old behaviour.
+  - A single tap on the picture shows or hides the controls 0.3 s later than before: that wait is what tells it from a double tap.
+
+## 2.6.132
+- Changed: **the lyrics view no longer shows what is not sung** (`media/LyricsText.kt`). Captions, above all YouTube's automatic
+  ones, mix the words with notes for the reader, and they showed as lyrics: `راح صفي المالهم داعي حياتي [موسيقى]`.
+  - **Notes are taken out wherever they stand in the line** (at the end, in the middle, or alone): `[موسيقى]`, `(Music)`,
+    `[Applause]`, `[Chorus]`, `(تصفيق)`, `[ضحك]` and the like. Only a bracket that names a sound or a part of the song goes:
+    `(ooh ooh)` is sung and stays.
+  - **The `>>` / `»` mark of a change of speaker**, a dialogue dash at the start of a line, and the music marks (♪ ♫) are removed.
+  - **A line that was only a note becomes a pause**: an intro of `[موسيقى]` cues, or a `[Music]` between verses, shows as one
+    "♪" row (when it lasts six seconds or more) instead of the word "music".
+  - It works on the files already saved (the cleaning is done when the song is shown); the one-line fallback and the converted
+    LRC use the same rules.
+- Changed: **the lyrics the app downloads are cleaned the same way** (`download/SubtitleCleaner.kt`): until now only a note at the
+  start of a line or a line that was only a note was removed, so `... [موسيقى]` at the end of a line stayed in the saved file.
+
+## 2.6.131
+- Changed: **the song's words in the built-in player are now shown like a music app does** (`media/LyricsView.kt`,
+  `media/LyricsParser.kt`; before, only the one line being sung was shown, in three small lines of text).
+  - **All the lines are on screen.** The line being sung is big and bright, the lines around it fade with distance, and the
+    list **follows the song by itself**, keeping the sung line a little above the middle, with a smooth glide. A line comes
+    a fraction of a second early (as in music apps), which reads better than one that is late.
+  - **A tap on any line jumps the song to it.**
+  - **Moving the list by hand** pauses the following; about 3.5 seconds after the finger leaves, it goes back to the sung line.
+  - **Pauses show as "♪"**: an intro, a solo or a gap of six seconds or more between two lines, so the screen never looks
+    stuck on the last line while the music plays on.
+  - The top and the bottom of the list **fade softly** into the background; the song's title sits small at the top; and when the
+    song has its own picture, it gets a dark veil under the words so they stay easy to read (it clears towards the controls).
+  - Works for LRC (also several stamps per line, `[offset:]`, word stamps ignored), SubRip and WebVTT, and for the
+    other-language lyrics chosen from the subtitle menu: the list switches to that file's lines.
+  - If the whole file cannot be read, the old one-line display is used instead, so the words never disappear.
+  - A video keeps its usual subtitles at the bottom of the picture, as before.
+
+## 2.6.130
+- Added: **a mini player in the Library** (`ui/MiniPlayerBar.kt`, `res/layout/view_mini_player.xml`; the cover comes from `ThumbnailLoader.loadCover`). While a song is in the
+  built-in player, a bar sits at the bottom of the Library with the song's **cover**, its name, how far it is (a thin
+  progress line on top and `1:23 / 3:45`), and **previous, play / pause, next and close**.
+  - **A tap on the bar opens the full player** on the same song (`PlayerLauncher.openCurrent`); back from it returns to the
+    Library with the bar still there, so music started in the player can be controlled from the list.
+  - It is one more controller of the same player that lives in `MediaPlayerService`, so the bar and the player screen
+    always show the same song and the same state. It connects only while the Library is on screen, and only when the
+    service already exists (`MediaPlayerService.running`): opening the Library never starts a player.
+  - **Close** stops the music and empties the queue; the bar and the media notification go away.
+  - Music only: a video has its own screen and is paused when that screen is left, so it never shows in the bar.
+  - While files are ticked (share / delete bar) the mini player steps aside, then comes back.
+  - Previous restarts the song when it is already a few seconds in, then goes to the one before (the player's own rule);
+    next is dimmed on the last song. The buttons run left to right in both directions, like the player's controls.
+- Changed: **the music screen of the player no longer puts the note over the song's picture.** The player view already draws
+  the song's own picture behind the controls, so the note is shown only for a song that has none.
+
+## 2.6.128
+- Added: **the player chooser is back, as a sheet.** A tap on a video or a song of the Library no longer goes silently to the
+  built-in player: a bottom sheet asks which player to use, drawn like the three-dots menu and the video sheet
+  (`ui/PlayerChoiceSheet.kt`, `res/layout/bottom_sheet_player_choice.xml`, `item_player_choice.xml`).
+  - **The file on top** (its picture, name, format and size), so it is plain which file is being opened.
+  - **The built-in player first, in its own outlined card marked "Recommended"** (the same badge as the browser's *Found on
+    this page* list), with a line on why: it plays the whole list as a queue, shows the lyrics, keeps going in the
+    background and has picture in picture.
+  - **The other player apps of the phone under it**, by name and with their own icons (`media/ExternalPlayers.kt`: every app
+    that can *view* that kind of file, one entry per app, this app left out). Android 11+ shows other apps only when the
+    manifest asks, so `<queries>` for `video/*` and `audio/*` *view* intents is added.
+  - **"Always use my choice"** is a switch at the bottom (`Prefs.playerChoice`). On, the next tap goes straight to that player;
+    off (the start), the sheet asks every time. A kept app that was removed from the phone is forgotten and the sheet asks again.
+  - **Play with…** is a new row at the top of a file's three-dots menu: it opens the sheet even when a choice is kept, and
+    turning the switch off there goes back to asking.
+  - A phone with no other player app has nothing to choose from, so a tap goes straight to the built-in player (the sheet from
+    *Play with…* then says there is no other player). If another app cannot open the file, the built-in player plays it and
+    says so.
+  - Another app gets the one file; the queue, the lyrics and the little window are the built-in player's.
+- Added: **picture in picture in the Library's player** (`media/PlayerActivity.kt`).
+  - **A button in the title bar** (shown for a video only, on a phone that has the window) shrinks the video into the system's
+    small floating window at once. A song has no button.
+  - **The window has the picture's own shape** (before, always 16:9, so a vertical video was cut or had black bands), also for
+    a file stored sideways, and the system animates the shrinking from the place the picture is on the screen.
+  - **Its buttons: previous, play / pause, next** (next is dimmed on the last file). On a right-to-left phone the order is
+    mirrored, as in the browsing screen's window; the play / pause button follows the real state.
+  - **Leaving the app with a video playing** (Home, Recents) goes into the window by itself when the *Picture in picture* switch
+    of the three-dots menu is on (it used to ignore that switch); Android 12+ does it by its own gesture from the params the
+    player keeps up to date. The title-bar button works whatever the switch says.
+  - If the phone refuses the window (the permission is off for the app in its settings) a message says where to allow it.
+- Not changed: the built-in player's controls, lyrics and notification, the browsing screen's picture in picture, and what a
+  lyrics file does when tapped.
+- Not built and not run on a phone (written without an Android SDK): checked by reading, by an XML and resource-reference
+  check, and by a brace / import check of the Kotlin files.
+
+## 2.6.127
+- Fixed: **the built-in player did not know where the lyrics are.** The app saves them in the `كلمات` folder
+  (Download/WardTube/`كلمات`), away from the videos (`فيديوهات`) and the audio (`أصوات`), and the player only looked for
+  `.srt` files by name, so a song's `.lrc` (what *Lyrics / subtitles LRC* saves) was never found, and it could not have been
+  read anyway: Media3 does not read LRC.
+  - **Where it looks.** Every Library file now knows its sort folder (`DownloadItem.folder`, read from its path).
+    `media/LyricsFinder.kt` takes a video / audio file and returns its `.lrc` / `.srt` files: the exact name
+    (`Song.mp3` + `Song.lrc`), or with a language code (`Song.en.srt`); anything else with the same start
+    (`Song.Remix.srt`, `Song 2.lrc`) is not taken. The copy in `كلمات` wins over an older one that an earlier version left
+    straight in Download/WardTube, which is still found when it is the only one. For music LRC comes first, for a video SRT.
+  - **LRC is read.** `media/LrcToSrt.kt` turns an LRC into SubRip (several stamps per line, `[offset:]`, word-by-word
+    `<mm:ss.xx>` tags dropped, an empty line ends the line before it, plain digits 0-9 whatever the phone's language). The
+    player does it off the main thread, keeps the converted copy in its own storage, and a file it cannot read only means
+    the song plays without words.
+  - **The words are shown.** For music the line that is being sung shows under the title in the player screen (it was
+    hidden behind the controls as a subtitle); a video keeps its subtitles at the bottom of the picture. Only the first
+    lyrics file is switched on, the others are in the subtitle button's menu.
+- Fixed: **tapping the player's notification did nothing.** The media session had no screen to open; it now opens the
+  player (`MediaPlayerService`: `setSessionActivity`).
+- Not changed: how lyrics are downloaded and named, the Library list, and the video player's subtitles.
+- `LrcToSrt` and `LyricsFinder` were compiled with Kotlin 2.0.21 (the project's version) and tested on their own (offset,
+  Arabic text, repeated stamps, folder choice, names with dots). The Android side (`PlayerActivity`, the layout, the
+  notification) was written without an Android SDK: not built and not run on a phone.
+
 ## 2.6.126
 - Changed: **the download tip stays on screen until the person presses OK.** It used to go away by itself after 8 seconds,
   which was too short to read; now it is shown with `Snackbar.LENGTH_INDEFINITE` (`MainActivity.showVideoPressTip`) and the

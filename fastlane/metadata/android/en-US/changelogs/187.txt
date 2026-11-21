@@ -1,0 +1,3 @@
+Changed: song words are shown like the Wardio web player, on a soft card with the sung line highlighted and the next one under it.
+Added: a rotate-screen button next to the video player's control buttons.
+Fixed: the queue now opens with the playing item at the top.

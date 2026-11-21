@@ -1,0 +1,1 @@
+Fixed: the built-in player now finds a song's lyrics in the lyrics folder (LRC and SRT) and shows the line being sung. Tapping the player's notification opens the player.

@@ -21,5 +21,6 @@
     <color name="menuAccentRed">#FF6B61</color>
     <color name="menuAccentGray">#90A4AE</color>
     <color name="menuCard">#262626</color>
+    <color name="playerRecommendedBg">#33201F</color>
     <color name="menuHandle">#55FFFFFF</color>
 </resources>

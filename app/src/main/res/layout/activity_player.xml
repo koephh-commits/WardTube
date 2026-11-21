@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The built-in player: Media3's PlayerView (picture + ready-made controls), a title bar that follows the controls,
+     a music panel shown when the file has no picture, a spinner and a tap-to-retry error line, and two small labels the touch
+     gestures use (PlayerGestures): the "+10 s" of a double tap and the place a swipe is going to. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:fitsSystemWindows="false">
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/playerView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:resize_mode="fit"
+        app:show_buffering="never"
+        app:use_controller="true" />
+
+    <LinearLayout
+        android:id="@+id/playerAudioPanel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingBottom="96dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/playerAudioIcon"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:layout_marginBottom="24dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_music_note_24dp"
+            app:tint="#FFFFFF" />
+
+        <!-- The words of the song, as the Wardio web player shows them: a card at the bottom of the picture with the line being
+             sung and the one after it (see LyricsView). It takes the room under the title bar, down to the controls; the card
+             sits at its bottom and the rest is the song's picture. The song's name is only in the title bar: it is not repeated
+             over the picture. -->
+        <com.mwmods.wardtube.media.LyricsView
+            android:id="@+id/playerLyrics"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="6dp"
+            android:layout_weight="1"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/playerTopBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="#80000000"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="4dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="4dp">
+
+        <ImageButton
+            android:id="@+id/playerBack"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/playerBack"
+            android:src="@drawable/ic_arrow_back_white_24dp" />
+
+        <TextView
+            android:id="@+id/playerTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textAlignment="viewStart"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp" />
+
+        <!-- Plays a video as sound only (no picture, keeps going in the background); shown by PlayerActivity only while the
+             file in play has a picture track. Its look (headphones / video camera, tinted when on) is set in code. -->
+        <ImageButton
+            android:id="@+id/playerAudioOnly"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/playerAudioOnly"
+            android:src="@drawable/ic_menu_headphones"
+            android:visibility="gone" />
+
+        <!-- Opens the queue sheet: the list that is playing now (QueueSheet). -->
+        <ImageButton
+            android:id="@+id/playerQueue"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/playerQueue"
+            android:src="@drawable/ic_queue_music_24dp" />
+
+        <!-- Shrinks a video into the system's small floating window; shown by PlayerActivity only for a picture (not a song)
+             on a phone that has the window. -->
+        <ImageButton
+            android:id="@+id/playerPip"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/playerPip"
+            android:src="@drawable/ic_menu_pip"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- The double tap's label ("+10 s" / "-10 s"): PlayerActivity puts it on the side of the screen that was tapped. -->
+    <TextView
+        android:id="@+id/playerSeekFeedback"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical|right"
+        android:layout_marginStart="36dp"
+        android:layout_marginEnd="36dp"
+        android:background="@drawable/bg_player_gesture_label"
+        android:gravity="center"
+        android:importantForAccessibility="no"
+        android:minWidth="88dp"
+        android:paddingStart="18dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="18dp"
+        android:paddingBottom="12dp"
+        android:textColor="#FFFFFF"
+        android:textDirection="ltr"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        tools:ignore="RtlHardcoded" />
+
+    <!-- While a sideways swipe is on: how far it moves and where it will go ("+0:25" over "3:45 / 12:10"). -->
+    <TextView
+        android:id="@+id/playerSwipePreview"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_player_gesture_label"
+        android:gravity="center"
+        android:importantForAccessibility="no"
+        android:minWidth="120dp"
+        android:paddingStart="22dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="22dp"
+        android:paddingBottom="12dp"
+        android:textColor="#FFFFFF"
+        android:textDirection="ltr"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <ProgressBar
+        android:id="@+id/playerLoading"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:indeterminateTint="#FFFFFF"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/playerError"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="?attr/selectableItemBackground"
+        android:gravity="center"
+        android:padding="24dp"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:visibility="gone" />
+</FrameLayout>

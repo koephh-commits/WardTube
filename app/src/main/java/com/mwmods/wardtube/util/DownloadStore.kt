@@ -43,6 +43,11 @@ data class DownloadItem(
     val path: String?,
     /** [name] normalised once, so typing in the search field does not recompute it per key press. */
     val searchKey: String,
+    /**
+     * The sort folder of Download/WardTube the file sits in (`فيديوهات`, `أصوات`, `كلمات`, `ملفات`); empty for the main
+     * folder and when the system did not say where the file is.
+     */
+    val folder: String = "",
 ) {
     val extensionUpper: String
         get() = if (name.contains('.')) name.substringAfterLast('.').uppercase(Locale.ROOT) else ""
@@ -497,6 +502,7 @@ object DownloadStore {
                     dateAddedSec = file.lastModified() / 1000,
                     path = if (legacy) file.absolutePath else null,
                     searchKey = normalizeForSearch(file.name),
+                    folder = folderOf(file.absolutePath),
                 ),
             )
         }
@@ -546,6 +552,7 @@ object DownloadStore {
                         dateAddedSec = cursor.getLong(dateCol),
                         path = if (legacy) data else null,
                         searchKey = normalizeForSearch(name),
+                        folder = folderOf(data),
                     )
                 }
             }
@@ -555,6 +562,17 @@ object DownloadStore {
             // A collection this device does not answer for: the other one still lists the files.
         }
         return items
+    }
+
+    /**
+     * The sort folder a file sits in, read from its path: `.../Download/WardTube/كلمات/Song.lrc` -> "كلمات".
+     * Empty for a file straight in Download/WardTube (saved by an earlier version) and for an unknown path. Only the
+     * folder directly above the file counts, so a file that merely has the word in its own path elsewhere is not taken.
+     */
+    private fun folderOf(path: String?): String {
+        val parent = path?.let { File(it).parentFile } ?: return ""
+        val grand = parent.parentFile
+        return if (grand != null && grand.name == FOLDER) parent.name else ""
     }
 
     /**

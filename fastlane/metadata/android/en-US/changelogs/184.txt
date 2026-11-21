@@ -1,0 +1,1 @@
+Changed: the queue's "Up next" mark now follows the player's real next item, so it is right with shuffle on (and with repeat all at the last item).

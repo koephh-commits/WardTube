@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Library's mini player: a bar over the bottom of the list that shows the song in the built-in player (its cover,
+     name, how far it is) with previous / play-pause / next / close. A tap on the bar opens the full player.
+     Hidden until MiniPlayerBar finds a song in the player. The buttons are laid out left to right in both directions,
+     like the player's own controls. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/miniPlayer"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?android:attr/colorBackground"
+    android:clickable="true"
+    android:contentDescription="@string/miniPlayerOpen"
+    android:elevation="8dp"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
+    android:orientation="vertical"
+    android:visibility="gone">
+
+    <ProgressBar
+        android:id="@+id/miniProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layoutDirection="ltr"
+        android:max="1000"
+        android:progressBackgroundTint="@color/divider"
+        android:progressTint="@color/brandText"
+        tools:progress="400" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="4dp"
+        android:paddingBottom="8dp">
+
+        <!-- The cover; the note shows until it is ready and stays for a song that has none. -->
+        <FrameLayout
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/bg_thumb_soft">
+
+            <ImageView
+                android:id="@+id/miniCoverIcon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_music_note_24dp"
+                app:tint="@color/brandText" />
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/miniCover"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                app:shapeAppearanceOverlay="@style/ThumbRounded" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="4dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/miniTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAlignment="viewStart"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                tools:text="Song name" />
+
+            <TextView
+                android:id="@+id/miniTime"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:maxLines="1"
+                android:textAlignment="viewStart"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp"
+                tools:text="1:23 / 3:45" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:layoutDirection="ltr"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/miniPrev"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/previousVideo"
+                android:src="@drawable/ic_skip_previous_white_24dp"
+                app:tint="?android:attr/textColorPrimary" />
+
+            <ImageButton
+                android:id="@+id/miniPlayPause"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:background="@drawable/bg_mini_play"
+                android:contentDescription="@string/play"
+                android:src="@drawable/ic_play_white_24dp" />
+
+            <ImageButton
+                android:id="@+id/miniNext"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/nextVideo"
+                android:src="@drawable/ic_skip_next_white_24dp"
+                app:tint="?android:attr/textColorPrimary" />
+
+            <ImageButton
+                android:id="@+id/miniClose"
+                android:layout_width="36dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/close"
+                android:src="@drawable/ic_close_24dp"
+                app:tint="?android:attr/textColorSecondary" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

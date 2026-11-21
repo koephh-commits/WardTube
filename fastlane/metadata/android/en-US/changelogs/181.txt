@@ -1,0 +1,1 @@
+Added: the player's queue and audio only. A queue button in the built-in player opens the list that is playing (the playing item marked with moving bars; tap to play, drag to reorder, swipe or x to remove). A headphones button plays a video as sound only, also in the background.

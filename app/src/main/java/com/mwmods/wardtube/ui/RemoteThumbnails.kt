@@ -83,6 +83,9 @@ object RemoteThumbnails {
         }
     }
 
+    /** The picture at [address], fetched on the calling thread and not cached (the download notification). Null when there is none. */
+    fun fetch(address: String): Bitmap? = runCatching { download(address) }.getOrNull()
+
     private fun download(address: String): Bitmap? {
         if (!address.startsWith("https://")) return null
         val connection = URL(address).openConnection() as HttpURLConnection

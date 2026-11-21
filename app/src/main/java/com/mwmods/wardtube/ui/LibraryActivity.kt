@@ -53,6 +53,10 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.mwmods.wardtube.Prefs
 import com.mwmods.wardtube.R
+import com.mwmods.wardtube.media.ExternalPlayers
+import com.mwmods.wardtube.media.LyricsFinder
+import com.mwmods.wardtube.media.PlayerLauncher
+import com.mwmods.wardtube.player.PlayerController
 import com.mwmods.wardtube.download.DownloadEvents
 import com.mwmods.wardtube.download.DownloadJob
 import com.mwmods.wardtube.download.DownloadLimits
@@ -106,6 +110,7 @@ class LibraryActivity : AppCompatActivity() {
     private lateinit var searchLayout: View
     private lateinit var searchField: TextInputEditText
     private lateinit var selectionBar: View
+    private lateinit var miniPlayer: MiniPlayerBar
     private lateinit var shareSelected: TextView
     private lateinit var deleteSelected: TextView
 
@@ -228,6 +233,16 @@ class LibraryActivity : AppCompatActivity() {
             insets
         }
 
+        // The mini player is the bottom-most bar while nothing is ticked: it keeps its buttons clear of the navigation bar too.
+        val miniView = findViewById<View>(R.id.miniPlayer)
+        val miniBottomPadding = miniView.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(miniView) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(bottom = miniBottomPadding + bars.bottom)
+            insets
+        }
+        miniPlayer = MiniPlayerBar(this, miniView)
+
         toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
         toolbar.inflateMenu(R.menu.menu_library)
         toolbar.setOnMenuItemClickListener { item ->
@@ -258,6 +273,7 @@ class LibraryActivity : AppCompatActivity() {
         adapter = LibraryAdapter(
             onFileClick = ::onFileClicked,
             onFileLongClick = ::onFileLongClicked,
+            onPlayWith = { item -> playItem(item, forceChoice = true) },
             onShare = ::shareItem,
             onRename = ::renameItem,
             onDelete = { item -> confirmDelete(listOf(item)) },
@@ -332,9 +348,12 @@ class LibraryActivity : AppCompatActivity() {
         sendBroadcast(Intent(DownloadEvents.ACTION_REQUEST_STATE).setPackage(packageName))
         // Downloads recorded as running with no service answering were cut off: the silence timer turns them into failures.
         if (jobs.isNotEmpty() || FailedDownloads.hasActive(this)) armSilenceTimer()
+        // The song of the built-in player (back from the player screen, or music playing in the background).
+        miniPlayer.start()
     }
 
     override fun onStop() {
+        miniPlayer.stop()
         unregisterReceiver(stateReceiver)
         handler.removeCallbacks(serviceSilent)
         super.onStop()
@@ -482,6 +501,8 @@ class LibraryActivity : AppCompatActivity() {
         val count = adapter.selectedCount()
         val showBar = adapter.selecting && count > 0
         selectionBar.visibility = if (showBar) View.VISIBLE else View.GONE
+        // The share / delete bar takes the bottom of the screen while files are ticked; the mini player is back after.
+        miniPlayer.suppressed = showBar
         if (showBar) {
             shareSelected.text = getString(R.string.librarySelectionShare, count)
             deleteSelected.text = getString(R.string.librarySelectionDelete, count)
@@ -753,7 +774,42 @@ class LibraryActivity : AppCompatActivity() {
 
     // ---- Play / share ----
 
-    private fun playItem(item: DownloadItem) {
+    private val playerChoiceSheet by lazy { PlayerChoiceSheet(this) }
+
+    /**
+     * A tap on a file. A video or a song opens in the player the person chose: the built-in one (with the rest of the list
+     * as its queue, recommended) or another app of the phone. When nothing is kept ([Prefs.playerChoice]) the chooser sheet
+     * asks, and its switch can keep the answer; [forceChoice] (the file menu's "Play with…") asks even when one is kept.
+     * A phone with no other player has nothing to choose from, so a tap goes straight to the built-in one.
+     */
+    private fun playItem(item: DownloadItem, forceChoice: Boolean = false) {
+        if (item.category == MediaCategory.VIDEO || item.category == MediaCategory.AUDIO) {
+            val prefs = Prefs(this)
+            val apps = ExternalPlayers.find(this, item)
+            val kept = prefs.playerChoice
+            val keptApp = apps.firstOrNull { it.packageName == kept }
+            if (!forceChoice) {
+                when {
+                    apps.isEmpty() || kept == Prefs.PLAYER_BUILT_IN -> return playBuiltIn(item)
+                    keptApp != null -> return playInApp(item, keptApp)
+                    // Nothing kept, or the kept app is gone from the phone: ask.
+                }
+            }
+            playerChoiceSheet.show(
+                item,
+                apps,
+                remembered = kept == Prefs.PLAYER_BUILT_IN || keptApp != null,
+                onBuiltIn = { remember ->
+                    prefs.playerChoice = if (remember) Prefs.PLAYER_BUILT_IN else Prefs.PLAYER_ASK
+                    playBuiltIn(item)
+                },
+                onApp = { app, remember ->
+                    prefs.playerChoice = if (remember) app.packageName else Prefs.PLAYER_ASK
+                    playInApp(item, app)
+                },
+            )
+            return
+        }
         // Subtitle files are stored with a generic type; text viewers understand them as plain text.
         val isSubtitle = item.isSubtitle
         val view = Intent(Intent.ACTION_VIEW)
@@ -763,6 +819,31 @@ class LibraryActivity : AppCompatActivity() {
             startActivity(view)
         } catch (e: ActivityNotFoundException) {
             toast(getString(R.string.noAppToOpen))
+        }
+    }
+
+    /** The built-in player, with the rest of the list (same kind, and the search that is on) as the queue. */
+    private fun playBuiltIn(item: DownloadItem) {
+        val queue = allFiles.filter { f ->
+            f.category == item.category && (searchQuery.isEmpty() || searchQuery in f.searchKey)
+        }
+        // The words of each file: its .lrc / .srt, looked for in the `كلمات` folder first (see LyricsFinder).
+        val lyricsFiles = allFiles.filter { it.isSubtitle }
+        val entries = queue.map { f ->
+            val subs = LyricsFinder.find(f, lyricsFiles).map { it.uri to it.name }
+            PlayerLauncher.Entry(f.uri, f.name.substringBeforeLast('.'), subs)
+        }
+        // Only one thing plays at a time: the YouTube page's own video (mini player) is paused first.
+        runCatching { PlayerController.pause() }
+        PlayerLauncher.openFiles(this, entries, queue.indexOfFirst { it.id == item.id }.coerceAtLeast(0))
+    }
+
+    /** Another player app. If it cannot open the file any more (it was removed meanwhile) the built-in player plays it. */
+    private fun playInApp(item: DownloadItem, app: ExternalPlayers.App) {
+        runCatching { PlayerController.pause() }
+        if (!ExternalPlayers.open(this, item, app)) {
+            toast(getString(R.string.playerChoiceOpenFailed, app.label))
+            playBuiltIn(item)
         }
     }
 

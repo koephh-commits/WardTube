@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Behind a queue picture: what shows while it loads, and for files that have none. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/queueThumb" />
+    <corners android:radius="10dp" />
+</shape>

@@ -3,6 +3,7 @@
 
 package com.mwmods.wardtube.download
 
+import com.mwmods.wardtube.media.LyricsText
 import java.io.File
 import java.util.Locale
 
@@ -17,9 +18,9 @@ object SubtitleCleaner {
 
     private val TIME_RE = Regex("""(\d+):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d+):(\d{2}):(\d{2})[,.](\d{1,3})""")
     private val DIGITS_RE = Regex("""\d+""")
-    private val LRC_RE = Regex("""^\[(\d+):(\d{2})(?:[.:](\d{1,3}))?](.*)$""")
-    private val TAG_RE = Regex("""^\s*[\[(].*[])]\s*$""") // [موسيقى], [Music], (applause)
-    private val TAG_PREFIX_RE = Regex("""^\s*[\[(][^\])]*[])]\s*""")
+    private val LRC_RE = Regex("""^\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\](.*)$""")
+    private val TAG_RE = Regex("""^\s*[\[(].*[\])]\s*$""") // [موسيقى], [Music], (applause)
+    private val TAG_PREFIX_RE = Regex("""^\s*[\[(][^\])]*[\])]\s*""")
     private val TAG_ONLY_PREFIX_RE = Regex("""^\s*[♪♫]+\s*|\s*[♪♫]+\s*$""")
 
     fun clean(file: File) {
@@ -91,6 +92,8 @@ object SubtitleCleaner {
         var s = line.replace(TAG_ONLY_PREFIX_RE, "").trim()
         if (TAG_RE.matches(s)) return null
         s = s.replace(TAG_PREFIX_RE, "").trim()
+        // A note at the end or in the middle of a line (`... [موسيقى]`), a ">>" speaker mark, music marks.
+        s = LyricsText.tidy(s)
         return s.ifEmpty { null }
     }
 

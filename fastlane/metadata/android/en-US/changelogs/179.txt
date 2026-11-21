@@ -1,0 +1,1 @@
+Added: gestures in the built-in player (videos and songs). Double tap moves 10 seconds (right half forward, left half back; more quick taps add more). On a video, swiping sideways moves the position.

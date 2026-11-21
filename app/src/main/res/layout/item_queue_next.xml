@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The small "Next" label inside the player's queue list (see QueueSheet): it takes the place of the item that is playing,
+    which is drawn in its own card above the list, so the ones after it are under the label. The same row, with the label
+    hidden, stands in the place of every item before the playing one while the queue is in its plain order: it has no height,
+    so those items are not seen. The label is hidden too when nothing comes after the playing item, and with shuffle or
+    "repeat all".
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <TextView
+        android:id="@+id/queueNextLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="20dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="4dp"
+        android:text="@string/playerQueueNext"
+        android:textAlignment="viewStart"
+        android:textColor="@color/queueTextDim"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+</FrameLayout>
