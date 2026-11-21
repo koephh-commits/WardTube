@@ -1,0 +1,1 @@
+Changed: when a video starts to play with sound on a YouTube page or a page of the browser, the Library's built-in player (video or song) pauses instead of playing over it.

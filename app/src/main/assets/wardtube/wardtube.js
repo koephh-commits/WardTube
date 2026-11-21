@@ -923,6 +923,17 @@
     return best || mainVideo();
   }
 
+  // A video starts to play with sound (the person plays it): tell the app, so the built-in player of the Library, if it plays,
+  // pauses instead of playing over it. A muted video (a preview) does not count. "playing" does not bubble: caught on the way down.
+  document.addEventListener('playing', function (e) {
+    try {
+      var el = e.target;
+      if (!el || el.muted || el.volume === 0) return;
+      var bridge = window.WardTubeNative;
+      if (bridge && bridge.mediaPlaying) bridge.mediaPlaying();
+    } catch (err) {}
+  }, true);
+
   window.__wardtube = {
     /** The video on view (see currentVideo). */
     video: function () {

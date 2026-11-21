@@ -9,6 +9,7 @@ import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.MimeTypeMap
 import android.webkit.WebResourceRequest
+import com.mwmods.wardtube.media.MediaPlayerService
 import java.util.Locale
 
 /** One thing the open page offers for download. */
@@ -237,6 +238,15 @@ class MediaSniffer(
         }
 
         /**
+         * A video or audio of the page (or of one of its frames) started to play with sound: the built-in player of the Library
+         * pauses instead of playing over it. All a page can do with this is pause that player.
+         */
+        @JavascriptInterface
+        fun playing() {
+            MediaPlayerService.pauseForOtherMedia()
+        }
+
+        /**
          * From the network watcher ([NET_SCRIPT]): what the server answered for [url] says it is a stream playlist
          * ("stream"), a video or an audio file, whatever the address looks like. This is how a player whose playlist has
          * no `.m3u8` in its address (a `/play?id=12`, say) is found. Pieces of a stream and the video servers of sites
@@ -414,6 +424,15 @@ class MediaSniffer(
     scan();
   }
   ['play', 'playing', 'loadedmetadata'].forEach(function (t) { document.addEventListener(t, later, true); });
+  // Sound starts (the person plays a video): the app pauses the built-in player of the Library. A muted video does not count.
+  document.addEventListener('playing', function (e) {
+    try {
+      var el = e.target;
+      if (!el || el.muted || el.volume === 0) return;
+      var B = window[B_NAME];
+      if (B && B.playing) B.playing();
+    } catch (x) {}
+  }, true);
   // Players start late (a click, a lazy frame, a box that opens) and a media event of a frame never reaches this
   // document: a cheap look at the media and the frames every few seconds finds what nothing announced.
   setInterval(function () {

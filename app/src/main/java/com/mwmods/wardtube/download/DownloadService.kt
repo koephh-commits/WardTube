@@ -616,8 +616,9 @@ class DownloadService : Service() {
             } else {
                 emptyList()
             }
-            // Subtitles next to a video / audio: when YouTube refuses them (rate limit) yt-dlp only prints a warning and
-            // the download "succeeds" without them, so tell the user instead of leaving them wondering.
+            // Subtitles next to a video / audio: when YouTube refuses them (rate limit, HTTP 429) the download goes on
+            // without them (--ignore-errors turns that error into a warning), so tell the user instead of leaving
+            // them wondering.
             if (options.wantsSubs && !options.isSubsOnly && subtitleFiles.isEmpty()) toast(R.string.subsMissing)
             // YouTube's automatic captions repeat every line and carry filler cues: keep each line once.
             subtitleFiles.forEach { SubtitleCleaner.clean(it) }
@@ -862,6 +863,13 @@ class DownloadService : Service() {
                 addOption("--write-auto-subs")
                 addOption("--sub-langs", options.langs.ifBlank { "ar,en" })
                 addOption("--convert-subs", options.subFormat)
+                // YouTube often answers a subtitle request with HTTP 429 (an automatic caption translated into another
+                // language is the usual one). yt-dlp counts that as an ERROR and stops the whole download, video included,
+                // unless errors are ignored: then it is only a warning, the video is saved and the other languages go on.
+                // A real failure of the video itself still ends with a non-zero exit code, so it is still reported.
+                addOption("--ignore-errors")
+                // A pause between the subtitle files, so that two languages one after the other are less likely to be refused.
+                addOption("--sleep-subtitles", "3")
             }
         }
         if (options.isSubsOnly) {

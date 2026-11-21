@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.6.149
+- Fixed: **a download with subtitles / lyrics (LRC, SRT) failed completely when YouTube refused one of the subtitle files** (HTTP 429,
+  "Unable to download video subtitles for 'ar'") (`download/DownloadService.kt`).
+  - Cause: yt-dlp treats a failed subtitle file as an error and stops the whole job, video included. The comment in the code said it was
+    only a warning; it is one only when errors are ignored. The Arabic file of a video in another language is the usual case: it is an
+    automatic caption translated by YouTube, and those requests are the ones YouTube limits first.
+  - Now the download passes `--ignore-errors` when subtitles are asked for: a refused subtitle is a warning, the video / song is saved, the
+    other languages go on, and the existing message "Saved without the subtitle file" tells the person. A failure of the media itself still
+    fails the job (yt-dlp ends with an error code). A "subtitles only" job that gets no file still ends with "subtitles not available".
+  - `--sleep-subtitles 3`: a pause between subtitle files, so that two languages in a row are less likely to be refused.
+
+## 2.6.148
+- Changed: **when a video starts to play with sound on a YouTube page or on a page of the browser, the built-in player of the Library
+  (the video or song that plays from there) pauses instead of playing over it** (`media/MediaPlayerService.kt`, `web/NativeBridge.kt`,
+  `assets/wardtube/wardtube.js`, `browser/MediaSniffer.kt`).
+  - Before, both went on playing together: a WebView does not ask Android for the sound (audio focus), so the built-in player, which
+    pauses only when another app takes the sound, never heard that a video of the app's own pages had started.
+  - The page script of YouTube (`wardtube.js`) and the script the browser already injects to look for media (`MediaSniffer`, also
+    inside the iframes of a page) now listen for the `playing` event of any video / audio, and tell the app through the bridge
+    (`NativeBridge.mediaPlaying()`, `MediaSniffer.Bridge.playing()`). Both call `MediaPlayerService.pauseForOtherMedia()`, which pauses the
+    built-in player on the main thread (only when it is playing).
+  - A muted video (a preview, a decoration) does not count. A page can call the bridge too, but all it can do is pause that player.
+  - Nothing starts the built-in player again by itself when the video stops: its play button (screen, notification, headset) does.
+
 ## 2.6.147
 - Fixed: **2.6.146 did not build** (`media/QueueCycle.kt`): `DefaultShuffleOrder` is not a class of its own in Media3, it is nested in
   `ShuffleOrder`, so the import `androidx.media3.exoplayer.source.DefaultShuffleOrder` was not found. It is now imported as

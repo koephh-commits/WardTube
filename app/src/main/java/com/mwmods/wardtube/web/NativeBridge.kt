@@ -6,6 +6,7 @@ package com.mwmods.wardtube.web
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
+import com.mwmods.wardtube.media.MediaPlayerService
 import com.mwmods.wardtube.util.UrlUtils
 
 /**
@@ -39,4 +40,13 @@ class NativeBridge(
      */
     @JavascriptInterface
     fun isMini(): Boolean = isMiniNow()
+
+    /**
+     * A video of the page started to play with sound: the built-in player of the Library (a video or a song that plays from there)
+     * pauses instead of playing over it. A frame of the page can call this, but all it does is pause that player.
+     */
+    @JavascriptInterface
+    fun mediaPlaying() {
+        MediaPlayerService.pauseForOtherMedia()
+    }
 }

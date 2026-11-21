@@ -5,6 +5,8 @@ package com.mwmods.wardtube.media
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -41,6 +43,7 @@ class MediaPlayerService : MediaSessionService() {
             .build()
         // The queue goes round and round: what played goes to the bottom, and a shuffle makes a new random order each round.
         player.addListener(QueueCycle(player))
+        playerRef = player
         // Tapping the media notification (or the lock screen's card) brings the player screen back: PlayerActivity is
         // single-task, so the screen that is already open is reused. With no session activity the tap did nothing.
         val open = PendingIntent.getActivity(
@@ -69,6 +72,7 @@ class MediaPlayerService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        playerRef = null
         session?.run {
             player.release()
             release()
@@ -86,5 +90,21 @@ class MediaPlayerService : MediaSessionService() {
         @Volatile
         var running = false
             private set
+
+        /** The player while the service exists (for [pauseForOtherMedia]). */
+        @Volatile
+        private var playerRef: ExoPlayer? = null
+
+        /**
+         * Something else in the app started to play with sound (a YouTube video, a video of a page in the browser): the built-in
+         * player pauses instead of playing over it. Can be called from any thread; does nothing when there is no player or it is
+         * not playing. The play button (screen, notification, headset) starts it again.
+         */
+        fun pauseForOtherMedia() {
+            val player = playerRef ?: return
+            Handler(Looper.getMainLooper()).post {
+                if (playerRef === player && player.playWhenReady) player.pause()
+            }
+        }
     }
 }

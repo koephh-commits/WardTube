@@ -11,8 +11,8 @@ android {
         applicationId = "com.mwmods.wardtube"
         minSdk = 24
         targetSdk = 35
-        versionCode = 193
-        versionName = "2.6.147"
+        versionCode = 195
+        versionName = "2.6.149"
 
         // The app is translated into English and Arabic only; the libraries (Material, AppCompat...) carry strings for
         // dozens of other languages that would never be shown. Other phone languages fall back to the default (English).

@@ -1,0 +1,1 @@
+Fixed: a download with subtitles / lyrics no longer fails completely when YouTube refuses one of the subtitle files (HTTP 429). The video or song is saved and you are told that the subtitles are missing.
