@@ -14,6 +14,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.mwmods.wardtube.web.WebMedia
 
 /**
  * Owns the built-in player. Because the player lives here and not in the screen, music goes on with the screen off or
@@ -43,6 +44,13 @@ class MediaPlayerService : MediaSessionService() {
             .build()
         // The queue goes round and round: what played goes to the bottom, and a shuffle makes a new random order each round.
         player.addListener(QueueCycle(player))
+        // One sound at a time, the other direction (see pauseForOtherMedia): when the Library's player starts to play, the video
+        // that plays on a YouTube or browser page pauses instead of going on under it.
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) WebMedia.pauseAll()
+            }
+        })
         playerRef = player
         // Tapping the media notification (or the lock screen's card) brings the player screen back: PlayerActivity is
         // single-task, so the screen that is already open is reused. With no session activity the tap did nothing.

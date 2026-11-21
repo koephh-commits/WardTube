@@ -72,6 +72,7 @@ import com.mwmods.wardtube.util.CookieHelper
 import com.mwmods.wardtube.util.Permissions
 import com.mwmods.wardtube.util.ShareLinks
 import com.mwmods.wardtube.util.UrlUtils
+import com.mwmods.wardtube.web.WebMedia
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.hypot
@@ -121,7 +122,7 @@ import org.json.JSONObject
  *
  * The WebView exists only while a page is open: the plain paste screen costs no browser memory.
  */
-class BrowserActivity : AppCompatActivity() {
+class BrowserActivity : AppCompatActivity(), WebMedia.Host {
 
     private lateinit var prefs: Prefs
     private lateinit var root: View
@@ -240,6 +241,7 @@ class BrowserActivity : AppCompatActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        WebMedia.register(this)
         setContentView(R.layout.activity_browser)
         prefs = Prefs(this)
 
@@ -377,9 +379,18 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        WebMedia.unregister(this)
         omnibox.destroy()
         closePage()
         super.onDestroy()
+    }
+
+    /**
+     * The Library's built-in player started to play: the video of the open page (and of the frames inside it) that plays with sound
+     * pauses instead of going on under it. Does nothing when no page is open.
+     */
+    override fun pauseWebMedia() {
+        webView?.evaluateJavascript(WebMedia.PAUSE_SCRIPT, null)
     }
 
     // ---- The link field ----

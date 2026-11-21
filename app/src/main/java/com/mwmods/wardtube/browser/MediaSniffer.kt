@@ -10,6 +10,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.MimeTypeMap
 import android.webkit.WebResourceRequest
 import com.mwmods.wardtube.media.MediaPlayerService
+import com.mwmods.wardtube.web.WebMedia
 import java.util.Locale
 
 /** One thing the open page offers for download. */
@@ -433,6 +434,22 @@ class MediaSniffer(
       if (B && B.playing) B.playing();
     } catch (x) {}
   }, true);
+  // The Library's player started to play: the app asked the page (WebMedia.PAUSE_SCRIPT) to pause what plays, and the request
+  // reaches a frame as a message from its parent, which it passes on to its own frames. A message from any other window is
+  // ignored, so a frame of an ad cannot pause the video of the page.
+  window.addEventListener('message', function (e) {
+    try {
+      if (e.data !== '${WebMedia.PAUSE_MESSAGE}' || e.source !== window.parent) return;
+      var media = document.querySelectorAll('video,audio');
+      for (var i = 0; i < media.length; i++) {
+        try { if (!media[i].paused && !media[i].muted && media[i].volume > 0) media[i].pause(); } catch (x) {}
+      }
+      var frames = document.querySelectorAll('iframe');
+      for (var j = 0; j < frames.length; j++) {
+        try { frames[j].contentWindow.postMessage('${WebMedia.PAUSE_MESSAGE}', '*'); } catch (x) {}
+      }
+    } catch (x) {}
+  });
   // Players start late (a click, a lazy frame, a box that opens) and a media event of a frame never reaches this
   // document: a cheap look at the media and the frames every few seconds finds what nothing announced.
   setInterval(function () {

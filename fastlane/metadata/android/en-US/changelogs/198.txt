@@ -1,0 +1,1 @@
+Changed: when the Library's player starts to play, the video playing on a YouTube page or on a page of the browser pauses instead of playing under it.

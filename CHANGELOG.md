@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.6.152
+- Changed: **when the built-in player of the Library starts to play, the video that plays on a YouTube page or on a page of the browser
+  pauses instead of going on under it** (`web/WebMedia.kt` (new), `media/MediaPlayerService.kt`, `MainActivity.kt`,
+  `browser/BrowserActivity.kt`, `browser/MediaSniffer.kt`).
+  - It is the other direction of 2.6.148 (a video of a page that starts pauses the Library's player). Before, a video from the Library
+    played over the YouTube video (or the video of a page) that was already playing, and both were heard together.
+  - `MediaPlayerService` listens to its player: when it really starts to play (`onIsPlayingChanged`), `WebMedia.pauseAll()` asks each
+    screen that owns WebViews to pause. A screen registers itself while it exists (`WebMedia.Host`, held weakly).
+  - Main screen: YouTube's player is paused (`PlayerController.pause()`), and every video with sound of the page being browsed (a Short,
+    a preview that was unmuted) too. Browser screen: the video of the open page, and of the frames inside it (a site's own player is
+    usually an iframe): the page script already in each frame (`MediaSniffer.FRAME_SCRIPT`) pauses when its parent asks, and passes the
+    request on to its own frames. A frame answers only to its parent, so a frame of an ad cannot pause the page's video.
+  - A muted video (a preview, a silent loop) is left alone, as it is in 2.6.148. Nothing starts the paused video again by itself: its own
+    play button does (and that pauses the Library's player, as in 2.6.148).
+
 ## 2.6.151
 - Changed: **the screen stays on while the words of a song are on the screen and the song plays** (`media/PlayerActivity.kt`).
   - Before, the screen was kept lit only while a picture played (a video); a song, with or without words, let the phone's screen timeout

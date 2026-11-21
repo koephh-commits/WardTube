@@ -84,9 +84,10 @@ import com.mwmods.wardtube.web.PageScripts
 import com.mwmods.wardtube.web.VideoLongPress
 import com.mwmods.wardtube.web.WardTubeChromeClient
 import com.mwmods.wardtube.web.WardTubeWebViewClient
+import com.mwmods.wardtube.web.WebMedia
 import com.mwmods.wardtube.web.WebTargets
 
-class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.MicrophoneListener {
+class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.MicrophoneListener, WebMedia.Host {
 
     private lateinit var prefs: Prefs
     private lateinit var webView: BackgroundWebView
@@ -216,6 +217,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
         )
         super.onCreate(savedInstanceState)
+        WebMedia.register(this)
         createdNight = isNight()
         setContentView(R.layout.activity_main)
 
@@ -401,6 +403,15 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (UrlUtils.isShortsPage(url)) pauseVideo() // Shorts play on their own
         showBrowse()
         loadBrowse(url)
+    }
+
+    /**
+     * The Library's built-in player started to play: the YouTube video (the player's) pauses, and so does any video with sound of the
+     * page being browsed (a Short, a preview that was unmuted), instead of going on under the Library's sound.
+     */
+    override fun pauseWebMedia() {
+        PlayerController.pause()
+        if (::webView.isInitialized) webView.evaluateJavascript(WebMedia.PAUSE_SCRIPT, null)
     }
 
     private fun pauseVideo() {
@@ -1285,6 +1296,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     override fun onDestroy() {
+        WebMedia.unregister(this)
         unregisterPipReceiver()
         // Leaving the app for real (not a rebuild for a theme change) cancels the timer.
         if (isFinishing && !recreating) SleepTimer.cancel()
