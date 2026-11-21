@@ -36,9 +36,10 @@ import com.mwmods.wardtube.ui.ThumbnailLoader
  * It shows what the player has in its queue. The item that is playing is alone in a card of its own at the top of the sheet,
  * outside the list, so it never moves while the list scrolls (a soft red card, moving bars over its picture while it plays;
  * a tap on it pauses / resumes it, the x button removes it). Under the card is the list of what comes after it, under a small
- * "Next" label, with the real next one marked "Up next". The items before the playing one (already played, in the order of the
- * queue) are not shown: they are still in the player's queue, only the list does not offer them as what comes next. When
- * shuffle or "repeat all" is on, the order of the queue says nothing about what comes next, so then every other item is
+ * "Next" label, with the real next one marked "Up next". The queue goes round and round ([QueueCycle]): the playing item is
+ * always the first of the queue, what comes next is under it, and what was played is at the bottom, so nothing disappears from
+ * the list: when the last one has played, the ones at the bottom come again from the first. With shuffle the order of the queue
+ * says nothing about what comes next (the player picks a random order, a new one every round), so then every other item is
  * listed, without the label, and only the one the player goes to next is marked. The list works:
  *  - a tap on a row plays it;
  *  - the handle at the end of a row drags it to another place;
@@ -320,16 +321,25 @@ class QueueSheet(private val activity: AppCompatActivity, private val library: L
             return
         }
         val rows = List(c.mediaItemCount) { i -> rowOf(c.getMediaItemAt(i)) }
-        // The next one is what the player says (shuffle and repeat decide it), not just the row under the playing one.
-        // With shuffle, or "repeat all" (the first ones come again after the last), the order of the queue is not the order of play.
-        val ordered = !c.shuffleModeEnabled && c.repeatMode != Player.REPEAT_MODE_ALL
+        // The next one is what the player says (shuffle decides it), not just the row under the playing one.
+        // Without shuffle the order of the queue is the order of play (the played ones were moved to the bottom, see QueueCycle);
+        // with shuffle it is not.
+        val ordered = !c.shuffleModeEnabled
         a.submit(rows, c.currentMediaItemIndex, c.nextMediaItemIndex, isPlayingNow(c), ordered)
         a.bindNowCard()
-        subtitle?.text = activity.getString(
-            if (library.isOn) R.string.playerQueueSubtitleLibrary else R.string.playerQueueSubtitle,
-            c.currentMediaItemIndex + 1,
-            c.mediaItemCount,
-        )
+        // The playing item is always the first of an ordered queue, so "playing 1 of 12" would say nothing: it says how many there are.
+        subtitle?.text = if (ordered) {
+            activity.getString(
+                if (library.isOn) R.string.playerQueueCountLibrary else R.string.playerQueueCount,
+                c.mediaItemCount,
+            )
+        } else {
+            activity.getString(
+                if (library.isOn) R.string.playerQueueSubtitleLibrary else R.string.playerQueueSubtitle,
+                c.currentMediaItemIndex + 1,
+                c.mediaItemCount,
+            )
+        }
     }
 
     // ---- The Library button ----
@@ -405,8 +415,9 @@ class QueueSheet(private val activity: AppCompatActivity, private val library: L
         private var playing = false
 
         /**
-         * True while the order of the queue is the order of play (no shuffle, no "repeat all"): then what is before the playing
-         * item is behind it and is not listed, and what is after it is what comes next.
+         * True while the order of the queue is the order of play (no shuffle): then what comes after the playing item is what comes
+         * next, and the played ones are at the bottom (the player keeps the playing item first, see QueueCycle). An item that is
+         * still before the playing one for a moment (the player has not moved it yet) is not listed.
          */
         private var ordered = true
 

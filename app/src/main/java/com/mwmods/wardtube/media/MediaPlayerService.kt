@@ -39,6 +39,8 @@ class MediaPlayerService : MediaSessionService() {
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             .build()
+        // The queue goes round and round: what played goes to the bottom, and a shuffle makes a new random order each round.
+        player.addListener(QueueCycle(player))
         // Tapping the media notification (or the lock screen's card) brings the player screen back: PlayerActivity is
         // single-task, so the screen that is already open is reused. With no session activity the tap did nothing.
         val open = PendingIntent.getActivity(

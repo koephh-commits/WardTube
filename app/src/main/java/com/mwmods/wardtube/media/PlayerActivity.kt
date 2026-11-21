@@ -420,6 +420,11 @@ class PlayerActivity : AppCompatActivity() {
         withController { c ->
             // Audio only belongs to what was playing: a queue that is opened new starts with its picture.
             setAudioOnly(c, false)
+            // A queue of several files plays round and round: when the last one ends the first comes again, and "Previous" on the
+            // first goes back to the one that played before it. A single file does not repeat itself. "Repeat one" stays as chosen,
+            // and the repeat button of the controls still changes it.
+            if (items.size > 1 && c.repeatMode == Player.REPEAT_MODE_OFF) c.repeatMode = Player.REPEAT_MODE_ALL
+            if (items.size == 1 && c.repeatMode == Player.REPEAT_MODE_ALL) c.repeatMode = Player.REPEAT_MODE_OFF
             c.setMediaItems(items, startIndex, C.TIME_UNSET)
             c.prepare()
             c.play()

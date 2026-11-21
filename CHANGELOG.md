@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.6.146
+- Changed: **the queue of the built-in player goes round and round: an item that has played goes to the bottom of the list instead of
+  disappearing, and when the list is finished it starts again from the first** (`media/QueueCycle.kt` (new), `media/MediaPlayerService.kt`,
+  `media/PlayerActivity.kt`, `media/LibraryQueue.kt`, `media/QueueSheet.kt`, `res/values/strings.xml`, `res/values-ar/strings.xml`).
+  - Before, the items that had played (or the one that had just finished) were not listed any more: they were still in the player's queue,
+    but the list showed only what came after the playing item, and when the last one ended the player stopped.
+  - **Plain order (no shuffle):** the playing item is now always the first of the queue, and the items before it (played, or skipped by a tap
+    on a later row, or the one that "Previous" came back from) are moved to the end of the queue in their order. So the queue is exactly the
+    order of play: what comes next is under the playing item, and what played is at the bottom. When the last one has played, the first
+    comes again, in the same order as at the start. Only items that are not playing are moved, so the sound / picture does not stop or jump.
+  - **Shuffle:** Media3 plays one random order and, with "repeat all", plays that same order again and again. Now, when a round is over (the
+    player comes back by itself to an item it already played in this round), a new random order is made for the next round, with the
+    playing item first, so every round is a different random list. "Previous" in a shuffle goes one step back in the round and does not
+    start a new one.
+  - This lives in the player's service (`QueueCycle`, a `Player.Listener` added in `MediaPlayerService`), not in the screen, so it works the
+    same when the screen is closed and the music goes on.
+  - A queue of several files now starts with "repeat all" (when the repeat button was on "off"), so the first comes again after the last
+    and "Previous" on the first goes back to the one that played before it; a single file does not repeat. "Repeat one" is kept as chosen,
+    and the repeat button still changes it (`media/PlayerActivity.kt`, `start`).
+  - The "whole Library" mode puts the Library's items after the playing one right after it and the ones before it at the end of the queue,
+    so the Library's order goes round too (`media/LibraryQueue.kt`, `placeAround`).
+  - The queue sheet: with no shuffle the "Next" label is shown with "repeat all" too (the order of the queue is the order of play), and
+    its second line says how many items there are in the queue instead of "Playing 1 of N", which would always say 1 now
+    (`playerQueueCount`, `playerQueueCountLibrary`).
+
 ## 2.6.145
 - Fixed: **the screen went dark after a while while a video was playing in the built-in player** (`media/PlayerActivity.kt`).
   - The player screen never asked Android to keep the screen on, so the phone's screen timeout turned it off although the video

@@ -22,8 +22,9 @@ import kotlinx.coroutines.withContext
  *
  * Switched on, the queue becomes every video and every song of the Library (in the Library's own order, newest first), the
  * ones that were in the queue before it included. The item that is playing is not touched, so the sound / picture does not
- * stop or jump: the Library's items before it are put before it, and the ones after it after it. Switched off, the queue that
- * was there before comes back around the item that is playing now (a file the Library no longer has is left out).
+ * stop or jump: the Library's items after it come right after it, and the ones before it go to the end of the queue (the queue is
+ * in the order of play, see [QueueCycle]). Switched off, the queue that was there before comes back the same way around the item
+ * that is playing now (a file the Library no longer has is left out).
  *
  * It owns no list: it only tells the player what to add and remove, through the [MediaController] the screen already has, and
  * the queue sheet shows whatever the player then holds. What the mode replaced is a list of file addresses, kept here for the
@@ -117,8 +118,10 @@ class LibraryQueue(
         PlayerLauncher.encodeSubs(LyricsFinder.find(file, lyrics).map { it.uri to it.name })
 
     /**
-     * Makes the queue [items], leaving the item that plays now exactly as it is: what comes before it in [items] is put before
-     * it and the rest after it. When it is not among [items], it stays first and all of [items] follow it.
+     * Makes the queue [items], leaving the item that plays now exactly as it is. The queue is in the order of play (the playing
+     * item first, what was played at the bottom, see [QueueCycle]), so the items after it in [items] come right after it and the
+     * ones before it in [items] go to the end, in their order: after the last one of [items] the first comes again. When it is not
+     * among [items], it stays first and all of [items] follow it.
      */
     private fun placeAround(c: MediaController, items: List<MediaItem>) {
         val index = c.currentMediaItemIndex.coerceAtLeast(0)
@@ -129,8 +132,8 @@ class LibraryQueue(
         val count = c.mediaItemCount
         if (index + 1 < count) c.removeMediaItems(index + 1, count)
         if (index > 0) c.removeMediaItems(0, index)
-        if (first.isNotEmpty()) c.addMediaItems(0, first)
         if (last.isNotEmpty()) c.addMediaItems(last)
+        if (first.isNotEmpty()) c.addMediaItems(first)
     }
 
     private companion object {
