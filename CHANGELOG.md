@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.6.151
+- Changed: **the screen stays on while the words of a song are on the screen and the song plays** (`media/PlayerActivity.kt`).
+  - Before, the screen was kept lit only while a picture played (a video); a song, with or without words, let the phone's screen timeout
+    turn it off, so the words could not be followed without touching the phone.
+  - Now the window flag that keeps the screen on is also set while the lyrics view is shown (a song or a video in Audio only that has a
+    lyrics file) and it plays (also while it waits for data). It goes off when the song is paused, ends or fails, when the words are
+    not shown (a song with no lyrics file still lets the screen time out), and when the player screen is left.
+  - It keeps the screen from timing out only: the power button still locks the phone, and then the song goes on playing.
+
+## 2.6.150
+- Changed: **a video that is played as sound only (the headphones button of the built-in player) now shows one of its own frames as the
+  cover, instead of the big note** (`media/PlayerActivity.kt`).
+  - Before, a video in Audio only had no picture to show, so the music panel (and the words of its lyrics, if it has them) sat on black
+    with a note on it. Now the frame is drawn behind the panel, the way a song's own cover is, and the note is gone.
+  - The frame is the one the notification already uses (`ThumbnailLoader.decodeCover`, a second into the video): it is made off the main
+    thread, once for each video, and replaced when the next video comes. A video whose frame cannot be made keeps the note.
+  - Bringing the picture back, or playing a song, removes the frame. Nothing changes for songs, or for a video that plays with its picture.
+
 ## 2.6.149
 - Fixed: **a download with subtitles / lyrics (LRC, SRT) failed completely when YouTube refused one of the subtitle files** (HTTP 429,
   "Unable to download video subtitles for 'ar'") (`download/DownloadService.kt`).

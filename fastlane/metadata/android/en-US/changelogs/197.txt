@@ -1,0 +1,1 @@
+Changed: the screen stays on while the words of a song are shown and the song plays (it times out again when paused or when the song has no words).

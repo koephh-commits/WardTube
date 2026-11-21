@@ -18,6 +18,8 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.graphics.Rect
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
@@ -61,6 +63,7 @@ import androidx.media3.ui.PlayerView
 import com.google.common.util.concurrent.ListenableFuture
 import com.mwmods.wardtube.Prefs
 import com.mwmods.wardtube.R
+import com.mwmods.wardtube.ui.ThumbnailLoader
 import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
@@ -144,6 +147,16 @@ class PlayerActivity : AppCompatActivity() {
 
     /** The song carries a picture: the player view draws it behind, so the note icon is not needed on top of it. */
     private var hasArtwork = false
+
+    /**
+     * A video that plays as sound only (the headphones button) has no picture of its own on screen: one of its frames is
+     * drawn as the cover then, as a song's own picture is, instead of the big note. True while that frame is in the player view.
+     */
+    private var frameCover = false
+
+    /** The file ([MediaItem.mediaId]) whose frame was asked for last, so that it is asked for once and not at every track change. */
+    private var frameCoverKey = ""
+    private var frameCoverJob: Job? = null
 
     /** The line of the words that is being sung now (what the subtitle track says at this moment). */
     private var cueText = ""
@@ -449,6 +462,8 @@ class PlayerActivity : AppCompatActivity() {
         playerView.subtitleView?.visibility = if (music) View.GONE else View.VISIBLE
         lyricsView.visibility = if (music && hasWords) View.VISIBLE else View.GONE
         refreshLyrics(tracks)
+        // A file that has a picture track but plays without it (Audio only) is a video heard as sound.
+        updateFrameCover(videoAsSound = music && tracks.isTypeSupported(C.TRACK_TYPE_VIDEO))
         layoutAudioPanel()
         playerView.controllerShowTimeoutMs = if (music) 0 else 3000
         if (music) playerView.showController()
@@ -545,7 +560,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun layoutAudioPanel() {
         val words = lyricsView.visibility == View.VISIBLE
         val density = resources.displayMetrics.density
-        audioIcon.visibility = if (words || hasArtwork) View.GONE else View.VISIBLE
+        audioIcon.visibility = if (words || hasArtwork || frameCover) View.GONE else View.VISIBLE
         audioPanel.gravity = if (words) Gravity.TOP or Gravity.CENTER_HORIZONTAL else Gravity.CENTER
         // Under the title bar at the top, above the controls at the bottom (the controls need a little more room than the old line did).
         audioPanel.setPadding(
@@ -578,6 +593,44 @@ class PlayerActivity : AppCompatActivity() {
             if (rows.isNullOrEmpty()) lyricsView.setSingleLine(cueText) else lyricsView.setLines(rows)
         }
         startTick()
+    }
+
+    /**
+     * Audio only on a video: its own frame (a second in, made by [ThumbnailLoader] off the main thread, the same picture the
+     * notification gets) becomes the player view's default artwork, which the view draws behind the music panel when the file
+     * says no artwork of its own. Back to the picture, or to a song: the frame goes away. A file whose frame cannot be made keeps
+     * the note.
+     */
+    private fun updateFrameCover(videoAsSound: Boolean) {
+        val mediaId = controller?.currentMediaItem?.mediaId.orEmpty()
+        if (!videoAsSound || mediaId.isEmpty()) {
+            frameCoverJob?.cancel()
+            frameCoverKey = ""
+            clearFrameCover()
+            return
+        }
+        if (mediaId == frameCoverKey) return
+        // Another video: the frame of the one before must not stay while the new one is made.
+        frameCoverJob?.cancel()
+        clearFrameCover()
+        frameCoverKey = mediaId
+        frameCoverJob = lifecycleScope.launch {
+            val frame = withContext(Dispatchers.IO) {
+                // runCatching also catches an OutOfMemoryError: no cover is better than a crash.
+                runCatching { ThumbnailLoader.decodeCover(applicationContext, Uri.parse(mediaId), COVER_SIDE) }.getOrNull()
+            }
+            if (frame == null || frameCoverKey != mediaId) return@launch
+            playerView.setDefaultArtwork(BitmapDrawable(resources, frame))
+            frameCover = true
+            layoutAudioPanel()
+        }
+    }
+
+    private fun clearFrameCover() {
+        if (!frameCover) return
+        frameCover = false
+        playerView.setDefaultArtwork(null as Drawable?)
+        layoutAudioPanel()
     }
 
     private fun startTick() {
@@ -743,16 +796,18 @@ class PlayerActivity : AppCompatActivity() {
         c.playWhenReady && c.playbackState != Player.STATE_ENDED && c.playbackState != Player.STATE_IDLE
 
     /**
-     * Keeps the screen lit while a picture is playing, the way the web player does while a video plays (MainActivity sets the
-     * same window flag only while the video really plays). It is on from the moment a video plays (also while it waits for
-     * data, so a slow connection does not let the screen go dark) and off as soon as it is paused, ends, fails, is turned to
-     * sound only, or is a song (a song has no picture to watch; the screen times out as it does in any music player). The flag
-     * stays while the video is in the little window, which is also on the screen. Without it the screen went dark after the
-     * phone's screen timeout although the video went on playing.
+     * Keeps the screen lit while there is something to watch: a picture that is playing (the way the web player does while a video
+     * plays; MainActivity sets the same window flag only while the video really plays), or the words of a song (the lyrics view
+     * is on the screen), so that the words can be followed without touching the phone. It is on from the moment it plays (also
+     * while it waits for data, so a slow connection does not let the screen go dark) and off as soon as it is paused, ends, fails,
+     * is turned to sound only without words, or is a song with no words (a song without words has nothing to watch; the screen
+     * times out as it does in any music player). The flag stays while the video is in the little window, which is also on the
+     * screen, and it is taken off when the screen is left (onStop). It keeps the screen from timing out; the power button still
+     * locks the phone.
      */
     private fun updateKeepAwake() {
         val c = controller
-        val on = c != null && !isFinishing && isPlayingNow(c) && hasPicture()
+        val on = c != null && !isFinishing && isPlayingNow(c) && (hasPicture() || lyricsView.visibility == View.VISIBLE)
         if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
@@ -956,6 +1011,9 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private companion object {
+        /** The longest side, in pixels, of the frame that is the cover of a video heard as sound. */
+        const val COVER_SIDE = 1024
+
         /** Where LRC lyrics are kept once converted to SubRip (inside the app's own storage). */
         const val LYRICS_DIR = "lyrics"
 

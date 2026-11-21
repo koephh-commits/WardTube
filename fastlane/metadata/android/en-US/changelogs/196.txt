@@ -1,0 +1,1 @@
+Changed: a video played as sound only (the headphones button) now shows one of its own frames as the cover instead of the big note.
