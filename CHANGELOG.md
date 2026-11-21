@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.6.147
+- Fixed: **2.6.146 did not build** (`media/QueueCycle.kt`): `DefaultShuffleOrder` is not a class of its own in Media3, it is nested in
+  `ShuffleOrder`, so the import `androidx.media3.exoplayer.source.DefaultShuffleOrder` was not found. It is now imported as
+  `androidx.media3.exoplayer.source.ShuffleOrder` and used as `ShuffleOrder.DefaultShuffleOrder(...)`. Nothing else changed: the queue
+  that goes round and round (see 2.6.146 below) is the same.
+
 ## 2.6.146
 - Changed: **the queue of the built-in player goes round and round: an item that has played goes to the bottom of the list instead of
   disappearing, and when the list is finished it starts again from the first** (`media/QueueCycle.kt` (new), `media/MediaPlayerService.kt`,

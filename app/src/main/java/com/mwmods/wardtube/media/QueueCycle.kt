@@ -7,7 +7,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultShuffleOrder
+import androidx.media3.exoplayer.source.ShuffleOrder
 import java.util.Random
 
 /**
@@ -89,6 +89,6 @@ class QueueCycle(private val player: ExoPlayer) : Player.Listener {
         val order = IntArray(count)
         order[0] = current
         others.forEachIndexed { i, index -> order[i + 1] = index }
-        player.setShuffleOrder(DefaultShuffleOrder(order, random.nextLong()))
+        player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(order, random.nextLong()))
     }
 }
