@@ -51,6 +51,10 @@ import com.mwmods.wardtube.web.WebTargets
  * badge and version, a row of quick actions (refresh, share, voice search), then the settings in titled groups
  * (downloads, playback, display, browsing, ads), each group one rounded card whose rows have a tinted icon in the
  * group's color, and "About" at the end. See [showMenuSheet].
+ *
+ * The "Side menu" switch (Display) swaps the bottom bar for a side menu ([SideMenu]) opened from a button at the top;
+ * the bar's actions are then done through [perform] by the side menu's rows, and while it is on the "Hide bar while
+ * scrolling" row is dimmed and does nothing (the bar is not there to hide).
  */
 class MenuController(
     private val activity: AppCompatActivity,
@@ -66,6 +70,8 @@ class MenuController(
     private val onSleepTimerChanged: () -> Unit,
     private val onMinimize: () -> Unit,
     private val onAutoHideBarChanged: () -> Unit,
+    /** The "Side menu" switch was flipped ([Prefs.sideMenu] already holds the new value): the screen changes at once. */
+    private val onSideMenuChanged: () -> Unit = {},
     /** Picture in picture is possible on this phone (Android 8+ with the feature): only then the menu has its switch. */
     private val pipAvailable: Boolean = false,
     private val onPipChanged: () -> Unit = {},
@@ -84,9 +90,25 @@ class MenuController(
     private var sleepValue: TextView? = null
     private var adBlockValue: TextView? = null
 
+    /** The "Hide bar while scrolling" row of the open sheet and its second line: dimmed while the side menu is on. */
+    private var hideBarRow: View? = null
+    private var hideBarNote: TextView? = null
+
+    /** The row that [inflateRow] made last, for the code that needs to keep hold of it. */
+    private var lastRow: View? = null
+
     /** The last state given to each of the two changing slots; null until [setUp] gives the first one. */
     private var videoFullScreen: Boolean? = null
     private var downloadAvailable: Boolean? = null
+
+    /** The current state of the two changing slots, for the side menu's rows (which show the same things). */
+    val isVideoFullScreen: Boolean
+        get() = videoFullScreen == true
+    val isDownloadAvailable: Boolean
+        get() = downloadAvailable == true
+
+    /** Called after either of the two slots changed, so the side menu can follow. */
+    var onSlotsChanged: (() -> Unit)? = null
 
     fun setUp(menuView: ActionMenuView) {
         actionMenu = menuView
@@ -116,6 +138,7 @@ class MenuController(
             )
         )
         item.setTitle(if (fullScreen) R.string.minimizePlayer else R.string.voiceSearch)
+        onSlotsChanged?.invoke()
     }
 
     /**
@@ -127,6 +150,7 @@ class MenuController(
         if (!::actionMenu.isInitialized || visible == downloadAvailable) return
         downloadAvailable = visible
         applyDownloadIcon()
+        onSlotsChanged?.invoke()
     }
 
     private fun applyDownloadIcon() {
@@ -158,8 +182,14 @@ class MenuController(
         adBlockValue?.let { showValue(it, adBlockSubtitle()) }
     }
 
-    override fun onMenuItemClick(item: MenuItem): Boolean {
-        when (item.itemId) {
+    override fun onMenuItemClick(item: MenuItem): Boolean = perform(item.itemId)
+
+    /**
+     * What a button of the bar does, by its id from menu_main.xml. The bottom bar calls it, and so do the rows of the
+     * side menu (the same six actions). False for an id that is not one of them.
+     */
+    fun perform(itemId: Int): Boolean {
+        when (itemId) {
             R.id.action_minimize -> if (videoFullScreen == true) onMinimize() else onVoiceSearch()
             R.id.action_home -> {
                 showHomepageTutorial()
@@ -208,6 +238,8 @@ class MenuController(
                 sheet = null
                 sleepValue = null
                 adBlockValue = null
+                hideBarRow = null
+                hideBarNote = null
             }
         }
         sheet = dialog
@@ -265,10 +297,20 @@ class MenuController(
         ) {
             showThemeDialog()
         }
-        addSwitchRow(R.string.hideBarOnScroll, R.drawable.ic_menu_swap_vert, prefs.autoHideBar) { on ->
+        addSwitchRow(
+            R.string.sideMenu, R.drawable.ic_hamburger_white_24dp, prefs.sideMenu,
+            subtitle = { on -> activity.getString(if (on) R.string.sideMenuOn else R.string.sideMenuOff) }
+        ) { on ->
+            prefs.sideMenu = on
+            onSideMenuChanged()
+            updateHideBarRow()
+        }
+        hideBarNote = addSwitchRow(R.string.hideBarOnScroll, R.drawable.ic_menu_swap_vert, prefs.autoHideBar) { on ->
             prefs.autoHideBar = on
             onAutoHideBarChanged()
         }
+        hideBarRow = lastRow
+        updateHideBarRow()
         addSwitchRow(
             R.string.subsNative, R.drawable.ic_list_24dp, prefs.nativeSubs,
             subtitle = { on ->
@@ -370,6 +412,20 @@ class MenuController(
         entrance += card
     }
 
+    /**
+     * With the side menu on there is no bottom bar to hide, so the "Hide bar while scrolling" row is dimmed, says so
+     * under its name and takes no taps (a disabled row swallows them). The switch keeps the value it had: it applies
+     * again when the bottom bar comes back.
+     */
+    private fun updateHideBarRow() {
+        val row = hideBarRow ?: return
+        val sideMenuOn = prefs.sideMenu
+        row.isEnabled = !sideMenuOn
+        row.alpha = if (sideMenuOn) DISABLED_ROW_ALPHA else 1f
+        row.findViewById<SwitchMaterial>(R.id.menuRowSwitch).isEnabled = !sideMenuOn
+        hideBarNote?.let { showValue(it, if (sideMenuOn) activity.getString(R.string.hideBarOnScrollSideNote) else null) }
+    }
+
     /** A row in the open group: a thin line above it when it is not the first, its title, and its tinted icon. */
     private fun inflateRow(@StringRes title: Int, @DrawableRes icon: Int): View {
         val card = checkNotNull(group) { "addSection comes first" }
@@ -381,6 +437,7 @@ class MenuController(
         paintTile(tile, groupAccent)
         card.addView(row)
         groupRows++
+        lastRow = row
         return row
     }
 
@@ -447,7 +504,7 @@ class MenuController(
 
     /** "Version 2.6.45" for the top of the sheet, or null if the version cannot be read. */
     @Suppress("DEPRECATION")
-    private fun appVersionLabel(): String? = try {
+    fun appVersionLabel(): String? = try {
         val name = activity.packageManager.getPackageInfo(activity.packageName, 0).versionName
         if (name.isNullOrEmpty()) null else activity.getString(R.string.version, name)
     } catch (e: Exception) {
@@ -704,5 +761,8 @@ class MenuController(
         /** The alpha (0-255) of a bar icon: normal, or dimmed (download with nothing to download). */
         const val FULL_ALPHA = 255
         const val DIMMED_ALPHA = 90
+
+        /** A row of the sheet that cannot be used right now (0-1). */
+        const val DISABLED_ROW_ALPHA = 0.45f
     }
 }

@@ -11,8 +11,8 @@ android {
         applicationId = "com.mwmods.wardtube"
         minSdk = 24
         targetSdk = 35
-        versionCode = 198
-        versionName = "2.6.152"
+        versionCode = 200
+        versionName = "2.6.154"
 
         // The app is translated into English and Arabic only; the libraries (Material, AppCompat...) carry strings for
         // dozens of other languages that would never be shown. Other phone languages fall back to the default (English).
@@ -92,6 +92,7 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.material)
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.drawerlayout:drawerlayout:1.2.0")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
 
     // Self-contained downloader: yt-dlp + ffmpeg run inside the app (no external website involved).

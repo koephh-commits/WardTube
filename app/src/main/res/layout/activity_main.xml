@@ -8,111 +8,232 @@
     android:background="#000000"
     tools:context=".MainActivity">
 
-    <LinearLayout
-        android:id="@+id/appWindow"
+    <androidx.drawerlayout.widget.DrawerLayout
+        android:id="@+id/drawerLayout"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:layout_height="match_parent">
 
-        <!-- Height is set to the status bar inset in MainActivity. -->
-        <View
-            android:id="@+id/statusBarSpace"
+        <LinearLayout
+            android:id="@+id/appWindow"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:background="@color/barBrowse" />
+            android:layout_height="match_parent"
+            android:orientation="vertical">
 
-        <!-- The browsing WebView, with the video player (full screen or mini) on top of it. -->
-        <FrameLayout
-            android:id="@+id/webArea"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1">
-
-            <!-- Pull down at the top of a page to load it again, like YouTube's own app (see MainActivity.setUpPullRefresh). -->
-            <com.mwmods.wardtube.ui.PullRefreshLayout
-                android:id="@+id/pullRefresh"
+            <!-- Height is set to the status bar inset in MainActivity. -->
+            <View
+                android:id="@+id/statusBarSpace"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent">
+                android:layout_height="0dp"
+                android:background="@color/barBrowse" />
 
-                <com.mwmods.wardtube.web.BackgroundWebView
-                    android:id="@+id/webView"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent" />
-            </com.mwmods.wardtube.ui.PullRefreshLayout>
-
-            <!-- The player's WebView is added here in code, below the mini player's buttons. -->
+            <!-- Side menu mode (Prefs.sideMenu): this bar takes the place of the bottom bar. It holds the three-bars button that
+                 opens the side menu (below) and, at its lower edge, the page's progress line (MainActivity.applyBarMode moves
+                 it here). Gone in the normal mode. -->
             <FrameLayout
-                android:id="@+id/playerContainer"
+                android:id="@+id/topBar"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="#000000"
+                android:layout_height="48dp"
+                android:background="@color/barBrowse"
                 android:visibility="gone">
 
-                <FrameLayout
-                    android:id="@+id/miniOverlay"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:clickable="true"
-                    android:focusable="false"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageButton
+                        android:id="@+id/btnSideMenu"
+                        android:layout_width="52dp"
+                        android:layout_height="match_parent"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/menu"
+                        android:scaleType="center"
+                        android:src="@drawable/ic_hamburger_white_24dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/app_name"
+                        android:textColor="@color/white"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </FrameLayout>
+
+            <!-- The browsing WebView, with the video player (full screen or mini) on top of it. -->
+            <FrameLayout
+                android:id="@+id/webArea"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <!-- Pull down at the top of a page to load it again, like YouTube's own app (see MainActivity.setUpPullRefresh). -->
+                <com.mwmods.wardtube.ui.PullRefreshLayout
+                    android:id="@+id/pullRefresh"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent">
+
+                    <com.mwmods.wardtube.web.BackgroundWebView
+                        android:id="@+id/webView"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+                </com.mwmods.wardtube.ui.PullRefreshLayout>
+
+                <!-- The player's WebView is added here in code, below the mini player's buttons. -->
+                <FrameLayout
+                    android:id="@+id/playerContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="#000000"
                     android:visibility="gone">
 
-                    <ImageButton
-                        android:id="@+id/miniPlayPause"
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:layout_gravity="top|start"
-                        android:layout_margin="6dp"
-                        android:background="@drawable/bg_mini_button"
-                        android:contentDescription="@string/miniPlayerPlayPause"
-                        android:padding="6dp"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/ic_pause_white_24dp" />
+                    <FrameLayout
+                        android:id="@+id/miniOverlay"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:clickable="true"
+                        android:focusable="false"
+                        android:visibility="gone">
 
-                    <ImageButton
-                        android:id="@+id/miniClose"
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:layout_gravity="top|end"
-                        android:layout_margin="6dp"
-                        android:background="@drawable/bg_mini_button"
-                        android:contentDescription="@string/miniPlayerClose"
-                        android:padding="6dp"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/ic_close_24dp" />
+                        <ImageButton
+                            android:id="@+id/miniPlayPause"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="top|start"
+                            android:layout_margin="6dp"
+                            android:background="@drawable/bg_mini_button"
+                            android:contentDescription="@string/miniPlayerPlayPause"
+                            android:padding="6dp"
+                            android:scaleType="fitCenter"
+                            android:src="@drawable/ic_pause_white_24dp" />
+
+                        <ImageButton
+                            android:id="@+id/miniClose"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="top|end"
+                            android:layout_margin="6dp"
+                            android:background="@drawable/bg_mini_button"
+                            android:contentDescription="@string/miniPlayerClose"
+                            android:padding="6dp"
+                            android:scaleType="fitCenter"
+                            android:src="@drawable/ic_close_24dp" />
+                    </FrameLayout>
                 </FrameLayout>
             </FrameLayout>
-        </FrameLayout>
 
-        <FrameLayout
-            android:id="@+id/bottomBar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@color/barBrowse">
-
-            <androidx.appcompat.widget.ActionMenuView
-                android:id="@+id/menu_main"
+            <FrameLayout
+                android:id="@+id/bottomBar"
                 android:layout_width="match_parent"
-                android:layout_height="?attr/actionBarSize" />
+                android:layout_height="wrap_content"
+                android:background="@color/barBrowse">
 
-            <ProgressBar
-                android:id="@+id/progress"
-                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                <androidx.appcompat.widget.ActionMenuView
+                    android:id="@+id/menu_main"
+                    android:layout_width="match_parent"
+                    android:layout_height="?attr/actionBarSize" />
+
+                <ProgressBar
+                    android:id="@+id/progress"
+                    style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="3dp"
+                    android:layout_gravity="top"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressBackgroundTint="@android:color/transparent"
+                    android:progressTint="@color/white" />
+            </FrameLayout>
+
+            <!-- Height is set to the navigation bar inset in MainActivity, only while the bottom bar is hidden. -->
+            <View
+                android:id="@+id/navBarSpace"
                 android:layout_width="match_parent"
-                android:layout_height="3dp"
-                android:layout_gravity="top"
-                android:max="100"
-                android:progress="0"
-                android:progressBackgroundTint="@android:color/transparent"
-                android:progressTint="@color/white" />
-        </FrameLayout>
+                android:layout_height="0dp"
+                android:background="@color/barBrowse" />
+        </LinearLayout>
 
-        <!-- Height is set to the navigation bar inset in MainActivity, only while the bottom bar is hidden. -->
-        <View
-            android:id="@+id/navBarSpace"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:background="@color/barBrowse" />
-    </LinearLayout>
+        <!-- The side menu (Prefs.sideMenu): the buttons of the bottom bar, as rows (see ui/SideMenu.kt). Opens from the
+             start edge (the right in Arabic) with the top bar's button or by dragging from that edge. Gone in the normal
+             mode. -->
+        <LinearLayout
+            android:id="@+id/sideDrawer"
+            android:layout_width="288dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:background="?android:attr/colorBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="20dp"
+                android:paddingTop="20dp"
+                android:paddingEnd="20dp"
+                android:paddingBottom="16dp">
+
+                <ImageView
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/bg_menu_logo"
+                    android:importantForAccessibility="no"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_menu_headphones" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="14dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/app_name"
+                        android:textAlignment="viewStart"
+                        android:textColor="?android:attr/textColorPrimary"
+                        android:textSize="20sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/sideDrawerVersion"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textAlignment="viewStart"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="13sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/divider" />
+
+            <androidx.core.widget.NestedScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <LinearLayout
+                    android:id="@+id/sideDrawerList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp" />
+            </androidx.core.widget.NestedScrollView>
+        </LinearLayout>
+    </androidx.drawerlayout.widget.DrawerLayout>
 
     <FrameLayout
         android:id="@+id/customViewContainer"

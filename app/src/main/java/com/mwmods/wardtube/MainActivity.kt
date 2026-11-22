@@ -33,6 +33,7 @@ import android.os.Looper
 import android.util.Rational
 import android.view.MotionEvent
 import android.view.ContextMenu
+import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.ViewGroup
@@ -50,6 +51,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.ActionMenuView
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -72,6 +74,7 @@ import com.mwmods.wardtube.player.SleepTimer
 import com.mwmods.wardtube.subs.SubsController
 import com.mwmods.wardtube.ui.MenuController
 import com.mwmods.wardtube.ui.PullRefreshLayout
+import com.mwmods.wardtube.ui.SideMenu
 import com.mwmods.wardtube.util.CookieHelper
 import com.mwmods.wardtube.util.Permissions
 import com.mwmods.wardtube.util.PlaylistLinks
@@ -95,6 +98,13 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private lateinit var statusBarSpace: View
     private lateinit var bottomBar: View
     private lateinit var navBarSpace: View
+
+    /** Side menu mode (see [applyBarMode]): the bar at the top with the three-bars button, the drawer, and the page's progress line. */
+    private lateinit var topBar: View
+    private lateinit var drawerLayout: DrawerLayout
+    private lateinit var sideDrawer: View
+    private lateinit var progressBar: ProgressBar
+    private lateinit var sideMenu: SideMenu
 
     // Videos play in a second WebView (the player) that is full screen or a small floating box (the mini player),
     // so the page being browsed stays untouched behind it.
@@ -229,6 +239,10 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         statusBarSpace = findViewById(R.id.statusBarSpace)
         bottomBar = findViewById(R.id.bottomBar)
         navBarSpace = findViewById(R.id.navBarSpace)
+        topBar = findViewById(R.id.topBar)
+        drawerLayout = findViewById(R.id.drawerLayout)
+        sideDrawer = findViewById(R.id.sideDrawer)
+        progressBar = findViewById(R.id.progress)
 
         applyWindowInsets()
 
@@ -300,11 +314,15 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             onSleepTimerChanged = { updateSleepButton(force = true) },
             onMinimize = { playerHost.minimize() },
             onAutoHideBarChanged = { if (!prefs.autoHideBar) setBarHidden(false) },
+            onSideMenuChanged = { applyBarMode() },
             pipAvailable = pipSupported,
             onPipChanged = { updatePipParams() },
             onNativeSubsChanged = { subs.onPage(webView.url) },
         )
         menuController.setUp(findViewById<ActionMenuView>(R.id.menu_main))
+        sideMenu = SideMenu(this, drawerLayout, sideDrawer, menuController)
+        findViewById<View>(R.id.btnSideMenu).setOnClickListener { sideMenu.open() }
+        applyBarMode()
 
         // EasyList / Liste AR load in the background; pages opened from now on get their rules.
         adBlocker.addOnFiltersChanged(filtersListener)
@@ -313,6 +331,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    sideMenu.isOpen() -> sideMenu.close()
                     isFullscreen -> exitFullscreen()
                     playerHost.mode == PlayerHost.Mode.EXPANDED -> playerHost.minimize()
                     // The Subscriptions screen's list of every channel is open: back closes it (the page stays).
@@ -496,6 +515,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         val watching = playerHost.mode == PlayerHost.Mode.EXPANDED
         val color = ContextCompat.getColor(this, if (watching) R.color.barWatch else R.color.barBrowse)
         statusBarSpace.setBackgroundColor(color)
+        topBar.setBackgroundColor(color)
         bottomBar.setBackgroundColor(color)
         navBarSpace.setBackgroundColor(color)
     }
@@ -553,11 +573,49 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             statusBarSpace.updateLayoutParams { height = bars.top }
             bottomBar.updatePadding(bottom = bars.bottom)
             appWindow.updatePadding(left = bars.left, right = bars.right)
+            // The side menu reaches under the system bars like the page does, and keeps its rows clear of them.
+            sideDrawer.updatePadding(left = bars.left, top = bars.top, right = bars.right, bottom = bars.bottom)
             navigationInset = bars.bottom
             updateNavBarSpace()
             insets
         }
     }
+
+    // ---- Bottom bar or side menu ----
+
+    /**
+     * Puts the screen in the mode the "Side menu" switch of the three-dots menu says ([Prefs.sideMenu]), now and at start.
+     *
+     * Normal: the bottom bar, the page's progress line on its top edge, no top bar, the drawer off.
+     * Side menu: the bottom bar is gone for good (so nothing slides away on scroll, and "Hide bar while scrolling" is
+     * dimmed in the menu), a bar at the top holds the three-bars button that opens the drawer, and the progress line
+     * moves to that bar's lower edge, which is the top edge of the page.
+     */
+    private fun applyBarMode() {
+        val side = prefs.sideMenu
+        bottomBar.animate().cancel()
+        bottomBar.translationY = 0f
+        if (side) barHidden = false
+        // While the little picture-in-picture window is up every bar is hidden; showChrome(true) brings the right ones back.
+        if (!pipUiOn) {
+            topBar.visibility = if (side) View.VISIBLE else View.GONE
+            bottomBar.visibility = if (side || barHidden) View.GONE else View.VISIBLE
+        }
+        moveProgress(if (side) topBar as ViewGroup else bottomBar as ViewGroup, if (side) Gravity.BOTTOM else Gravity.TOP)
+        sideMenu.setActive(side)
+        updateNavBarSpace()
+    }
+
+    /** The page's progress line sits on the edge of whichever bar is on screen. */
+    private fun moveProgress(to: ViewGroup, gravity: Int) {
+        if (progressBar.parent === to) return
+        (progressBar.parent as? ViewGroup)?.removeView(progressBar)
+        val height = (PROGRESS_HEIGHT_DP * resources.displayMetrics.density).toInt()
+        to.addView(progressBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height, gravity))
+    }
+
+    /** The notices (load error, tip) sit above the bottom bar; with the side menu there is none, so they sit at the bottom of the page. */
+    private fun snackbarAnchorView(): View? = if (prefs.sideMenu) null else bottomBar
 
     // ---- Hiding the bottom bar while scrolling ----
 
@@ -565,15 +623,19 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private var barHeight = 0
     private var navigationInset = 0
 
-    /** While the bar is hidden, the page keeps clear of the system navigation bar through this space instead. */
+    /**
+     * While the bar is hidden (or in the side menu mode, where there is no bottom bar), the page keeps clear of the
+     * system navigation bar through this space instead.
+     */
     private fun updateNavBarSpace() {
-        val height = if (barHidden) navigationInset else 0
+        val height = if (barHidden || prefs.sideMenu) navigationInset else 0
         if (navBarSpace.layoutParams.height != height) navBarSpace.updateLayoutParams { this.height = height }
     }
 
     /** Slides the bottom bar away ([hidden] = true), freeing its space for the page, or brings it back. */
     private fun setBarHidden(hidden: Boolean) {
-        if (!::bottomBar.isInitialized || hidden == barHidden) return
+        // In the side menu mode there is no bottom bar to show or hide (applyBarMode keeps it gone).
+        if (!::bottomBar.isInitialized || prefs.sideMenu || hidden == barHidden) return
         barHidden = hidden
         bottomBar.animate().cancel()
         if (hidden) {
@@ -647,7 +709,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     private fun onPageScrolled(down: Boolean) {
-        if (!prefs.autoHideBar || isFullscreen) return
+        if (!prefs.autoHideBar || prefs.sideMenu || isFullscreen) return
         if (playerHost.mode == PlayerHost.Mode.EXPANDED) return
         // The load-error notice (with Refresh) is anchored to the bar: while it is up the bar must not slide away,
         // or a drag on the error page would take the Refresh button with it.
@@ -1096,12 +1158,15 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (show) {
             statusBarSpace.visibility = View.VISIBLE
             bottomBar.translationY = 0f
-            bottomBar.visibility = if (barHidden) View.GONE else View.VISIBLE
+            bottomBar.visibility = if (barHidden || prefs.sideMenu) View.GONE else View.VISIBLE
+            topBar.visibility = if (prefs.sideMenu) View.VISIBLE else View.GONE
             navBarSpace.visibility = View.VISIBLE
             updateNavBarSpace()
         } else {
+            sideMenu.close(animate = false)
             statusBarSpace.visibility = View.GONE
             bottomBar.visibility = View.GONE
+            topBar.visibility = View.GONE
             navBarSpace.visibility = View.GONE
         }
     }
@@ -1347,7 +1412,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (errorSnackbar?.isShownOrQueued == true || !canOpenVideoSheet(webView)) return
         prefs.videoPressTipSeen = true
         val tip = Snackbar.make(appWindow, R.string.videoPressTip, Snackbar.LENGTH_INDEFINITE)
-            .setAnchorView(bottomBar)
+            .setAnchorView(snackbarAnchorView())
             .setAction(android.R.string.ok) {}
         // The tip is longer than a Snackbar's default two lines (it also says where the long press does not work).
         tip.view.findViewById<android.widget.TextView>(com.google.android.material.R.id.snackbar_text)?.maxLines = 3
@@ -1432,7 +1497,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         // Sits above the bottom bar so Library/Downloads stay reachable. It stays (for every kind of failure,
         // offline included) until Refresh is tapped or another page starts loading, so the button never vanishes.
         errorSnackbar = Snackbar.make(appWindow, message, Snackbar.LENGTH_INDEFINITE)
-            .setAnchorView(bottomBar)
+            .setAnchorView(snackbarAnchorView())
             .setAction(R.string.refresh) { onRetry() }
             .also { it.show() }
     }
@@ -1453,6 +1518,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     // ---- Fullscreen video ----
 
     private fun handleFullscreen(fullscreen: Boolean, target: WebView?) {
+        if (fullscreen && ::sideMenu.isInitialized) sideMenu.close(animate = false) // the drawer is not inside appWindow
         appWindow.visibility = if (fullscreen) View.GONE else View.VISIBLE
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         refreshKeepAwake() // full screen no longer keeps the screen on by itself: only a playing video does
@@ -1686,6 +1752,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val SEARCH_URL = "https://m.youtube.com/results?search_query="
         const val BAR_ANIMATION_MS = 150L
         const val BAR_SCROLL_THRESHOLD_DP = 24f
+
+        /** The height of the page's progress line, on the bottom bar or (side menu mode) on the top bar. */
+        const val PROGRESS_HEIGHT_DP = 3f
 
         // The one-time tip about the long press on a video (see showVideoPressTip): the pages it is for.
         val VIDEO_LIST_PATHS = listOf("/results", "/feed/", "/@", "/channel/", "/playlist", "/hashtag/")

@@ -1,0 +1,1 @@
+Added: in the Library, swipe sideways on the list to move between All, Video, Audio and Lyrics.

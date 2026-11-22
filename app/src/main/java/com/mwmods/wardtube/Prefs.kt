@@ -61,6 +61,15 @@ class Prefs(context: Context) {
         set(value) = sp.edit { putBoolean(AUTO_HIDE_BAR, value) }
 
     /**
+     * The bottom bar is replaced by a side menu (a drawer) that a three-bars button in a bar at the top of the screen
+     * opens. While it is on the bar never hides, so [autoHideBar] has no effect (its value is kept for when the bottom
+     * bar comes back). See [com.mwmods.wardtube.ui.SideMenu].
+     */
+    var sideMenu: Boolean
+        get() = sp.getBoolean(SIDE_MENU, false)
+        set(value) = sp.edit { putBoolean(SIDE_MENU, value) }
+
+    /**
      * The Subscriptions tab shows the app's own screen (a strip of channels that filters the videos in place, see
      * [com.mwmods.wardtube.subs.SubsController]) instead of YouTube's page.
      */
@@ -180,6 +189,7 @@ class Prefs(context: Context) {
         private const val COOKIES = "cookiesEnabled"
         private const val AD_BLOCK = "adBlockEnabled"
         private const val AUTO_HIDE_BAR = "autoHideBar"
+        private const val SIDE_MENU = "sideMenu"
         private const val NATIVE_SUBS = "nativeSubs"
         private const val HOMEPAGE_LEARNED = "homepageLearned"
         private const val NOTIFICATION_ASKED = "notificationPermissionAsked"

@@ -14,6 +14,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.IntentSender
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
@@ -26,6 +27,8 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.transition.AutoTransition
 import android.transition.TransitionManager
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -103,6 +106,7 @@ class LibraryActivity : AppCompatActivity() {
     private lateinit var adapter: LibraryAdapter
     private lateinit var toolbar: MaterialToolbar
     private lateinit var list: RecyclerView
+    private lateinit var listArea: View
     private lateinit var emptyState: View
     private lateinit var emptyMessage: TextView
     private lateinit var progress: View
@@ -115,6 +119,10 @@ class LibraryActivity : AppCompatActivity() {
     private lateinit var deleteSelected: TextView
 
     private lateinit var filterChips: List<Chip>
+
+    /** Watches the touches that start on the list for a sideways swipe; see [dispatchTouchEvent]. */
+    private lateinit var swipeDetector: GestureDetector
+    private var swipeTracking = false
 
     private var allFiles: List<DownloadItem> = emptyList()
     private var searchQuery = ""
@@ -215,6 +223,7 @@ class LibraryActivity : AppCompatActivity() {
 
         toolbar = findViewById(R.id.toolbar)
         list = findViewById(R.id.rvLibrary)
+        listArea = findViewById(R.id.listArea)
         emptyState = findViewById(R.id.emptyState)
         emptyMessage = findViewById(R.id.tvEmptyMessage)
         progress = findViewById(R.id.progressLoading)
@@ -302,6 +311,8 @@ class LibraryActivity : AppCompatActivity() {
                 refreshList(scrollToTop = true)
             }
         }
+
+        setUpSwipeBetweenFilters()
 
         searchField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -535,6 +546,72 @@ class LibraryActivity : AppCompatActivity() {
     /** Exactly one chip is checked: the one with [chipId]. */
     private fun selectChip(chipId: Int) {
         for (chip in filterChips) chip.isChecked = chip.id == chipId
+    }
+
+    // ---- Swipe between the filters ----
+
+    /**
+     * A sideways swipe on the list moves to the next filter (All -> Video -> Audio -> Lyrics), the opposite swipe
+     * to the previous one. "Next" is the chip beside the current one in the direction the chips are laid out:
+     * in right-to-left (Arabic) that is towards the left, so the swipe goes to the right, the way a page turns;
+     * in left-to-right it is the other way round. There is no wrap-around at either end.
+     */
+    private fun setUpSwipeBetweenFilters() {
+        val density = resources.displayMetrics.density
+        val minDistance = SWIPE_MIN_DISTANCE_DP * density
+        val minVelocity = SWIPE_MIN_VELOCITY_DP * density
+        swipeDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (e1 == null) return false
+                val dx = e2.x - e1.x
+                val dy = e2.y - e1.y
+                // Clearly sideways (a vertical scroll that drifts a little must not change the filter), long and quick enough.
+                if (kotlin.math.abs(dx) < minDistance) return false
+                if (kotlin.math.abs(dx) < kotlin.math.abs(dy) * SWIPE_DOMINANCE) return false
+                if (kotlin.math.abs(velocityX) < minVelocity) return false
+                val rtl = window.decorView.layoutDirection == View.LAYOUT_DIRECTION_RTL
+                val towardsEnd = if (rtl) dx > 0 else dx < 0 // the finger moves the way the next chip lies
+                return stepFilter(if (towardsEnd) 1 else -1, enterFromLeft = dx > 0)
+            }
+        })
+    }
+
+    /**
+     * Only touches that START on the list are watched (not on the chips, the search field or the mini player, whose
+     * seek bar is dragged sideways). Nothing is consumed: the list and its rows work exactly as before, and a long
+     * press (which starts the range selection) is never mistaken for a swipe.
+     */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            val area = Rect()
+            swipeTracking = listArea.getGlobalVisibleRect(area) && area.contains(ev.rawX.toInt(), ev.rawY.toInt())
+        }
+        if (swipeTracking) {
+            swipeDetector.onTouchEvent(ev)
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                swipeTracking = false
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    /** Moves [steps] chips along the row (1 = next, -1 = previous). False at either end, where nothing changes. */
+    private fun stepFilter(steps: Int, enterFromLeft: Boolean): Boolean {
+        val current = filterChips.indexOfFirst { it.id == chipIdFor(filter) }.coerceAtLeast(0)
+        val target = current + steps
+        if (target !in filterChips.indices) return false
+        val chip = filterChips[target]
+        filter = categoryFor(chip.id)
+        selectChip(chip.id)
+        // On a narrow screen the row scrolls: bring the new chip into view.
+        chip.requestRectangleOnScreen(Rect(0, 0, chip.width, chip.height), false)
+        refreshList(scrollToTop = true)
+        // The new list slides in from the side the finger moved towards.
+        list.animate().cancel()
+        list.translationX = (if (enterFromLeft) -1f else 1f) * list.width * SWIPE_SLIDE_FRACTION
+        list.alpha = SWIPE_START_ALPHA
+        list.animate().translationX(0f).alpha(1f).setDuration(SWIPE_ANIMATION_MS).start()
+        return true
     }
 
     private fun categoryFor(chipId: Int): MediaCategory? = when (chipId) {
@@ -1063,5 +1140,15 @@ class LibraryActivity : AppCompatActivity() {
 
         /** How long the search field takes to slide open / shut. */
         const val SEARCH_ANIMATION_MS = 200L
+
+        /** A swipe between filters: at least this far and this fast, and at least twice as wide as it is tall. */
+        const val SWIPE_MIN_DISTANCE_DP = 64f
+        const val SWIPE_MIN_VELOCITY_DP = 200f
+        const val SWIPE_DOMINANCE = 2f
+
+        /** The list slides in over this long, starting this far (of its width) to the side and a little faded. */
+        const val SWIPE_ANIMATION_MS = 180L
+        const val SWIPE_SLIDE_FRACTION = 0.15f
+        const val SWIPE_START_ALPHA = 0.4f
     }
 }

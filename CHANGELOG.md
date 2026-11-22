@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.6.154
+- Added: **a "Side menu" switch in the three-dots menu (Display): the bottom bar becomes a side menu, opened by a three-bars button in a bar at
+  the top of the screen** (`MainActivity.kt`, `ui/SideMenu.kt` (new), `ui/MenuController.kt`, `Prefs.kt`, `res/layout/activity_main.xml`,
+  `res/drawable/ic_hamburger_white_24dp.xml` (new), strings in English and Arabic, `app/build.gradle.kts`: `androidx.drawerlayout`).
+  - Off by default: nothing changes until the switch is turned on, and it takes effect at once (no restart). Turned off, the bottom bar is back.
+  - On: the bottom bar is gone and a slim bar at the top (under the status bar) holds the three-bars button and the app's name. The button
+    opens a drawer from the start edge (the right in Arabic); dragging from that edge opens it too, Back closes it first, and it is
+    closed and locked while a video is full screen or in the little picture-in-picture window.
+  - The drawer has the six buttons of the bar as rows, doing the same things (`MenuController.perform`): voice search (the minimize arrow while a
+    video is full screen), Home, Browser, Download (dimmed while there is nothing to download, as in the bar), Library, and More (the three-dots
+    menu, where the switch is turned off again).
+  - The page's loading line moves to the lower edge of the top bar, the notices (load error, tip) sit at the bottom of the page instead of above
+    the bar, and the space for the system navigation bar is kept at the bottom.
+  - **"Hide bar while scrolling" is disabled in this mode**: its row is dimmed and says "Not available with the side menu", it takes no taps, and
+    nothing slides away while scrolling (`MainActivity.setBarHidden` / `onPageScrolled` do nothing). Its value is kept for when the bottom bar comes back.
+
+## 2.6.153
+- Added: **in the Library, a sideways swipe on the list moves to the next filter: All -> Video -> Audio -> Lyrics, and the opposite swipe goes
+  back** (`ui/LibraryActivity.kt`, `res/layout/activity_library.xml`).
+  - In right-to-left (Arabic) the swipe to the right goes to the next filter, the way a page turns; in left-to-right it is the other way
+    round. There is no wrap-around: on "All" the back swipe, and on "Lyrics" the forward swipe, do nothing.
+  - Only a clearly sideways, long and quick swipe that starts on the list counts (not a vertical scroll that drifts, not a touch on the chips,
+    the search field or the mini player's seek bar), and a long press (range selection) is never taken for a swipe. Rows, taps and scrolling
+    work as before. The chip row follows (it scrolls to the new chip on a narrow screen), the new list slides in from the side of the swipe,
+    and the files ticked in the multi-select mode stay ticked across filters.
+
 ## 2.6.152
 - Changed: **when the built-in player of the Library starts to play, the video that plays on a YouTube page or on a page of the browser
   pauses instead of going on under it** (`web/WebMedia.kt` (new), `media/MediaPlayerService.kt`, `MainActivity.kt`,

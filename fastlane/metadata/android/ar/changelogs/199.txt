@@ -1,0 +1,3 @@
+جديد: في المكتبة، مرّر جانبيًا على القائمة للانتقال بين الكل والفيديو والصوت والكلمات.
+
+Added: in the Library, swipe sideways on the list to move between All, Video, Audio and Lyrics.

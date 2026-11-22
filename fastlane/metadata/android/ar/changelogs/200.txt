@@ -1,0 +1,3 @@
+جديد: خيار «قائمة جانبية» في قائمة الثلاث نقاط: يستبدل الشريط السفلي بقائمة جانبية يفتحها زر الثلاث شرط في أعلى الشاشة، ويتعطل خيار إخفاء الشريط في هذا الوضع.
+
+Added: a "Side menu" switch in the three-dots menu. It replaces the bottom bar with a side menu opened by a three-bars button at the top; "Hide bar while scrolling" is disabled in that mode.
