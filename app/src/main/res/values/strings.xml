@@ -17,9 +17,8 @@
     <string name="pictureInPictureOff">Off: leaving the app keeps only the sound (if play in background is on)</string>
     <string name="pictureInPictureNote">Note: not reliable when the video is in fill or full-screen mode. It works well with the video in the portrait page or in the mini player.</string>
     <string name="hideBarOnScroll">Hide bar while scrolling</string>
-    <string name="hideBarOnScrollSideNote">Not available with the side menu</string>
     <string name="sideMenu">Side menu</string>
-    <string name="sideMenuOn">The bottom bar is a side menu, opened with the button at the top</string>
+    <string name="sideMenuOn">The bottom bar is a side menu, opened with the button at the top or by swiping the page sideways</string>
     <string name="sideMenuOff">The bar stays at the bottom of the screen</string>
     <string name="refresh">Refresh</string>
     <string name="set_as_home">Set as home</string>

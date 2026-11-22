@@ -28,11 +28,12 @@
 
             <!-- Side menu mode (Prefs.sideMenu): this bar takes the place of the bottom bar. It holds the three-bars button that
                  opens the side menu (below) and, at its lower edge, the page's progress line (MainActivity.applyBarMode moves
-                 it here). Gone in the normal mode. -->
+                 it here). It is slim, and slides away with the page while scrolling down (MainActivity.slideTopBar). Gone in the
+                 normal mode. -->
             <FrameLayout
                 android:id="@+id/topBar"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="40dp"
                 android:background="@color/barBrowse"
                 android:visibility="gone">
 
@@ -155,8 +156,8 @@
         </LinearLayout>
 
         <!-- The side menu (Prefs.sideMenu): the buttons of the bottom bar, as rows (see ui/SideMenu.kt). Opens from the
-             start edge (the right in Arabic) with the top bar's button or by dragging from that edge. Gone in the normal
-             mode. -->
+             start edge (the right in Arabic) with the top bar's button, by a sideways swipe on the page (MainActivity.
+             openSideMenuBySwipe) or by dragging from that edge. Gone in the normal mode. -->
         <LinearLayout
             android:id="@+id/sideDrawer"
             android:layout_width="288dp"

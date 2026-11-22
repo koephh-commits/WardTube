@@ -90,13 +90,6 @@ class MenuController(
     private var sleepValue: TextView? = null
     private var adBlockValue: TextView? = null
 
-    /** The "Hide bar while scrolling" row of the open sheet and its second line: dimmed while the side menu is on. */
-    private var hideBarRow: View? = null
-    private var hideBarNote: TextView? = null
-
-    /** The row that [inflateRow] made last, for the code that needs to keep hold of it. */
-    private var lastRow: View? = null
-
     /** The last state given to each of the two changing slots; null until [setUp] gives the first one. */
     private var videoFullScreen: Boolean? = null
     private var downloadAvailable: Boolean? = null
@@ -238,8 +231,6 @@ class MenuController(
                 sheet = null
                 sleepValue = null
                 adBlockValue = null
-                hideBarRow = null
-                hideBarNote = null
             }
         }
         sheet = dialog
@@ -303,14 +294,12 @@ class MenuController(
         ) { on ->
             prefs.sideMenu = on
             onSideMenuChanged()
-            updateHideBarRow()
         }
-        hideBarNote = addSwitchRow(R.string.hideBarOnScroll, R.drawable.ic_menu_swap_vert, prefs.autoHideBar) { on ->
+        // With the bottom bar it is that bar that slides away; with the side menu, the slim bar at the top.
+        addSwitchRow(R.string.hideBarOnScroll, R.drawable.ic_menu_swap_vert, prefs.autoHideBar) { on ->
             prefs.autoHideBar = on
             onAutoHideBarChanged()
         }
-        hideBarRow = lastRow
-        updateHideBarRow()
         addSwitchRow(
             R.string.subsNative, R.drawable.ic_list_24dp, prefs.nativeSubs,
             subtitle = { on ->
@@ -412,20 +401,6 @@ class MenuController(
         entrance += card
     }
 
-    /**
-     * With the side menu on there is no bottom bar to hide, so the "Hide bar while scrolling" row is dimmed, says so
-     * under its name and takes no taps (a disabled row swallows them). The switch keeps the value it had: it applies
-     * again when the bottom bar comes back.
-     */
-    private fun updateHideBarRow() {
-        val row = hideBarRow ?: return
-        val sideMenuOn = prefs.sideMenu
-        row.isEnabled = !sideMenuOn
-        row.alpha = if (sideMenuOn) DISABLED_ROW_ALPHA else 1f
-        row.findViewById<SwitchMaterial>(R.id.menuRowSwitch).isEnabled = !sideMenuOn
-        hideBarNote?.let { showValue(it, if (sideMenuOn) activity.getString(R.string.hideBarOnScrollSideNote) else null) }
-    }
-
     /** A row in the open group: a thin line above it when it is not the first, its title, and its tinted icon. */
     private fun inflateRow(@StringRes title: Int, @DrawableRes icon: Int): View {
         val card = checkNotNull(group) { "addSection comes first" }
@@ -437,7 +412,6 @@ class MenuController(
         paintTile(tile, groupAccent)
         card.addView(row)
         groupRows++
-        lastRow = row
         return row
     }
 
@@ -761,8 +735,5 @@ class MenuController(
         /** The alpha (0-255) of a bar icon: normal, or dimmed (download with nothing to download). */
         const val FULL_ALPHA = 255
         const val DIMMED_ALPHA = 90
-
-        /** A row of the sheet that cannot be used right now (0-1). */
-        const val DISABLED_ROW_ALPHA = 0.45f
     }
 }

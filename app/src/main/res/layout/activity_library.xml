@@ -109,59 +109,66 @@
             </LinearLayout>
         </HorizontalScrollView>
 
-        <!-- A sideways swipe anywhere in this area moves to the next / previous filter (LibraryActivity.dispatchTouchEvent). -->
-        <FrameLayout
+        <!-- A sideways drag anywhere in this area moves listPage with the finger, and on letting go goes to the next / previous
+             filter (FilterSwipeLayout, set up by LibraryActivity.setUpSwipeBetweenFilters). -->
+        <com.mwmods.wardtube.ui.FilterSwipeLayout
             android:id="@+id/listArea"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvLibrary"
+            <FrameLayout
+                android:id="@+id/listPage"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:clipToPadding="false"
-                android:paddingTop="4dp"
-                android:paddingBottom="16dp"
-                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+                android:layout_height="match_parent">
 
-            <LinearLayout
-                android:id="@+id/emptyState"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginStart="24dp"
-                android:layout_marginEnd="24dp"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:visibility="gone">
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvLibrary"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="16dp"
+                    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
 
-                <ImageView
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:alpha="0.5"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_music_note_24dp"
-                    app:tint="?android:attr/textColorSecondary" />
-
-                <TextView
-                    android:id="@+id/tvEmptyMessage"
+                <LinearLayout
+                    android:id="@+id/emptyState"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                    android:layout_gravity="center"
+                    android:layout_marginStart="24dp"
+                    android:layout_marginEnd="24dp"
                     android:gravity="center"
-                    android:text="@string/libraryEmpty"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="15sp" />
-            </LinearLayout>
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
-            <ProgressBar
-                android:id="@+id/progressLoading"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:indeterminateTint="@color/brandText" />
-        </FrameLayout>
+                    <ImageView
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:alpha="0.5"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_music_note_24dp"
+                        app:tint="?android:attr/textColorSecondary" />
+
+                    <TextView
+                        android:id="@+id/tvEmptyMessage"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:gravity="center"
+                        android:text="@string/libraryEmpty"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="15sp" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/progressLoading"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:indeterminateTint="@color/brandText" />
+            </FrameLayout>
+        </com.mwmods.wardtube.ui.FilterSwipeLayout>
 
         <!-- The song of the built-in player, with its controls; tap it to open the full player (MiniPlayerBar). -->
         <include layout="@layout/view_mini_player" />

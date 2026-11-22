@@ -1,0 +1,1 @@
+Changed: in the side menu mode the bar at the top is slimmer and slides away while scrolling ("Hide bar while scrolling" now works there), and a sideways swipe on the page opens the menu.

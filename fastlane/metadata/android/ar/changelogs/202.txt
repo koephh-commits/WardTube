@@ -1,0 +1,3 @@
+تحسين: في المكتبة صار السحب بين الكل / فيديو / صوت / كلمات يتبع إصبعك وتنزلق القائمة بنعومة (ترجع مكانها إن تركتها مبكراً، وتتحرك قليلاً عند أول فلتر وآخره).
+
+Changed: in the Library the swipe between Video / Audio / Lyrics now follows your finger and slides the list in smoothly (it settles back if you let go early, and gives a little at the first and last filter).

@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.6.156
+- Changed: **in the Library, the swipe between the filters (All / Video / Audio / Lyrics) is now a real drag: the list follows the finger and
+  changes smoothly** (`ui/FilterSwipeLayout.kt` (new), `ui/LibraryActivity.kt`, `res/layout/activity_library.xml`, `app/build.gradle.kts`).
+  - The list (with its empty-state text and spinner) moves with the finger while it is dragged and fades a little the further it goes. Letting
+    go after a quarter of the width, or with a quick flick, carries it out of the way, the new filter's files go in, and the new list slides
+    in from the other side, slowing down into place. Letting go sooner settles it back where it was.
+  - At the first and the last filter (nothing further that way) the list only gives a little, as if held by a rubber band, and returns.
+  - The chips follow the moment the swipe is accepted, not after the animation. A new touch while the last swipe is still moving ends it at
+    once, so swiping twice in a row works.
+  - The rows' own fade / move animations are switched off for that moment: before, the old rows faded out one after the other and the new
+    rows only appeared after the list had already slid in. Everything else is as before: taps, the long press that starts the range
+    selection (a finger that stays put as long as a long press never starts a swipe), the vertical scrolling, and the files ticked in the
+    multi-select mode staying ticked across filters.
+  - The same test as a ViewPager decides what is a swipe (clearly sideways: twice as wide as tall, past the touch slop), and a vertical scroll
+    that drifts sideways is never taken for one. The old "quick fling at least 64dp" rule is gone.
+
+## 2.6.155
+- Changed: **the side menu mode no longer wastes space at the top: the bar that holds the three-bars button is slimmer and slides away while
+  scrolling, and the menu opens by a sideways swipe too** (`MainActivity.kt`, `subs/SubsScreen.kt`, `subs/SubsController.kt`,
+  `ui/MenuController.kt`, `ui/SideMenu.kt`, `Prefs.kt`, `res/layout/activity_main.xml`, strings in English and Arabic, `app/build.gradle.kts`).
+  - The top bar is 40dp high instead of 48dp, and it hides like the bottom bar does: scrolling the page down slides it up and away together
+    with the page (the page moves as one piece and grows into the freed room once the slide is done), scrolling up brings it back. It stays on
+    Shorts, on a video that is open, and after a new page starts loading, as the bottom bar does.
+  - **"Hide bar while scrolling" works in the side menu mode now** (it was disabled there in 2.6.154): the same switch governs the top bar. Its row
+    is no longer dimmed and the "Not available with the side menu" note is gone.
+  - **A quick sideways swipe over the page opens the side menu** (to the left in Arabic, toward the middle of the screen from the drawer's side),
+    anywhere, not only from the screen's edge (where the system's Back gesture sits). It must be long (72dp), quick (under 0.7 s) and clearly
+    sideways; scrolling, slow drags and pinch zoom never count. A row of the page that scrolls sideways (YouTube's chips, the Shorts shelf) or a
+    slider keeps its own swipe: the page is asked what is under the finger (`SWIPE_PROBE_JS`) and the menu opens only when it is not one of those.
+    The Subscriptions screen does the same (not over its strip of channels, its chips or a row of Shorts, and not while the list of every channel
+    is open). Dragging from the edge still works. Nothing opens while a video is full screen, in the little window, or in the normal (bottom
+    bar) mode.
+
 ## 2.6.154
 - Added: **a "Side menu" switch in the three-dots menu (Display): the bottom bar becomes a side menu, opened by a three-bars button in a bar at
   the top of the screen** (`MainActivity.kt`, `ui/SideMenu.kt` (new), `ui/MenuController.kt`, `Prefs.kt`, `res/layout/activity_main.xml`,

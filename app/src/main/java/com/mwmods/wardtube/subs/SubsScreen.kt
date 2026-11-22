@@ -58,6 +58,11 @@ private const val SHELF_SIZE = 8
 /** How far (dp) the finger must travel in one direction before [SubsListener.onDrag] is told. */
 private const val DRAG_THRESHOLD_DP = 24f
 
+/** A swipe that opens the side menu (the same numbers as on the browsing page, see MainActivity.openSideMenuBySwipe). */
+private const val SIDE_SWIPE_MIN_DP = 72f
+private const val SIDE_SWIPE_MAX_MS = 700L
+private const val SIDE_SWIPE_MAX_SLANT = 0.5f
+
 /** The width of the "All" button at the end of the strip of channels. */
 private const val ALL_WIDTH_DP = 64
 
@@ -112,6 +117,12 @@ interface SubsListener {
      * moves down. The owner hides or shows the app's bottom bar by it, as it does for YouTube's own pages.
      */
     fun onDrag(down: Boolean)
+
+    /**
+     * A quick sideways swipe over the screen toward the middle from the side where the app's side menu is (to the left
+     * in Arabic), on a part that does not scroll sideways by itself: the owner opens the side menu, if it is turned on.
+     */
+    fun onSideSwipe() {}
 }
 
 /** The colours of the screen: YouTube's own dark and light greys. */
@@ -531,33 +542,67 @@ class SubsScreen(
     private var dragResync = false
     private val dragThreshold = DRAG_THRESHOLD_DP * density
 
+    /** The sideways swipe that opens the side menu: where the touch began (on the screen), how far it strayed up or down, and whether it is still a candidate. */
+    private var swipeDownX = 0f
+    private var swipeDownY = 0f
+    private var swipeStrayY = 0f
+    private var swipeAlive = false
+
     /**
      * Follows the finger over the whole screen, never taking a touch from the views below: the same rule the browsing
      * page uses (MainActivity.watchScrollDirection), because this screen covers the page and none of its touches reach
      * the WebView. It sits here and not on the list so that a pull-down at the top of the list (taken by the
-     * pull-to-refresh layout) and a drag that starts on the strip or the chips are seen too.
+     * pull-to-refresh layout) and a drag that starts on the strip or the chips are seen too. The finger is followed in
+     * screen coordinates: the top bar's slide moves this screen with the page, which would otherwise read as the finger
+     * moving the other way.
+     *
+     * It also notices the sideways swipe that opens the app's side menu ([SubsListener.onSideSwipe]). A touch that
+     * begins on something that scrolls sideways by itself (the strip of channels, the chips, a row of Shorts) or while the
+     * list of every channel is open is never taken for that swipe, so those keep their own sideways movement.
      */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                dragLastX = event.x
-                dragLastY = event.y
+                dragLastX = event.rawX
+                dragLastY = event.rawY
                 dragTravelled = 0f
                 dragResync = false
+                swipeDownX = event.rawX
+                swipeDownY = event.rawY
+                swipeStrayY = 0f
+                swipeAlive = panel.visibility != View.VISIBLE && !scrollsSidewaysAt(this, event.rawX.toInt(), event.rawY.toInt())
             }
             // A finger was added or lifted: measure again from where the one that is left is.
-            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> dragResync = true
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> {
+                dragResync = true
+                swipeAlive = false
+            }
+            MotionEvent.ACTION_CANCEL -> swipeAlive = false
+            MotionEvent.ACTION_UP -> {
+                if (swipeAlive) {
+                    val dx = event.rawX - swipeDownX
+                    val towardMiddle = if (layoutDirection == View.LAYOUT_DIRECTION_RTL) -dx else dx
+                    if (towardMiddle >= SIDE_SWIPE_MIN_DP * density &&
+                        swipeStrayY <= towardMiddle * SIDE_SWIPE_MAX_SLANT &&
+                        event.eventTime - event.downTime <= SIDE_SWIPE_MAX_MS
+                    ) {
+                        listener.onSideSwipe()
+                    }
+                }
+                swipeAlive = false
+            }
             MotionEvent.ACTION_MOVE -> if (event.pointerCount == 1) {
+                swipeStrayY = kotlin.math.max(swipeStrayY, kotlin.math.abs(event.rawY - swipeDownY))
                 if (dragResync) {
-                    dragLastX = event.x
-                    dragLastY = event.y
+                    dragLastX = event.rawX
+                    dragLastY = event.rawY
                     dragTravelled = 0f
                     dragResync = false
                 } else {
-                    val dx = event.x - dragLastX
-                    val dy = event.y - dragLastY
-                    dragLastX = event.x
-                    dragLastY = event.y
+                    val dx = event.rawX - dragLastX
+                    val dy = event.rawY - dragLastY
+                    dragLastX = event.rawX
+                    dragLastY = event.rawY
                     if (kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
                         // Distance in one direction; it starts over when the finger turns around.
                         dragTravelled = if (dragTravelled * dy < 0f) dy else dragTravelled + dy
@@ -568,6 +613,24 @@ class SubsScreen(
             }
         }
         return super.dispatchTouchEvent(event)
+    }
+
+    /**
+     * True when, under the screen point ([rawX], [rawY]), there is a view that scrolls sideways (in either direction)
+     * by itself: the strip of channels, the chips, a row of Shorts. Only the views that contain the point are looked at.
+     */
+    private fun scrollsSidewaysAt(view: View, rawX: Int, rawY: Int): Boolean {
+        if (view.visibility != View.VISIBLE) return false
+        val at = IntArray(2)
+        view.getLocationOnScreen(at)
+        if (rawX < at[0] || rawX >= at[0] + view.width || rawY < at[1] || rawY >= at[1] + view.height) return false
+        if (view.canScrollHorizontally(-1) || view.canScrollHorizontally(1)) return true
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                if (scrollsSidewaysAt(view.getChildAt(i), rawX, rawY)) return true
+            }
+        }
+        return false
     }
 
     // ---- What the owner tells the screen ----

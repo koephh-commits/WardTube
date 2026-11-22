@@ -44,6 +44,8 @@ class SubsController(
     private val openUrl: (String) -> Unit,
     /** The finger drags over the screen ([down] = the list scrolls down): the owner hides or shows its bottom bar. */
     private val onScrollDirection: (down: Boolean) -> Unit = {},
+    /** A quick sideways swipe over the screen: the owner opens its side menu (when that mode is on). */
+    private val openSideMenu: () -> Unit = {},
     /** The menu's "Download" row: the address of the video's watch page and its title (the owner's usual download flow). */
     private val onDownload: (url: String, title: String?) -> Unit = { _, _ -> },
     /** The menu's "Share" row: the link to share and the video's title (the owner opens the phone's share sheet). */
@@ -1420,6 +1422,11 @@ class SubsController(
     /** The finger is dragging over the screen: the app's bottom bar follows it (see MainActivity.onPageScrolled). */
     override fun onDrag(down: Boolean) {
         if (!released) onScrollDirection(down)
+    }
+
+    /** A sideways swipe over the screen: the side menu of the app opens (see MainActivity.openSideMenuBySwipe). */
+    override fun onSideSwipe() {
+        if (!released) openSideMenu()
     }
 
     /** The end of the feed was reached: the next page (older videos), if YouTube has one. */

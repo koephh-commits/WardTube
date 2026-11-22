@@ -19,7 +19,8 @@ import com.mwmods.wardtube.R
 /**
  * The side menu of the "Side menu" display mode ([com.mwmods.wardtube.Prefs.sideMenu]): the six buttons of the bottom
  * bar as rows of a drawer that opens from the start edge (the right in Arabic). The bottom bar is gone in that mode
- * and a button in a bar at the top opens this drawer.
+ * and a button in a slim bar at the top opens this drawer; so does a sideways swipe over the page or the Subscriptions
+ * screen (MainActivity.openSideMenuBySwipe), and dragging from the edge.
  *
  * The rows do exactly what the bar's buttons do: they call [MenuController.perform] with the same ids, so nothing is
  * done twice in code. The two buttons that change with the state of the app follow it through

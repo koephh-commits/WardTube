@@ -62,8 +62,8 @@ class Prefs(context: Context) {
 
     /**
      * The bottom bar is replaced by a side menu (a drawer) that a three-bars button in a bar at the top of the screen
-     * opens. While it is on the bar never hides, so [autoHideBar] has no effect (its value is kept for when the bottom
-     * bar comes back). See [com.mwmods.wardtube.ui.SideMenu].
+     * opens, and a sideways swipe on the page opens it too. [autoHideBar] then applies to that slim top bar: it slides
+     * away while scrolling down and comes back when scrolling up. See [com.mwmods.wardtube.ui.SideMenu].
      */
     var sideMenu: Boolean
         get() = sp.getBoolean(SIDE_MENU, false)

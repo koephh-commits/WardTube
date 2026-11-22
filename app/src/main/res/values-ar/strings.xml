@@ -15,9 +15,8 @@
     <string name="pictureInPictureOff">متوقف: الخروج من التطبيق يُبقي الصوت فقط (إذا كان التشغيل في الخلفية مفعّلاً)</string>
     <string name="pictureInPictureNote">ملاحظة: هذه الميزة غير موثوقة في وضع ملء الفيديو أو وضع ملء الشاشة. تعمل بشكل جيد مع الفيديو في وضع الشاشة بالطول أو في الوضع المصغّر.</string>
     <string name="hideBarOnScroll">إخفاء الشريط عند التمرير</string>
-    <string name="hideBarOnScrollSideNote">غير متاح مع القائمة الجانبية</string>
     <string name="sideMenu">قائمة جانبية</string>
-    <string name="sideMenuOn">الشريط السفلي صار قائمة جانبية تُفتح بالزر في أعلى الشاشة</string>
+    <string name="sideMenuOn">الشريط السفلي صار قائمة جانبية تُفتح بالزر في أعلى الشاشة أو بسحب الصفحة لليسار</string>
     <string name="sideMenuOff">الشريط يبقى أسفل الشاشة</string>
     <string name="refresh">تحديث</string>
     <string name="set_as_home">تعيين كصفحة رئيسية</string>

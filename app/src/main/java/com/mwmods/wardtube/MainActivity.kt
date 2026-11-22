@@ -296,6 +296,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             enabled = { prefs.nativeSubs },
             openUrl = { openUrl(it) },
             onScrollDirection = { onPageScrolled(it) },
+            openSideMenu = { openSideMenuFromSwipe() },
             onDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
             onShare = { link, title -> if (!isDestroyed) shareLink(link, title) },
         )
@@ -587,19 +588,21 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * Puts the screen in the mode the "Side menu" switch of the three-dots menu says ([Prefs.sideMenu]), now and at start.
      *
      * Normal: the bottom bar, the page's progress line on its top edge, no top bar, the drawer off.
-     * Side menu: the bottom bar is gone for good (so nothing slides away on scroll, and "Hide bar while scrolling" is
-     * dimmed in the menu), a bar at the top holds the three-bars button that opens the drawer, and the progress line
-     * moves to that bar's lower edge, which is the top edge of the page.
+     * Side menu: the bottom bar is gone for good, a slim bar at the top holds the three-bars button that opens the
+     * drawer (it slides away while scrolling down, like the bottom bar does, see [slideTopBar]), and the progress line
+     * moves to that bar's lower edge, which is the top edge of the page. A swipe on the page opens the drawer too.
      */
     private fun applyBarMode() {
         val side = prefs.sideMenu
         bottomBar.animate().cancel()
         bottomBar.translationY = 0f
-        if (side) barHidden = false
+        // Whichever bar was away is back when the mode changes.
+        barHidden = false
+        resetTopBarSlide()
         // While the little picture-in-picture window is up every bar is hidden; showChrome(true) brings the right ones back.
         if (!pipUiOn) {
             topBar.visibility = if (side) View.VISIBLE else View.GONE
-            bottomBar.visibility = if (side || barHidden) View.GONE else View.VISIBLE
+            bottomBar.visibility = if (side) View.GONE else View.VISIBLE
         }
         moveProgress(if (side) topBar as ViewGroup else bottomBar as ViewGroup, if (side) Gravity.BOTTOM else Gravity.TOP)
         sideMenu.setActive(side)
@@ -617,8 +620,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     /** The notices (load error, tip) sit above the bottom bar; with the side menu there is none, so they sit at the bottom of the page. */
     private fun snackbarAnchorView(): View? = if (prefs.sideMenu) null else bottomBar
 
-    // ---- Hiding the bottom bar while scrolling ----
+    // ---- Hiding the bar (the bottom bar, or the top bar of the side menu mode) while scrolling ----
 
+    /** True while the bar of the current mode is slid away: the bottom bar, or the top bar in the side menu mode. */
     private var barHidden = false
     private var barHeight = 0
     private var navigationInset = 0
@@ -632,11 +636,17 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (navBarSpace.layoutParams.height != height) navBarSpace.updateLayoutParams { this.height = height }
     }
 
-    /** Slides the bottom bar away ([hidden] = true), freeing its space for the page, or brings it back. */
+    /**
+     * Slides the bar away ([hidden] = true), freeing its space for the page, or brings it back. It is the bottom bar,
+     * or the slim top bar in the side menu mode.
+     */
     private fun setBarHidden(hidden: Boolean) {
-        // In the side menu mode there is no bottom bar to show or hide (applyBarMode keeps it gone).
-        if (!::bottomBar.isInitialized || prefs.sideMenu || hidden == barHidden) return
+        if (!::bottomBar.isInitialized || hidden == barHidden) return
         barHidden = hidden
+        if (prefs.sideMenu) {
+            slideTopBar(hidden)
+            return
+        }
         bottomBar.animate().cancel()
         if (hidden) {
             barHeight = bottomBar.height
@@ -663,38 +673,111 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     /**
-     * Follows the finger on the browsing page: dragging up (scrolling down) hides the bottom bar, dragging down
-     * (scrolling up) shows it again. Touches are only watched, never consumed, so the page scrolls as usual.
+     * The top bar of the side menu mode slides up and away together with the page under it, so the page keeps its
+     * picture while it moves; once both are out, the bar leaves the layout and the page grows into its place (one resize
+     * at the end, not one per frame). Coming back, the bar re-enters the layout first and both slide down again.
+     * The bar fades as it goes, so its button does not glide across the status bar.
+     */
+    private fun slideTopBar(hidden: Boolean) {
+        val distance = -topBar.layoutParams.height.toFloat()
+        topBar.animate().cancel()
+        webArea.animate().cancel()
+        if (hidden) {
+            topBar.animate().translationY(distance).alpha(0f).setDuration(BAR_ANIMATION_MS).start()
+            webArea.animate().translationY(distance).setDuration(BAR_ANIMATION_MS)
+                .withEndAction {
+                    if (barHidden && prefs.sideMenu) {
+                        topBar.visibility = View.GONE
+                        resetTopBarSlide()
+                    }
+                }
+                .start()
+        } else {
+            if (topBar.visibility != View.VISIBLE) {
+                // The layout puts the page below the bar at once; the slide offset keeps it where it was on screen.
+                topBar.visibility = View.VISIBLE
+                topBar.translationY = distance
+                topBar.alpha = 0f
+                webArea.translationY = distance
+            }
+            // Still sliding out? Then it simply turns around from where it is.
+            topBar.animate().translationY(0f).alpha(1f).setDuration(BAR_ANIMATION_MS).start()
+            webArea.animate().translationY(0f).setDuration(BAR_ANIMATION_MS).start()
+        }
+    }
+
+    /** Stops any slide of the top bar and puts it and the page back at the place the layout gives them. */
+    private fun resetTopBarSlide() {
+        topBar.animate().cancel()
+        webArea.animate().cancel()
+        topBar.translationY = 0f
+        topBar.alpha = 1f
+        webArea.translationY = 0f
+    }
+
+    /**
+     * Follows the finger on the browsing page: dragging up (scrolling down) hides the bar (the bottom bar, or the top
+     * bar of the side menu mode), dragging down (scrolling up) shows it again. It also notices a sideways swipe that
+     * opens the side menu (see [openSideMenuBySwipe]). Touches are only watched, never consumed, so the page scrolls
+     * as usual.
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun watchScrollDirection(view: WebView) {
-        val threshold = BAR_SCROLL_THRESHOLD_DP * resources.displayMetrics.density
+        val density = resources.displayMetrics.density
+        val threshold = BAR_SCROLL_THRESHOLD_DP * density
         var lastX = 0f
         var lastY = 0f
         var travelled = 0f
         var resync = false
+        // For the sideways swipe: where the touch began (in the page's own pixels, for the question to the page, and on the
+        // screen, to measure by), how far it strayed up or down, and whether it is still a one-finger swipe.
+        var downX = 0f
+        var downY = 0f
+        var screenDownX = 0f
+        var screenDownY = 0f
+        var strayY = 0f
+        var swipe = false
+        // The finger is followed in screen coordinates (rawX/rawY): the top bar's slide moves the page itself, which would
+        // otherwise read as the finger moving the other way and turn the bar around while it is still going.
         view.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    lastX = event.x
-                    lastY = event.y
+                    lastX = event.rawX
+                    lastY = event.rawY
                     travelled = 0f
                     resync = false
+                    downX = event.x
+                    downY = event.y
+                    screenDownX = event.rawX
+                    screenDownY = event.rawY
+                    strayY = 0f
+                    swipe = true
                 }
                 // A finger was added or lifted (pinch zoom): the position kept so far no longer belongs to
                 // the finger that is left, so measure again from where it is instead of counting a jump.
-                MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> resync = true
+                MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> {
+                    resync = true
+                    swipe = false
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (swipe) {
+                        openSideMenuBySwipe(downX, downY, event.rawX - screenDownX, strayY, event.eventTime - event.downTime)
+                    }
+                    swipe = false
+                }
+                MotionEvent.ACTION_CANCEL -> swipe = false
                 MotionEvent.ACTION_MOVE -> if (event.pointerCount == 1) {
+                    strayY = kotlin.math.max(strayY, kotlin.math.abs(event.rawY - screenDownY))
                     if (resync) {
-                        lastX = event.x
-                        lastY = event.y
+                        lastX = event.rawX
+                        lastY = event.rawY
                         travelled = 0f
                         resync = false
                     } else {
-                        val dx = event.x - lastX
-                        val dy = event.y - lastY
-                        lastX = event.x
-                        lastY = event.y
+                        val dx = event.rawX - lastX
+                        val dy = event.rawY - lastY
+                        lastX = event.rawX
+                        lastY = event.rawY
                         if (kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
                             // Distance in one direction; it starts over when the finger turns around.
                             travelled = if (travelled * dy < 0f) dy else travelled + dy
@@ -708,12 +791,47 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
     }
 
+    /**
+     * A quick sideways swipe across the browsing page, toward the middle of the screen from the side where the drawer
+     * is (to the left in Arabic, where the drawer is on the right), opens the side menu: the same drawer as the
+     * three-bars button, without reaching for the button or for the screen's edge (where the system's own Back
+     * gesture sits). [dx] is how far the finger went sideways (the sign tells which way), [stray] the most it went up
+     * or down, and [duration] how long the touch lasted.
+     *
+     * Only a clearly sideways, long and quick swipe counts, so scrolling the page (even with a drift) and slow drags
+     * never open it. A row inside the page that scrolls sideways (YouTube's chips, the Shorts shelf), or a slider,
+     * keeps its own swipe: the page is asked what is under the place where the touch began ([SWIPE_PROBE_JS]) and the
+     * menu opens only when it is not one of those.
+     */
+    private fun openSideMenuBySwipe(startX: Float, startY: Float, dx: Float, stray: Float, duration: Long) {
+        if (!sideMenuMayOpenBySwipe()) return
+        val towardMiddle = if (drawerLayout.layoutDirection == View.LAYOUT_DIRECTION_RTL) -dx else dx
+        val density = resources.displayMetrics.density
+        if (towardMiddle < SIDE_SWIPE_MIN_DP * density) return
+        if (stray > towardMiddle * SIDE_SWIPE_MAX_SLANT || duration > SIDE_SWIPE_MAX_MS) return
+        val js = "$SWIPE_PROBE_JS(${(startX / density).toInt()},${(startY / density).toInt()})"
+        webView.evaluateJavascript(js) { insideScroller ->
+            // "false" only: a page that cannot answer (still loading, an error page) does not open the menu.
+            if (insideScroller == "false") openSideMenuFromSwipe()
+        }
+    }
+
+    /** A swipe opens the side menu only in that mode, when it is not open yet, and not over a full screen video or the little window. */
+    private fun sideMenuMayOpenBySwipe(): Boolean =
+        !isDestroyed && prefs.sideMenu && ::sideMenu.isInitialized && !sideMenu.isOpen() &&
+            !isFullscreen && !pipUiOn && playerHost.mode != PlayerHost.Mode.EXPANDED
+
+    /** Opens the side menu for a swipe (also the one on the Subscriptions screen), if it may open now. */
+    private fun openSideMenuFromSwipe() {
+        if (sideMenuMayOpenBySwipe()) sideMenu.open()
+    }
+
     private fun onPageScrolled(down: Boolean) {
-        if (!prefs.autoHideBar || prefs.sideMenu || isFullscreen) return
+        if (!prefs.autoHideBar || isFullscreen) return
         if (playerHost.mode == PlayerHost.Mode.EXPANDED) return
-        // The load-error notice (with Refresh) is anchored to the bar: while it is up the bar must not slide away,
-        // or a drag on the error page would take the Refresh button with it.
-        if (down && errorSnackbar?.isShownOrQueued == true) return
+        // The load-error notice (with Refresh) is anchored to the bottom bar: while it is up the bar must not slide away,
+        // or a drag on the error page would take the Refresh button with it. (With the side menu it sits on the page.)
+        if (down && !prefs.sideMenu && errorSnackbar?.isShownOrQueued == true) return
         // Shorts swipe up and down all the time: keep the bar where it is reachable and do not resize the page.
         if (UrlUtils.isShortsPage(webView.url)) {
             setBarHidden(false)
@@ -1155,11 +1273,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     /** Hides ([show] = false) or brings back the status bar space, the bottom bar and the navigation space. */
     private fun showChrome(show: Boolean) {
         bottomBar.animate().cancel()
+        resetTopBarSlide()
         if (show) {
             statusBarSpace.visibility = View.VISIBLE
             bottomBar.translationY = 0f
             bottomBar.visibility = if (barHidden || prefs.sideMenu) View.GONE else View.VISIBLE
-            topBar.visibility = if (prefs.sideMenu) View.VISIBLE else View.GONE
+            topBar.visibility = if (prefs.sideMenu && !barHidden) View.VISIBLE else View.GONE
             navBarSpace.visibility = View.VISIBLE
             updateNavBarSpace()
         } else {
@@ -1773,6 +1892,26 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 "if(o==='auto'||o==='scroll'||o==='overlay')return false;}" +
                 "e=e.parentElement;}" +
                 "return true;}catch(err){return true;}})"
+
+        /**
+         * Called with the place of the finger (x, y in the page's pixels): true when something under it scrolls sideways
+         * (a row of chips, the Shorts shelf) or is a slider, which would take a sideways swipe for itself; false when
+         * the swipe is free to open the side menu. An error answers true, so a page that fails never opens it by mistake.
+         */
+        const val SWIPE_PROBE_JS =
+            "(function(x,y){try{" +
+                "var e=document.elementFromPoint(x,y);" +
+                "while(e&&e!==document.body&&e!==document.documentElement){" +
+                "if(e.tagName==='INPUT'&&e.type==='range')return true;" +
+                "if(e.scrollWidth>e.clientWidth+1){var o=getComputedStyle(e).overflowX;" +
+                "if(o==='auto'||o==='scroll'||o==='overlay')return true;}" +
+                "e=e.parentElement;}" +
+                "return false;}catch(err){return true;}})"
+
+        /** A swipe that opens the side menu: at least this long (dp), no slower than this, and not more slanted than this (up/down per sideways). */
+        const val SIDE_SWIPE_MIN_DP = 72f
+        const val SIDE_SWIPE_MAX_MS = 700L
+        const val SIDE_SWIPE_MAX_SLANT = 0.5f
 
         // Picture in picture. Android accepts window shapes between 1:2.39 and 2.39:1.
         const val ACTION_PIP_TOGGLE = "com.mwmods.wardtube.PIP_TOGGLE"

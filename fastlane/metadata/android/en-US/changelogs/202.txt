@@ -1,0 +1,1 @@
+Changed: in the Library the swipe between Video / Audio / Lyrics now follows your finger and slides the list in smoothly (it settles back if you let go early, and gives a little at the first and last filter).
