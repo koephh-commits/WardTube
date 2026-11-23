@@ -20,6 +20,10 @@ class NativeBridge(
     private val isMiniNow: () -> Boolean = { false },
     /** The shape (width / height) of the system's picture-in-picture window while the player is that window, else 0. Thread-safe too. */
     private val pipAspectNow: () -> Float = { 0f },
+    /** What the player's page says is playing (see [setPipVideo]): the picture's size, 0 x 0 when nothing that could be shown. Runs on the main thread. */
+    private val onPipVideo: (Int, Int) -> Unit = { _, _ -> },
+    /** May the page start its video again after a pause nobody asked for (see [canAutoResume])? Called on a WebView thread. */
+    private val canAutoResumeNow: () -> Boolean = { true },
 ) {
     private val main = Handler(Looper.getMainLooper())
 
@@ -59,5 +63,31 @@ class NativeBridge(
     @JavascriptInterface
     fun mediaPlaying() {
         MediaPlayerService.pauseForOtherMedia()
+    }
+
+    /**
+     * The player's page says what plays, at once, on every play / pause / end / resize of its video (the way NouTube's page
+     * arms its picture-in-picture window): the picture's size in pixels while a video that the little window could show is
+     * playing, 0 x 0 when none is. The app arms the window from it, so leaving the app right after a video starts (or
+     * right after it was paused) is handled correctly instead of waiting for the next poll.
+     */
+    @JavascriptInterface
+    fun setPipVideo(width: Int, height: Int) {
+        val w = width.coerceIn(0, MAX_VIDEO_SIDE)
+        val h = height.coerceIn(0, MAX_VIDEO_SIDE)
+        main.post { onPipVideo(w, h) }
+    }
+
+    /**
+     * Asked by the picture-in-picture guard of the page (wardtube.js, pipGuardTick) before it starts a video again that
+     * YouTube paused by itself (the way NouTube's background guard asks NouTubeI.canAutoResume): false while a call is on
+     * or ringing, because that pause is the system's and the video must stay paused until the person plays it.
+     */
+    @JavascriptInterface
+    fun canAutoResume(): Boolean = canAutoResumeNow()
+
+    private companion object {
+        /** No real picture is wider or higher; anything beyond is a wrong value. */
+        const val MAX_VIDEO_SIDE = 16384
     }
 }

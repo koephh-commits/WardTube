@@ -922,6 +922,7 @@
       // Back to the floating box (the full-screen player is told by markMini, which kicks the layout itself): YouTube's
       // player is sized for the page again, and is told the page changed.
       if (mini && cfg.route === 'player') kickLayout();
+      if (cfg.route === 'player') afterPipExit();
     }
   }
 
@@ -1035,6 +1036,242 @@
   // The script has just started in a new document: ask at once, before the first tick.
   keepTop();
   document.addEventListener('DOMContentLoaded', keepTop);
+
+  // ---- Picture in picture: what the page tells the app ---------------------------
+  // Ported from NouTube's player injection (content/picture-in-picture.ts). Two parts, only in the player's own page:
+  //  1. The page tells the app AT ONCE whether a picture that the little window could show is playing, and how big it is
+  //     (WardTubeNative.setPipVideo; 0 x 0 = nothing to show). The app used to learn it only from its own poll, which runs
+  //     every 3 seconds while the video is full screen: leaving the app within those seconds of pressing play found the
+  //     window not armed (no window at all), and leaving just after pausing still opened a window with a paused video.
+  //     NouTube does the same: the page reports on every play / pause / end / resize and the app arms itself from that.
+  //  2. The page's OUTER window size is kept at the screen's size. YouTube compares the outer window with the screen to
+  //     tell that it is in the little window (or in the background) and pauses the video there. The WebView reports its
+  //     own size as the outer size, so while the window shrank (a moment before the app lays the page out at full size
+  //     again) the player stopped by itself and the app had to start it again. innerWidth / innerHeight are left alone:
+  //     they are the real viewport, and the layout depends on them.
+  if (cfg.route === 'player') {
+    try {
+      var keepOuterSize = function (key, screenKey) {
+        var real = Object.getOwnPropertyDescriptor(window, key);
+        Object.defineProperty(window, key, {
+          configurable: true,
+          enumerable: true,
+          get: function () {
+            var own = 0, screenSize = 0;
+            try { own = real && real.get ? real.get.call(window) : (real ? real.value : 0); } catch (e) {}
+            try { screenSize = window.screen[screenKey] || 0; } catch (e) {}
+            return Math.max(own || 0, screenSize);
+          }
+        });
+      };
+      keepOuterSize('outerWidth', 'width');
+      keepOuterSize('outerHeight', 'height');
+    } catch (e) { /* never break the page */ }
+
+    var pipReported = '';
+    var reportPipVideo = function () {
+      var w = 0, h = 0;
+      try {
+        var v = currentVideo();
+        if (v && !v.paused && !v.ended && v.videoWidth > 0 && v.videoHeight > 0) {
+          w = v.videoWidth;
+          h = v.videoHeight;
+        }
+      } catch (e) {}
+      var key = w + 'x' + h;
+      if (key === pipReported) return;
+      try {
+        var bridge = window.WardTubeNative;
+        // An app without it keeps working: it still has its own poll.
+        if (!bridge || typeof bridge.setPipVideo !== 'function') return;
+        bridge.setPipVideo(w, h);
+        pipReported = key;
+      } catch (e) {}
+    };
+    // Media events do not bubble, and YouTube swaps the video element around: listen for them on the way down.
+    ['play', 'playing', 'pause', 'ended', 'emptied', 'loadedmetadata', 'resize'].forEach(function (type) {
+      document.addEventListener(type, reportPipVideo, true);
+    });
+    ['yt-navigate-finish', 'popstate'].forEach(function (type) {
+      window.addEventListener(type, reportPipVideo);
+    });
+    document.addEventListener('DOMContentLoaded', reportPipVideo);
+  }
+
+  // ---- Picture in picture: a pause that nobody asked for is undone ---------------------------------
+  // Ported from NouTube's background guard (content/background-guard.ts). The little window cannot be touched, so a pause
+  // that arrives while it is up did not come from the person: YouTube's page pauses a video by itself when the window
+  // shrinks or changes shape (its own checks on the viewport, the visibility, a "Continue watching?" prompt). The app
+  // used to start the video again only for the first 3 seconds after the window came, and only when the video had been
+  // in full screen: after that, and from the normal watch page, the video simply stopped after a few seconds.
+  //   - pipPlaying: the video has been playing and nobody has paused it on purpose since.
+  //   - pipUserPaused: the app paused it on purpose (the window's button, the notification, a headset, the sleep timer):
+  //     PlayerController tells the page through window.__wardtube.wantPlay, and such a pause is never fought.
+  // Only while the app says the window is up (pipAspect > 0). At most 3 tries in a row (the count starts again when the
+  // video is seen playing, or after 20 seconds), and none while a call is on (WardTubeNative.canAutoResume).
+  var pipPlaying = false;
+  var pipUserPaused = false;
+  var pipTries = 0;
+  var pipTryAt = 0;
+  var pipNavUntil = 0;
+
+  function pipGuardTick() {
+    try {
+      if (!(pipAspect > 0)) { pipTries = 0; return; }
+      var v = currentVideo();
+      if (!v) return;
+      if (!v.paused) { pipPlaying = true; pipTries = 0; return; }
+      if (v.ended || !pipPlaying || pipUserPaused) return;
+      var now = Date.now();
+      if (now - pipTryAt > 20000) pipTries = 0;
+      if (now < pipNavUntil || now - pipTryAt < 1200 || pipTries >= 3) return;
+      var bridge = window.WardTubeNative;
+      if (bridge && typeof bridge.canAutoResume === 'function' && !bridge.canAutoResume()) return;
+      pipTryAt = now;
+      pipTries++;
+      answerContinuePrompt();
+      var player = document.getElementById('movie_player');
+      if (player && typeof player.playVideo === 'function') player.playVideo();
+      var played = v.play();
+      if (played && typeof played.catch === 'function') played.catch(function () {});
+    } catch (e) { /* never break the page */ }
+  }
+
+  if (cfg.route === 'player') {
+    // A pause is looked at right away (not only at the next tick); the short wait lets a pause that YouTube follows with
+    // its own play settle first.
+    document.addEventListener('pause', function (e) {
+      if (pipAspect > 0 && e.target && e.target.tagName === 'VIDEO') setTimeout(pipGuardTick, 300);
+    }, true);
+    ['play', 'playing'].forEach(function (type) {
+      document.addEventListener(type, function (e) {
+        if (e.target && e.target.tagName === 'VIDEO') { pipPlaying = true; pipUserPaused = false; }
+      }, true);
+    });
+    document.addEventListener('ended', function (e) {
+      if (e.target && e.target.tagName === 'VIDEO') pipPlaying = false;
+    }, true);
+    // Next / previous from the window: the old video pauses while the page changes over, that is not a pause to undo.
+    window.addEventListener('yt-navigate-start', function () { pipNavUntil = Date.now() + 1500; });
+    setInterval(pipGuardTick, 1000);
+  }
+
+  // ---- After the picture in picture window: the picture is looked after until it is sure to show --------------------
+  // Leaving the window used to leave the video black now and then: it showed for a moment, then the picture was gone and the
+  // sound went on. Three things, in the order NouTube's setPictureInPicture(false) does them (content/picture-in-picture.ts)
+  // and one more that it does not need:
+  //  1. At once: the window's rules are gone (markPip). The app held the window's picture until its window had its size
+  //     back (PlayerHost.exitHolding), so the page now sees ONE real change of size, to its final one.
+  //  2. A short while later (NouTube waits 500 ms, "the full-size viewport settles"): YouTube is told the viewport changed
+  //     (resize) and a video that was playing and was paused by the page meanwhile is played again (never one the person
+  //     or the app paused on purpose, see pipUserPaused).
+  //  3. The picture's layer is nudged (a harmless will-change toggle makes the browser build the video's layer again).
+  //  4. For a few seconds the picture is WATCHED: a video that plays (its time moves) while the number of pictures shown
+  //     does not move is a black one. It is brought back step by step: a seek to the same place, then the video element taken
+  //     out of the layout and put back, and only if it is still black, the page is opened again at the same second.
+  var exitWatch = null;
+
+  function pokeVideoLayer() {
+    try {
+      var v = currentVideo();
+      if (!v || !v.style) return;
+      var old = v.style.willChange;
+      v.style.willChange = 'transform';
+      setTimeout(function () { try { v.style.willChange = old || ''; } catch (e) {} }, 120);
+    } catch (e) {}
+  }
+
+  function fireResize() {
+    try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+  }
+
+  function afterPipExit() {
+    var wasPlaying = false;
+    try {
+      var v = currentVideo();
+      wasPlaying = !!(v && !v.paused && !v.ended) || !!(pipPlaying && !pipUserPaused);
+    } catch (e) {}
+    exitWatch = { until: Date.now() + 14000, frames: -1, time: -1, stalledAt: 0, step: 0 };
+    setTimeout(pokeVideoLayer, 150);
+    setTimeout(function () {
+      if (pipAspect > 0) return; // back in the window meanwhile
+      fireResize();
+      pokeVideoLayer();
+      try {
+        var v = currentVideo();
+        if (wasPlaying && !pipUserPaused && v && v.paused && !v.ended) {
+          var player = document.getElementById('movie_player');
+          if (player && typeof player.playVideo === 'function') player.playVideo();
+          else { var played = v.play(); if (played && typeof played.catch === 'function') played.catch(function () {}); }
+        }
+      } catch (e) {}
+    }, 500);
+    setTimeout(function () { if (pipAspect <= 0) fireResize(); }, 1500);
+  }
+
+  function reopenAt(seconds) {
+    try {
+      var u = new URL(location.href);
+      if (seconds >= 3) u.searchParams.set('t', Math.floor(seconds) + 's');
+      location.replace(u.href);
+    } catch (e) {}
+  }
+
+  function recoverPicture(v) {
+    var step = exitWatch.step++;
+    var player = document.getElementById('movie_player');
+    if (step === 0) {
+      fireResize();
+      if (player && typeof player.seekTo === 'function' && typeof player.getCurrentTime === 'function') {
+        player.seekTo(player.getCurrentTime(), true);
+      } else {
+        v.currentTime = v.currentTime;
+      }
+    } else if (step === 1) {
+      var shown = v.style.display;
+      v.style.display = 'none';
+      void v.offsetHeight; // the layout notices the video is gone, so the layer is built again when it comes back
+      v.style.display = shown;
+      fireResize();
+      pokeVideoLayer();
+    } else if (step === 2) {
+      reopenAt(v.currentTime || 0);
+    }
+  }
+
+  function renderTick() {
+    var w = exitWatch;
+    if (!w) return;
+    var now = Date.now();
+    if (now > w.until || pipAspect > 0) { exitWatch = null; return; }
+    try {
+      var v = currentVideo();
+      // Only a video that plays and has a picture to show is looked at (a paused, ended, buffering or seeking one is not black).
+      if (!v || v.paused || v.ended || v.seeking || v.readyState < 3 || !(v.videoWidth > 0) ||
+          typeof v.getVideoPlaybackQuality !== 'function') {
+        w.stalledAt = 0;
+        w.frames = -1;
+        return;
+      }
+      var frames = v.getVideoPlaybackQuality().totalVideoFrames;
+      var t = v.currentTime;
+      if (w.frames < 0 || frames > w.frames) { // pictures are being shown
+        w.frames = frames;
+        w.time = t;
+        w.stalledAt = 0;
+        return;
+      }
+      if (t - w.time < 0.5) return; // the time does not move either: that is buffering, not a black picture
+      if (!w.stalledAt) w.stalledAt = now;
+      if (now - w.stalledAt < 1500) return;
+      recoverPicture(v);
+      w.stalledAt = now;
+      w.frames = frames;
+      w.time = t;
+    } catch (e) { /* never break the page */ }
+  }
+
+  if (cfg.route === 'player') setInterval(renderTick, 500);
 
   // ---- "Open app" button ---------------------------------------------------
   // m.youtube.com puts an "Open app" pill in the top bar of the pages (video pages included). Inside this app it only
@@ -1190,6 +1427,163 @@
     hideOpenAppRows();
   });
 
+  // ---- Comments of a post (browsing page) ------------------------------------------
+  // The Subscriptions tab of the app opens a post's page with "#wt-comments" after its address when the comments count under
+  // the post's card was tapped. The page then shows YouTube's own list of comments: it is brought into view (and opened, when
+  // YouTube keeps it behind a "Comments" row). The box to write in is NEVER opened here: nothing gets the cursor and the
+  // keyboard stays down, so the comments can be read; the person taps the box themselves when they want to write.
+  // Nothing here knows YouTube's markup for certain, so it looks in a few known places, opens what leads to the list a few
+  // times at most, and gives up after about 15 seconds or at the first touch of the person, so it never fights what they do.
+  if (cfg.route === 'browse') {
+    (function () {
+      var HASH = '#wt-comments';
+      // A comment of the list: when one is on view, the list is.
+      var COMMENTS = ['ytm-comment-thread-renderer', 'ytm-comment-renderer'];
+      // Where the list will be (it is filled in when it comes near the screen): scrolled to, so YouTube loads it.
+      var HOLDERS = [
+        'ytm-comment-section-renderer',
+        'ytm-item-section-renderer[section-identifier="comment-item-section"]',
+        'ytm-item-section-renderer[section-identifier="comments-section"]'
+      ];
+      // What opens the list when YouTube keeps it behind a row. The "Add a comment" row is not here on purpose: it opens the box to write in.
+      var OPENERS = ['ytm-comments-entry-point-header-renderer', 'ytm-comments-entry-point-teaser-renderer'];
+      // Everything that belongs to writing a comment: never clicked, never kept in view.
+      var WRITING = 'ytm-comment-simplebox-renderer, ytm-comment-dialog-renderer';
+      var timer = 0, ticksLeft = 0, clicks = 0, namedClicks = 0, lastClick = 0, settled = 0, pushes = 0, lastPush = 0;
+
+      // Asked for by the app (the mark after the address); YouTube may drop the mark while it loads, so it is read once.
+      var armed = location.hash === HASH && /^\/post\//.test(location.pathname);
+      function wanted() { return armed && /^\/post\//.test(location.pathname); }
+
+      function shown(el) {
+        try {
+          var r = el.getBoundingClientRect();
+          if (r.width < 4 || r.height < 4) return false;
+          var cs = getComputedStyle(el);
+          return cs.display !== 'none' && cs.visibility !== 'hidden';
+        } catch (e) { return false; }
+      }
+
+      function isEditable(el) {
+        return el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable === true;
+      }
+
+      function inWriting(el) {
+        try { return !!(el.closest && el.closest(WRITING)); } catch (e) { return false; }
+      }
+
+      function findFirst(list, accept) {
+        for (var i = 0; i < list.length; i++) {
+          var found = document.querySelectorAll(list[i]);
+          for (var j = 0; j < found.length; j++) {
+            if (shown(found[j]) && !inWriting(found[j]) && (!accept || accept(found[j]))) return found[j];
+          }
+        }
+        return null;
+      }
+
+      // A button of the page that is named for comments, as the last way to the list (never a single comment's own buttons,
+      // never the box to write in).
+      function findNamedButton() {
+        var buttons = document.querySelectorAll('button[aria-label], [role="button"][aria-label]');
+        for (var i = 0; i < buttons.length; i++) {
+          var b = buttons[i];
+          if (!/comment|تعليق|commentaire|comentario|kommentar|коммент/i.test(b.getAttribute('aria-label') || '')) continue;
+          if (inWriting(b)) continue;
+          if (b.closest && b.closest('ytm-comment-renderer, ytm-comment-thread-renderer, ytm-comment-replies-renderer')) continue;
+          if (shown(b)) return b;
+        }
+        return null;
+      }
+
+      function stop() {
+        if (timer) { clearInterval(timer); timer = 0; }
+        window.removeEventListener('touchstart', stop, true);
+      }
+
+      // If the page put the cursor in a box on its own, take it away again: the keyboard must not come up by itself.
+      function dropCursor() {
+        try {
+          var a = document.activeElement;
+          if (a && a !== document.body && isEditable(a) && a.blur) a.blur();
+        } catch (e) {}
+      }
+
+      // Bring an element to the top of the window, a little below the page's own bar.
+      function bring(el) {
+        try { el.scrollIntoView({ block: 'start' }); } catch (e) {}
+        try { if ((window.scrollY || 0) > 56) window.scrollBy(0, -56); } catch (e) {}
+      }
+
+      function onView(el) {
+        try {
+          var r = el.getBoundingClientRect();
+          var h = window.innerHeight || 0;
+          return r.top >= 0 && r.top < h * 0.6;
+        } catch (e) { return false; }
+      }
+
+      function tick() {
+        if (!wanted() || --ticksLeft < 0) { stop(); return; }
+        try {
+          dropCursor();
+          var now = Date.now();
+          var comment = findFirst(COMMENTS);
+          if (comment) {
+            // The list is there: keep its first comment on view for a moment (the page above it may still change its height).
+            if (onView(comment)) {
+              if (++settled >= 3) {
+                stop();
+                // The mark is not needed any more: the page reloaded would not scroll again.
+                try { history.replaceState(history.state, '', location.pathname + location.search); } catch (e) {}
+              }
+            } else {
+              settled = 0;
+              bring(comment);
+            }
+            return;
+          }
+          settled = 0;
+          // Where the list will be: scroll to it, which makes YouTube fill it in.
+          var holder = findFirst(HOLDERS);
+          if (holder && !onView(holder)) { bring(holder); return; }
+          // What leads to the list (a "Comments" row).
+          if (clicks < 4 && now - lastClick > 900) {
+            var opener = findFirst(OPENERS);
+            if (opener) {
+              clicks++;
+              lastClick = now;
+              opener.click();
+              return;
+            }
+          }
+          // Nothing named yet: after 3 seconds, a button named for comments (twice at most).
+          if (ticksLeft < 48 && namedClicks < 2 && now - lastClick > 900) {
+            var named = findNamedButton();
+            if (named) {
+              namedClicks++;
+              lastClick = now;
+              named.click();
+              return;
+            }
+          }
+          // The list sits further down and the page has not made a place for it yet: a screen further down, now and then.
+          if (!holder && pushes < 5 && now - lastPush > 1500) {
+            pushes++;
+            lastPush = now;
+            window.scrollBy(0, Math.round((window.innerHeight || 600) * 0.8));
+          }
+        } catch (e) { /* try again at the next tick */ }
+      }
+
+      if (armed) {
+        ticksLeft = 60; // 60 x 250 ms
+        window.addEventListener('touchstart', stop, true);
+        timer = setInterval(tick, 250);
+      }
+    })();
+  }
+
   // ---- Timer --------------------------------------------------------------
 
   var ticks = 0;
@@ -1260,6 +1654,14 @@
       mini = !!on;
       pipAspect = mini && aspect > 0 ? +aspect : 0;
       keepTop();
+    },
+    /**
+     * The app plays (on = true) or pauses (on = false) on purpose, through PlayerController: a pause the app asked for is not
+     * undone by the picture-in-picture guard (see pipGuardTick).
+     */
+    wantPlay: function (on) {
+      pipUserPaused = !on;
+      if (on) { pipPlaying = true; pipTries = 0; }
     },
     /**
      * The app asks the page to lay itself out again. YouTube sizes its player (and the picture inside it) when the page

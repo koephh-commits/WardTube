@@ -1642,6 +1642,17 @@ class SubsController(
         )
     }
 
+    /**
+     * The comments of a post: YouTube's page of the post opens (as for a tap on the card) with [COMMENTS_HASH] after its
+     * address, which tells the page script (wardtube.js, "Comments of a post") to bring the list of comments into view.
+     * The box to write in is not opened and the keyboard stays down: the person taps the box when they want to write.
+     */
+    override fun onPostComments(video: SubsVideo) {
+        if (released) return
+        startHold()
+        openUrl("${SubsRepository.MOBILE_SITE}/post/${video.id}$COMMENTS_HASH")
+    }
+
     /** A link inside a post's text, or the video attached to a post: a video plays, a YouTube page opens, another site goes to the phone's browser. */
     override fun onLink(url: String) {
         if (released) return
@@ -1655,6 +1666,26 @@ class SubsController(
         }
         if (!UrlUtils.isVideoUrl(url)) startHold() // a page: the screen stays over the old one until it is on view
         openUrl(url)
+    }
+
+    /** A vote or a like made on a post's card: YouTube's command for it is run with the account's cookies, here, with no page opened. */
+    override fun onPostCommand(command: String, done: (String?) -> Unit) {
+        if (released) return
+        val cookie = cookie()
+        val known = apiAccess
+        pool.execute {
+            // Unlike the video menu's actions, the reason is kept: a vote or a like that YouTube refuses is told with it.
+            var reason: String? = null
+            try {
+                val access = known ?: SubsRepository.fetchApiAccess(cookie)
+                if (known == null) apiAccess = access
+                SubsRepository.runCommand(access, command, cookie)
+            } catch (e: Exception) {
+                reason = e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
+            }
+            val answer = reason
+            main.post { if (!released) done(answer) }
+        }
     }
 
     /** The three dots of a card: the menu of what can be done with the video (or the post), like the YouTube app's. */
@@ -1941,6 +1972,9 @@ class SubsController(
 
         /** The screen stays over a channel's page that is still loading for this long at most (see [holding]). */
         const val HOLD_MAX_MS = 12_000L
+
+        /** What follows a post's address when its comments were asked for: the page script (wardtube.js) looks for it. */
+        const val COMMENTS_HASH = "#wt-comments"
 
         /**
          * The feed stops growing here: every page that arrives rebuilds the whole list on the main thread, so a very

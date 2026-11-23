@@ -1,0 +1,1 @@
+Fixed: Picture-in-Picture now switches on the way NouTube does it — the player tells the app the instant a video plays or pauses, so leaving the app right after pressing play opens the small window every time (and no window opens for a paused video). YouTube is also kept from pausing the video while the window shrinks.

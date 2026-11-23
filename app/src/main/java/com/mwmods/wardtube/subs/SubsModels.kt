@@ -38,8 +38,24 @@ data class SubsVideo(
 /** A link inside the text of a post: the characters from [start] to [end] (not included) open [url]. */
 data class PostLink(val start: Int, val end: Int, val url: String)
 
-/** One choice of a poll: its words and its picture (both may be empty, not both at once). */
-data class PostChoice(val text: String, val image: String = "")
+/**
+ * One choice of a poll: its words and its picture (both may be empty, not both at once). The rest is what lets the
+ * app vote itself, from the card, without opening the post's page:
+ *  - [select] / [deselect]: YouTube's own commands for voting for this choice and for taking the vote back (JSON text
+ *    as YouTube wrote them, or empty when the page gave none: the card then opens the post, as it always did);
+ *  - [shareIfSelected] / [shareIfNotSelected]: what the choice's share reads ("69%") once the account has voted, when
+ *    this choice is the one it voted for and when it is another one (YouTube sends both, counting the vote in);
+ *  - [selected]: YouTube said the account already voted for this choice.
+ */
+data class PostChoice(
+    val text: String,
+    val image: String = "",
+    val select: String = "",
+    val deselect: String = "",
+    val shareIfSelected: String = "",
+    val shareIfNotSelected: String = "",
+    val selected: Boolean = false,
+)
 
 /**
  * A post of a channel (what YouTube calls a community post), as its card shows it: the words (with their [links]), then
@@ -60,6 +76,14 @@ data class SubsPost(
     val videoTitle: String = "",
     val likes: String = "",
     val comments: String = "",
+    /**
+     * YouTube's own commands for liking the post and for taking the like back (JSON text, or empty when the page gave
+     * none), and whether the account has liked it already. With a command the like button of the card works by
+     * itself; without one a tap on it opens the post.
+     */
+    val likeCommand: String = "",
+    val unlikeCommand: String = "",
+    val liked: Boolean = false,
 )
 
 /**

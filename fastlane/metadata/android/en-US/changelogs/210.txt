@@ -1,0 +1,1 @@
+Fixed: the video no longer stops after a few seconds inside the Picture-in-Picture window. If YouTube pauses it by itself, it is started again, as in NouTube. A pause you ask for (the window's button, the notification) is respected.

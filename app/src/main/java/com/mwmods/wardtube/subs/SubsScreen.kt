@@ -11,7 +11,9 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Typeface
+import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.icu.text.CompactDecimalFormat
 import android.text.Editable
 import android.text.SpannableString
@@ -35,6 +37,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -69,6 +72,9 @@ private const val ALL_WIDTH_DP = 64
 /** A post's words show this many lines at most (the rest is on the post's own page, one tap away). */
 private const val POST_MAX_LINES = 12
 
+/** What a post's card remembers of a vote when the person has not voted on it in this session: its own data says. */
+private const val CHOICE_UNSET = -2
+
 /** How many times the strip may be put back at its first channel by the layout listener (a guard against a loop). */
 private const val MAX_PIN_CORRECTIONS = 8
 
@@ -88,6 +94,9 @@ interface SubsListener {
 
     fun onVideo(video: SubsVideo)
 
+    /** The comments count under a post was tapped: YouTube's page of the post opens with its list of comments on view (the keyboard stays down). */
+    fun onPostComments(video: SubsVideo)
+
     /** The three dots of a video's card were tapped: [anchor] is the button, the menu opens beside it. */
     fun onVideoMenu(video: SubsVideo, anchor: View)
 
@@ -99,6 +108,13 @@ interface SubsListener {
 
     /** A link inside a post's text, or the video attached to a post, was tapped. */
     fun onLink(url: String)
+
+    /**
+     * A vote of a post's poll or its like was tapped: [command] is YouTube's own command for it (JSON text, as the post
+     * carried it). The owner runs it as the signed-in account; [done] is told on the main thread: null when it went
+     * through, else a short reason it did not (shown to the person, so a refusal can be told apart from a lost connection).
+     */
+    fun onPostCommand(command: String, done: (String?) -> Unit)
 
     /** A chip was chosen (one of [SubsFilter]). */
     fun onFilter(filter: Int)
@@ -211,6 +227,9 @@ class SubsScreen(
     private val refresh = SwipeRefreshLayout(context)
     private val list = RecyclerView(context)
     private val listAdapter = VideoAdapter()
+
+    /** What was done on each post's card in this session, by the post's id (see [PostLive]). */
+    private val postLive = HashMap<String, PostLive>()
 
     /** What stands where the list is empty: a skeleton while it loads, a note when there is nothing, "Try again" when a read failed. */
     private val stateBox = FrameLayout(context)
@@ -1366,6 +1385,12 @@ class SubsScreen(
 
         fun isFooter(position: Int): Boolean = rows.getOrNull(position) is Row.Footer
 
+        /** Draws the card of the post [id] again (a vote or a like was made on it, or was refused). */
+        fun rebindPost(id: String) {
+            val position = rows.indexOfFirst { it is Row.Post && it.video.id == id }
+            if (position >= 0) notifyItemChanged(position)
+        }
+
         override fun getItemCount(): Int = rows.size
 
         override fun getItemViewType(position: Int): Int =
@@ -1551,7 +1576,18 @@ class SubsScreen(
     // ---- The posts ----
 
     /** A count under a post (likes, comments): its small picture and its text. */
-    private class CountView(val group: LinearLayout, val label: TextView)
+    private class CountView(val group: LinearLayout, val icon: ImageView, val label: TextView)
+
+    /**
+     * What the person did on a post's card in this session (a vote, a like), drawn over what the post's data says.
+     * [choice] is the voted choice's index ([CHOICE_UNSET]: the post's data says; -1: no vote), [liked] null until the
+     * like was tapped, [busy] while YouTube is being asked (a second tap is ignored).
+     */
+    private class PostLive {
+        var choice = CHOICE_UNSET
+        var liked: Boolean? = null
+        var busy = false
+    }
 
     private class PostHolder(
         root: View,
@@ -1634,12 +1670,13 @@ class SubsScreen(
         val actions = LinearLayout(context)
         actions.orientation = LinearLayout.HORIZONTAL
         actions.gravity = Gravity.CENTER_VERTICAL
-        actions.setPadding(dp(16), dp(10), dp(16), dp(12))
+        // The counts carry 6 dp of their own padding (the like button's touch target): the row keeps the places they had.
+        actions.setPadding(dp(10), dp(4), dp(10), dp(6))
         val likes = countView(R.drawable.ic_thumb_up_24dp)
         val comments = countView(R.drawable.ic_comment_24dp)
         actions.addView(likes.group, LinearLayout.LayoutParams(WRAP, WRAP))
         val commentsParams = LinearLayout.LayoutParams(WRAP, WRAP)
-        commentsParams.marginStart = dp(28)
+        commentsParams.marginStart = dp(16)
         actions.addView(comments.group, commentsParams)
         card.addView(actions, LinearLayout.LayoutParams(MATCH, WRAP))
 
@@ -1654,6 +1691,7 @@ class SubsScreen(
         val group = LinearLayout(context)
         group.orientation = LinearLayout.HORIZONTAL
         group.gravity = Gravity.CENTER_VERTICAL
+        group.setPadding(dp(6), dp(6), dp(6), dp(6))
         val picture = ImageView(context)
         picture.setImageResource(icon)
         picture.imageTintList = ColorStateList.valueOf(palette.text)
@@ -1664,7 +1702,7 @@ class SubsScreen(
         val labelParams = LinearLayout.LayoutParams(WRAP, WRAP)
         labelParams.marginStart = dp(8)
         group.addView(label, labelParams)
-        return CountView(group, label)
+        return CountView(group, picture, label)
     }
 
     private fun bindPost(holder: PostHolder, video: SubsVideo, avatars: Map<String, String>) {
@@ -1678,13 +1716,37 @@ class SubsScreen(
         holder.text.visibility = if (post.text.isEmpty()) View.GONE else View.VISIBLE
         holder.text.text = linkedText(post)
         holder.media.removeAllViews()
-        addPostMedia(holder.media, post)
+        addPostMedia(holder.media, video)
 
-        holder.likes.label.text = post.likes
-        holder.likes.group.visibility = if (post.likes.isEmpty()) View.GONE else View.VISIBLE
+        // The like: what the person did here over what the post says; with a command of YouTube's it works from the card.
+        val live = postLive[video.id]
+        val likedHere = live?.liked
+        val liked = likedHere ?: post.liked
+        val likeText = if (likedHere != null && likedHere != post.liked) bumpCount(post.likes, if (likedHere) 1 else -1) else post.likes
+        val canLike = post.likeCommand.isNotEmpty() || post.unlikeCommand.isNotEmpty()
+        val likeColour = if (liked) palette.accent else palette.text
+        holder.likes.label.text = likeText
+        holder.likes.label.setTextColor(likeColour)
+        holder.likes.icon.imageTintList = ColorStateList.valueOf(likeColour)
+        holder.likes.group.visibility = if (likeText.isEmpty() && !canLike) View.GONE else View.VISIBLE
+        if (canLike) {
+            holder.likes.group.isClickable = true
+            holder.likes.group.background = selectableBackground()
+            holder.likes.group.setOnClickListener { toggleLike(video) }
+        } else {
+            // No command from YouTube (an older saved copy, say): the tap falls through to the card, which opens the post.
+            holder.likes.group.setOnClickListener(null)
+            holder.likes.group.isClickable = false
+            holder.likes.group.background = null
+        }
         holder.comments.label.text = post.comments
         holder.comments.group.visibility = if (post.comments.isEmpty()) View.GONE else View.VISIBLE
-        holder.actions.visibility = if (post.likes.isEmpty() && post.comments.isEmpty()) View.GONE else View.VISIBLE
+        // The comments: a tap opens YouTube's own comments of the post (the list of comments, to read; the keyboard stays down).
+        holder.comments.group.isClickable = true
+        holder.comments.group.background = selectableBackground()
+        holder.comments.group.setOnClickListener { listener.onPostComments(video) }
+        holder.actions.visibility =
+            if (holder.likes.group.visibility == View.GONE && post.comments.isEmpty()) View.GONE else View.VISIBLE
 
         holder.itemView.setOnClickListener { listener.onVideo(video) }
         holder.more.setOnClickListener { listener.onVideoMenu(video, it) }
@@ -1739,9 +1801,10 @@ class SubsScreen(
     }
 
     /** What is attached to a post, in the order YouTube shows it: pictures, a poll, a video. */
-    private fun addPostMedia(box: LinearLayout, post: SubsPost) {
+    private fun addPostMedia(box: LinearLayout, video: SubsVideo) {
+        val post = video.post ?: return
         if (post.images.isNotEmpty()) box.addView(postPicture(post.images), LinearLayout.LayoutParams(MATCH, WRAP))
-        if (post.choices.isNotEmpty()) addPoll(box, post)
+        if (post.choices.isNotEmpty()) addPoll(box, video)
         if (post.videoId.isNotEmpty()) box.addView(attachedVideo(post), LinearLayout.LayoutParams(MATCH, WRAP))
     }
 
@@ -1771,19 +1834,43 @@ class SubsScreen(
         return frame
     }
 
-    /** A poll: a bordered row for each choice (its picture first, then its words), and the votes under them. */
-    private fun addPoll(box: LinearLayout, post: SubsPost) {
-        for (choice in post.choices) {
+    /**
+     * A poll: a bordered row for each choice (its picture first, then its words), and the votes under them. A tap on a
+     * choice votes for it from here (a second tap on the voted one takes the vote back); once the account has voted
+     * each row shows its share, the voted one marked, as YouTube's own page does. A choice that has no command of
+     * YouTube's is not tappable: a tap on it opens the post, as it always did.
+     */
+    private fun addPoll(box: LinearLayout, video: SubsVideo) {
+        val post = video.post ?: return
+        val voted = votedIndex(post, postLive[video.id])
+        for ((index, choice) in post.choices.withIndex()) {
+            val mine = index == voted
+            val share = if (voted < 0) "" else if (mine) choice.shareIfSelected else choice.shareIfNotSelected
             val row = LinearLayout(context)
             row.orientation = LinearLayout.HORIZONTAL
             row.gravity = Gravity.CENTER_VERTICAL
             val border = GradientDrawable()
             border.setColor(Color.TRANSPARENT)
             border.cornerRadius = dp(12).toFloat()
-            border.setStroke(dp(2), palette.outline)
-            row.background = border
+            border.setStroke(dp(2), if (mine) palette.accent else palette.outline)
+            // The share as a bar behind the words: as long as the percentage says (clipped from the start side).
+            val percent = share.filter { it.isDigit() }.toIntOrNull()?.coerceIn(0, 100)
+            if (percent != null) {
+                val tint = if (mine) (palette.accent and 0x00FFFFFF) or 0x40000000 else palette.chip
+                val bar = ClipDrawable(rounded(tint, dp(12).toFloat()), Gravity.START, ClipDrawable.HORIZONTAL)
+                bar.level = percent * 100
+                row.background = LayerDrawable(arrayOf<android.graphics.drawable.Drawable>(bar, border))
+            } else {
+                row.background = border
+            }
             row.outlineProvider = roundedCorners
             row.clipToOutline = true
+            val tappable = if (mine) choice.deselect.isNotEmpty() else choice.select.isNotEmpty()
+            if (tappable) {
+                row.isClickable = true
+                row.foreground = selectableBackground()
+                row.setOnClickListener { vote(video, index) }
+            }
             if (choice.image.isNotEmpty()) {
                 val picture = ImageView(context)
                 picture.scaleType = ImageView.ScaleType.CENTER_CROP
@@ -1796,7 +1883,16 @@ class SubsScreen(
             words.textSize = 15f
             words.setTextColor(palette.text)
             words.setPadding(dp(16), dp(12), dp(16), dp(12))
+            if (mine) words.typeface = Typeface.DEFAULT_BOLD
             row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+            if (share.isNotEmpty()) {
+                val shareView = TextView(context)
+                shareView.text = share
+                shareView.textSize = 14f
+                shareView.setTextColor(if (mine) palette.accent else palette.secondary)
+                shareView.setPadding(0, dp(12), dp(16), dp(12))
+                row.addView(shareView, LinearLayout.LayoutParams(WRAP, WRAP))
+            }
             val params = LinearLayout.LayoutParams(MATCH, WRAP)
             params.setMargins(dp(16), dp(4), dp(16), dp(4))
             box.addView(row, params)
@@ -1809,6 +1905,73 @@ class SubsScreen(
             votes.setPadding(dp(16), dp(6), dp(16), 0)
             box.addView(votes, LinearLayout.LayoutParams(MATCH, WRAP))
         }
+    }
+
+    /** The index of the choice the account voted for in [post] (what was done here over what the post says), or -1 when none. */
+    private fun votedIndex(post: SubsPost, live: PostLive?): Int {
+        val here = live?.choice ?: CHOICE_UNSET
+        if (here != CHOICE_UNSET) return here
+        return post.choices.indexOfFirst { it.selected }
+    }
+
+    /**
+     * A tap on choice [index] of a post's poll: the vote (or, on the voted choice, taking it back) is drawn at once and
+     * sent to YouTube; if YouTube does not take it the card goes back to what it was and the person is told.
+     */
+    private fun vote(video: SubsVideo, index: Int) {
+        val post = video.post ?: return
+        val choice = post.choices.getOrNull(index) ?: return
+        val live = postLive.getOrPut(video.id) { PostLive() }
+        if (live.busy) return
+        val taking = votedIndex(post, live) == index
+        val command = if (taking) choice.deselect else choice.select
+        if (command.isEmpty()) return
+        val before = live.choice
+        live.choice = if (taking) -1 else index
+        live.busy = true
+        listAdapter.rebindPost(video.id)
+        listener.onPostCommand(command) { reason ->
+            live.busy = false
+            if (reason != null) {
+                live.choice = before
+                Toast.makeText(context, context.getString(R.string.subsPostFailed, reason), Toast.LENGTH_LONG).show()
+            }
+            listAdapter.rebindPost(video.id)
+        }
+    }
+
+    /** A tap on a post's like: the like (or taking it back) is drawn at once and sent; it goes back if YouTube does not take it. */
+    private fun toggleLike(video: SubsVideo) {
+        val post = video.post ?: return
+        val live = postLive.getOrPut(video.id) { PostLive() }
+        if (live.busy) return
+        val wasLiked = live.liked ?: post.liked
+        val command = if (wasLiked) post.unlikeCommand else post.likeCommand
+        if (command.isEmpty()) {
+            // YouTube gave no command for this direction: its own page of the post is the way.
+            listener.onVideo(video)
+            return
+        }
+        val before = live.liked
+        live.liked = !wasLiked
+        live.busy = true
+        listAdapter.rebindPost(video.id)
+        listener.onPostCommand(command) { reason ->
+            live.busy = false
+            if (reason != null) {
+                live.liked = before
+                Toast.makeText(context, context.getString(R.string.subsPostFailed, reason), Toast.LENGTH_LONG).show()
+            }
+            listAdapter.rebindPost(video.id)
+        }
+    }
+
+    /** YouTube's count text ("41") moved by [delta] when it is a plain number (an empty count is 0); a short form ("1.2K") stays as it is. */
+    private fun bumpCount(text: String, delta: Int): String {
+        val plain = text.trim()
+        if (plain.isEmpty()) return if (delta > 0) delta.toString() else ""
+        val number = plain.toIntOrNull() ?: return text
+        return (number + delta).coerceAtLeast(0).toString()
     }
 
     /** A video attached to a post: its picture and title; a tap plays it. */

@@ -1,0 +1,1 @@
+Fixed: in the Subscriptions page, a post's poll and its like now work right on the card — no need to open YouTube's page of the post. Tap a choice to vote (its share shows at once), tap it again to take the vote back, tap the thumb to like.

@@ -1,0 +1,1 @@
+Fixed: after leaving the Picture-in-Picture window the video no longer shows for a moment and then goes black while the sound plays on. The picture is held until the window has its full size back, and a picture that still goes black is brought back automatically.

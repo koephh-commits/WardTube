@@ -81,11 +81,16 @@ object PlayerController {
         if (webViewRef?.get() === webView) webViewRef = null
     }
 
-    fun play() = run("var v=$VIDEO;if(v)v.play();")
+    // Every play / pause the app asks for first tells the page (window.__wardtube.wantPlay) that it is on purpose: the page's
+    // picture-in-picture guard starts a video again that YouTube paused by itself, and must never fight a pause that
+    // came from the person (the window's button, the notification, a headset) or from the app (sleep timer, the Library).
+    private const val WANT_PLAY = "window.__wardtube&&window.__wardtube.wantPlay&&window.__wardtube.wantPlay"
 
-    fun pause() = run("var v=$VIDEO;if(v)v.pause();")
+    fun play() = run("var v=$VIDEO;$WANT_PLAY(true);if(v)v.play();")
 
-    fun toggle() = run("var v=$VIDEO;if(v){if(v.paused)v.play();else v.pause();}")
+    fun pause() = run("var v=$VIDEO;$WANT_PLAY(false);if(v)v.pause();")
+
+    fun toggle() = run("var v=$VIDEO;if(v){if(v.paused){$WANT_PLAY(true);v.play();}else{$WANT_PLAY(false);v.pause();}}")
 
     /**
      * Next video. Inside a playlist or mix the page script opens the item after the current one in the list itself

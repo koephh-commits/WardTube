@@ -148,6 +148,38 @@ class PlayerHost(
     var pipAspect: Float = 0f
         private set
 
+    // ---- Leaving the little window: hold the window's picture until the window has its size back ----
+    //
+    // Android reports "the window is not picture in picture any more" BEFORE its expansion animation has finished (NouTube's
+    // picture-in-picture.ts says the same: "Android reports PiP exit before the expansion animation has finished"). The area
+    // the WebView sits in is then still small and landscape-shaped for a moment, and it grows through several in-between sizes.
+    // The player used to be laid out for the full-size page at once, so YouTube's page was shown those in-between viewports
+    // (a small landscape one first: YouTube takes that for a phone turned sideways and goes into its full-screen layout, then
+    // back to upright), and its player could be left sized for one of them: the video showed for a moment and then went black
+    // while the sound played on. Now the window's picture is kept (the page stays pinned to the picture in picture shape and
+    // the WebView keeps the upright layout it had, only scaled to whatever the area is, see [applyPip]) until the area has
+    // stopped changing size; the page then goes back to its real layout in ONE step, at its final size. The page is also not
+    // let into full screen meanwhile ([exitHolding], read by MainActivity).
+    @Volatile
+    var exitHolding: Boolean = false
+        private set
+    private var exitHoldStartedAt = 0L
+    private var areaChangedAt = 0L
+    private val finishExitHold = object : Runnable {
+        override fun run() {
+            if (!exitHolding) return
+            if (!pip || webView == null) {
+                exitHolding = false
+                return
+            }
+            val now = SystemClock.uptimeMillis()
+            val quiet = now - areaChangedAt >= EXIT_HOLD_QUIET_MS
+            val minimum = now - exitHoldStartedAt >= EXIT_HOLD_MIN_MS
+            if ((quiet && minimum) || now - exitHoldStartedAt >= EXIT_HOLD_MAX_MS) completeExit()
+            else area.postDelayed(this, EXIT_HOLD_POLL_MS)
+        }
+    }
+
     // The window was left (the person tapped it, or Android 12+ gave the app its full size back): the player goes back to
     // full screen or to the floating box in one step, while the window is still growing and the page is still being sized
     // by YouTube. It used to stop there, and YouTube's player could be left sized for one of the in-between moments (the
@@ -415,6 +447,7 @@ class PlayerHost(
         area.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             val widthChanged = right - left != oldRight - oldLeft
             val heightChanged = bottom - top != oldBottom - oldTop
+            if (widthChanged || heightChanged) areaChangedAt = SystemClock.uptimeMillis()
             if (pip) {
                 // The little window came out another size (the system lets the person make it bigger or smaller): the
                 // video's box is fitted into it again.
@@ -781,6 +814,12 @@ class PlayerHost(
      */
     fun enterPip(pageWidth: Int, pageHeight: Int, aspect: Float) {
         val view = webView ?: return
+        // Back into the window while the last one was still being held (see [exitHolding]): it is set up again from scratch.
+        if (exitHolding) {
+            exitHolding = false
+            area.removeCallbacks(finishExitHold)
+            pip = false
+        }
         if (mode == Mode.NONE || pip) return
         pip = true
         stopExitSettle()
@@ -812,9 +851,26 @@ class PlayerHost(
         area.removeCallbacks(remeasure) // the floating box's look at the page stops: nothing is measured in the window
     }
 
-    /** The window is the app again: the player goes back to what it was before, full screen or the floating box. */
+    /**
+     * The window is the app again (or it was closed): the player goes back to what it was before, full screen or the floating
+     * box, once the window has its size back (see [exitHolding]); until then the window's picture is kept.
+     */
     fun exitPip() {
-        if (!pip) return
+        if (!pip || exitHolding) return
+        exitHolding = true
+        val now = SystemClock.uptimeMillis()
+        exitHoldStartedAt = now
+        areaChangedAt = now
+        area.removeCallbacks(finishExitHold)
+        area.postDelayed(finishExitHold, EXIT_HOLD_POLL_MS)
+    }
+
+    /** The window has its size back: the player is laid out for real, in one step. */
+    private fun completeExit() {
+        if (!pip) {
+            exitHolding = false
+            return
+        }
         endPip()
         when (mode) {
             Mode.EXPANDED -> expand()
@@ -834,6 +890,8 @@ class PlayerHost(
 
     /** Drops the picture-in-picture state; the caller lays the player out again for the mode it is in. */
     private fun endPip() {
+        exitHolding = false
+        area.removeCallbacks(finishExitHold)
         if (!pip) return
         pip = false
         pipAspect = 0f // the page is told by the caller (tellPageMini / expand) and finds out by itself on its next tick
@@ -1341,6 +1399,12 @@ class PlayerHost(
         const val EXIT_NUDGE_FIRST = 1
         const val EXIT_NUDGE_SECOND = 4
         const val RESIZE_SCRIPT = "try{window.dispatchEvent(new Event('resize'))}catch(e){}"
+        // Leaving the little window (see exitHolding): the window's picture is kept for at least MIN, until the area has not
+        // changed size for QUIET, and never longer than MAX (a window that is closed does not grow at all).
+        const val EXIT_HOLD_MIN_MS = 350L
+        const val EXIT_HOLD_QUIET_MS = 150L
+        const val EXIT_HOLD_MAX_MS = 1200L
+        const val EXIT_HOLD_POLL_MS = 50L
         const val SNAP_MS = 180L
         const val FADE_DELAY_MS = 3000L
         const val RESIZE_MS = 500L

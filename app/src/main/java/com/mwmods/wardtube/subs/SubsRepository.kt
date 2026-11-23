@@ -803,7 +803,19 @@ object SubsRepository {
                     val choice = list.optJSONObject(i) ?: continue
                     val words = textOf(choice.opt("text"))
                     val picture = bestImage(choice.optJSONObject("image"))
-                    if (words.isNotEmpty() || picture.isNotEmpty()) choices.add(PostChoice(words, picture))
+                    if (words.isNotEmpty() || picture.isNotEmpty()) {
+                        choices.add(
+                            PostChoice(
+                                text = words,
+                                image = picture,
+                                select = commandText(choice.opt("selectServiceEndpoint")),
+                                deselect = commandText(choice.opt("deselectServiceEndpoint")),
+                                shareIfSelected = textOf(choice.opt("votePercentageIfSelected")),
+                                shareIfNotSelected = textOf(choice.opt("votePercentageIfNotSelected")),
+                                selected = choice.optBoolean("selected"),
+                            )
+                        )
+                    }
                 }
             }
             votes = textOf(poll.opt("totalVotes"))
@@ -822,6 +834,11 @@ object SubsRepository {
             likes = textOf(buttons?.optJSONObject("likeButton")?.optJSONObject("toggleButtonRenderer")?.opt("defaultText"))
         }
         val comments = textOf(buttons?.optJSONObject("replyButton")?.optJSONObject("buttonRenderer")?.opt("text"))
+        // The like button's own commands (like, take the like back) and whether the account has liked the post already.
+        val likeButton = buttons?.optJSONObject("likeButton")?.optJSONObject("toggleButtonRenderer")
+        val likeCommand = commandText(likeButton?.opt("defaultServiceEndpoint"))
+        val unlikeCommand = commandText(likeButton?.opt("toggledServiceEndpoint"))
+        val liked = likeButton?.optBoolean("isToggled") == true
 
         return SubsVideo(
             id = id,
@@ -840,8 +857,115 @@ object SubsRepository {
                 videoTitle = videoTitle,
                 likes = likes,
                 comments = comments,
+                likeCommand = likeCommand,
+                unlikeCommand = unlikeCommand,
+                liked = liked,
             ),
         )
+    }
+
+    // ---- Voting and liking from a post's card (YouTube's own commands, run with the account's cookies) ----
+
+    /**
+     * A command of YouTube's page (a vote, a like) kept as JSON text, or "" when the page gave none the app can run
+     * (the sign-in page that a signed-out page puts there, for one).
+     */
+    private fun commandText(value: Any?): String {
+        val command = value as? JSONObject ?: return ""
+        val leaves = ArrayList<JSONObject>()
+        collectCommands(command, leaves, 0)
+        return if (leaves.isEmpty()) "" else command.toString()
+    }
+
+    /** True for a command that is a call of YouTube's API: it names the address to send to, or is a like / a comment action. */
+    private fun isApiCommand(node: JSONObject): Boolean {
+        val api = node.optJSONObject("commandMetadata")?.optJSONObject("webCommandMetadata")?.optString("apiUrl").orEmpty()
+        return api.isNotEmpty() || node.has("likeEndpoint") || node.has("performCommentActionEndpoint")
+    }
+
+    /** Collects the API calls inside [node], which is one or a wrapper of several (YouTube nests them a few ways). */
+    private fun collectCommands(node: Any?, out: MutableList<JSONObject>, depth: Int) {
+        if (node !is JSONObject || depth > 6) return
+        for (wrapper in listOf("commandExecutorCommand", "serialCommand", "parallelCommand")) {
+            val list = node.optJSONObject(wrapper)?.optJSONArray("commands") ?: continue
+            for (i in 0 until list.length()) collectCommands(list.opt(i), out, depth + 1)
+        }
+        for (wrapper in listOf("innertubeCommand", "command", "performOnceCommand", "serviceEndpoint")) {
+            collectCommands(node.optJSONObject(wrapper), out, depth + 1)
+        }
+        if (isApiCommand(node)) out.add(node)
+    }
+
+    /** The path under `youtubei/v1/` that a command is sent to, or "" when it names none the app knows. */
+    private fun commandPath(command: JSONObject): String {
+        val named = command.optJSONObject("commandMetadata")?.optJSONObject("webCommandMetadata")?.optString("apiUrl").orEmpty()
+        var path = named.substringAfter("/youtubei/v1/", named).trim('/')
+        if (path.isEmpty()) {
+            val status = command.optJSONObject("likeEndpoint")?.optString("status").orEmpty()
+            path = when {
+                command.has("performCommentActionEndpoint") -> "comment/perform_comment_action"
+                command.has("likeEndpoint") -> when (status) {
+                    "LIKE" -> "like/like"
+                    "DISLIKE" -> "like/dislike"
+                    else -> "like/removelike"
+                }
+                else -> ""
+            }
+        }
+        // Only a plain path of YouTube's own API: never an address, never a query.
+        return if (Regex("[A-Za-z0-9_/]+").matches(path)) path else ""
+    }
+
+    /**
+     * The fields a command sends with the page's context, the way YouTube's own page builds them: a like sends its
+     * target (and its params), a comment action its action, and any other command the fields of its own endpoint.
+     */
+    private fun commandFields(command: JSONObject): JSONObject {
+        val fields = JSONObject()
+        command.optJSONObject("performCommentActionEndpoint")?.let { endpoint ->
+            fields.put("actions", JSONArray().put(endpoint.optString("action")))
+            return fields
+        }
+        command.optJSONObject("likeEndpoint")?.let { endpoint ->
+            endpoint.optJSONObject("target")?.let { fields.put("target", it) }
+            for (name in listOf("likeParams", "removeLikeParams", "dislikeParams")) {
+                val params = endpoint.optString(name)
+                if (params.isNotEmpty()) {
+                    fields.put("params", params)
+                    break
+                }
+            }
+            return fields
+        }
+        val key = command.keys().asSequence().firstOrNull { it.endsWith("Endpoint") }
+        val endpoint = key?.let { command.optJSONObject(it) } ?: return fields
+        val names = endpoint.keys()
+        while (names.hasNext()) {
+            val name = names.next()
+            if (name == "clickTrackingParams" || name == "nextEndpoint") continue
+            fields.put(name, endpoint.get(name))
+        }
+        return fields
+    }
+
+    /**
+     * Runs a post's vote or like: the [command] YouTube wrote on its page (see [PostChoice.select],
+     * [SubsPost.likeCommand]) is sent to YouTube's API signed in as the account. True when YouTube accepted every
+     * call of it; a refusal, a missing sign-in or a command with nothing to send throws [Failure].
+     */
+    fun runCommand(access: ApiAccess, command: String, cookie: String): Boolean {
+        val leaves = ArrayList<JSONObject>()
+        collectCommands(JSONObject(command), leaves, 0)
+        var sent = 0
+        for (leaf in leaves) {
+            val path = commandPath(leaf)
+            if (path.isEmpty()) continue
+            val answer = postApi(path, access, commandFields(leaf), cookie)
+            if (answer.has("error")) throw Failure("refused")
+            sent++
+        }
+        if (sent == 0) throw Failure("nothing to send")
+        return true
     }
 
     /** The words of a post as one text, and where its links stand in it (a link's own text is often cut short by YouTube). */
@@ -1194,9 +1318,15 @@ object SubsRepository {
         val images = JSONArray()
         for (url in p.images) images.put(url)
         val choices = JSONArray()
-        for (c in p.choices) choices.put(JSONObject().put("t", c.text).put("i", c.image))
+        for (c in p.choices) {
+            choices.put(
+                JSONObject().put("t", c.text).put("i", c.image).put("se", c.select).put("de", c.deselect)
+                    .put("ps", c.shareIfSelected).put("pn", c.shareIfNotSelected).put("sl", c.selected)
+            )
+        }
         return JSONObject().put("t", p.text).put("l", links).put("a", p.avatar).put("im", images).put("ch", choices)
             .put("v", p.votes).put("vi", p.videoId).put("vt", p.videoTitle).put("lk", p.likes).put("cm", p.comments)
+            .put("lc", p.likeCommand).put("uc", p.unlikeCommand).put("ld", p.liked)
     }
 
     private fun postFromJson(o: JSONObject): SubsPost {
@@ -1218,13 +1348,21 @@ object SubsRepository {
         if (choiceArray != null) {
             for (i in 0 until choiceArray.length()) {
                 val c = choiceArray.optJSONObject(i) ?: continue
-                choices.add(PostChoice(c.optString("t"), c.optString("i")))
+                choices.add(
+                    PostChoice(
+                        text = c.optString("t"), image = c.optString("i"),
+                        select = c.optString("se"), deselect = c.optString("de"),
+                        shareIfSelected = c.optString("ps"), shareIfNotSelected = c.optString("pn"),
+                        selected = c.optBoolean("sl"),
+                    )
+                )
             }
         }
         return SubsPost(
             text = o.optString("t"), links = links, avatar = o.optString("a"), images = images, choices = choices,
             votes = o.optString("v"), videoId = o.optString("vi"), videoTitle = o.optString("vt"),
             likes = o.optString("lk"), comments = o.optString("cm"),
+            likeCommand = o.optString("lc"), unlikeCommand = o.optString("uc"), liked = o.optBoolean("ld"),
         )
     }
 

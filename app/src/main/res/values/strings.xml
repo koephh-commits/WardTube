@@ -418,6 +418,7 @@
     <string name="subsMenuHide">Hide</string>
     <string name="subsMenuWorking">Please wait…</string>
     <string name="subsMenuFailed">It did not work. Check the connection and try again.</string>
+    <string name="subsPostFailed">Couldn\'t do that from here (%1$s). Open the post and try from its page.</string>
     <string name="subsWatchLaterAdded">Saved to Watch later</string>
     <string name="subsPlaylistTitle">Save to…</string>
     <string name="subsPlaylistAdded">Added to %1$s</string>

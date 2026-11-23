@@ -1,0 +1,1 @@
+Fixed: the comments button under a post in the Subscriptions page (Posts) now shows the list of comments instead of opening the comment box with the keyboard. The keyboard only comes up when you tap the box yourself.

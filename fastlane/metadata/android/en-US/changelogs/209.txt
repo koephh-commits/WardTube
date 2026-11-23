@@ -1,0 +1,1 @@
+Fixed: opening a video and leaving the app at once no longer opens a black Picture-in-Picture window. The little window now opens only once the video is really playing, as in NouTube.

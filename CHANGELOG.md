@@ -1,5 +1,146 @@
 # Changelog
 
+## 2.6.166
+- Fixed: **the comments button under a post in the Subscriptions page (Posts) opened the box to write a comment with the keyboard up, instead of the
+  comments** (`assets/wardtube/wardtube.js`, `web/NativeBridge.kt`, `MainActivity.kt`, `subs/SubsScreen.kt`, `subs/SubsController.kt`,
+  `fastlane/.../212.txt`, `app/build.gradle.kts`).
+  - **Cause (read from the code, not tried on a phone):** the page script that runs after the button's tap (wardtube.js, "Comments of a post") listed
+    YouTube's "Add a comment" row first among what it opens, then put the cursor in the box that row opens and asked the app to raise the keyboard
+    (`NativeBridge.showKeyboard` -> `MainActivity.showBrowseKeyboard`). So the list of comments was never what ended up on the screen.
+  - **Now:** the script brings YouTube's own list of comments into view and keeps its first comment on view for a moment (the page above it can still
+    change its height). If YouTube keeps the list behind a "Comments" row, that row is opened; if the list has not been made yet, the page is
+    scrolled towards where it will be so that YouTube fills it in. The box to write in is never opened or clicked (everything inside
+    `ytm-comment-simplebox-renderer` / `ytm-comment-dialog-renderer` is skipped, also by the last-resort button search), nothing gets the cursor, and a
+    box the page focuses on its own is blurred, so the keyboard stays down. The person taps the box when they want to write.
+  - The app's side of the old behaviour is removed: `NativeBridge.showKeyboard` / `onShowKeyboard` and `MainActivity.showBrowseKeyboard`.
+  - It still gives up after about 15 seconds or at the first touch of the person, as before.
+  - **Not tried:** not compiled here (no Android SDK) and not tried on a phone; YouTube's markup could not be looked at from here. The page's script
+    was syntax-checked and run against a fake page (comments on view, comments below the screen, a "Comments" row that fills the list, the
+    write box never clicked, a focused box blurred, no mark = nothing done, a touch stops it). Please build it and try: (1) Subscriptions -> Posts, tap the
+    comments count of a post that has comments, (2) the same on a post with no comments count (the button is hidden there), (3) tap the box to write
+    yourself (the keyboard must come then), (4) go back to the Subscriptions page.
+    If the comments still do not show, please say what the screen shows (the post only, the post and an empty space, or the box).
+
+## 2.6.165
+- Fixed (compared with NouTube's `picture-in-picture.ts` and `player.ts`): **leaving the picture-in-picture window: the video showed for a moment and then
+  went black while the sound played on** (`player/PlayerHost.kt`, `MainActivity.kt`, `assets/wardtube/wardtube.js`, `fastlane/.../211.txt`,
+  `app/build.gradle.kts`).
+  - **Cause (read from the code, not tried on a phone):** Android tells the app that the window is not picture in picture any more BEFORE its
+    expansion animation has finished (NouTube's comment says the same). `exitPip` laid the player out for the full page at once, inside an area that
+    was still small and landscape-shaped and then grew through several in-between sizes. YouTube's page saw those viewports (a small landscape one first,
+    which it takes for a phone turned sideways) and its player could be left sized for one of them, or a full-screen request made for one of them
+    attached the video to a window that was not ready: the picture was gone, the sound went on. The older nudges (`nudgeAfterExit`) tried to repair it
+    afterwards.
+  - **Now:** `PlayerHost.exitPip` only starts a hold (`exitHolding`): the window's picture is kept (the page stays pinned to the window's shape, the WebView
+    keeps its upright layout and is only scaled to the area, as in the window) until the area has not changed size for 150 ms (at least 350 ms, at most
+    1.2 s). Then `completeExit` lays the player out for real, in one step, at its final size, and the old settle sequence runs as before.
+    Re-entering the window during the hold sets it up again from scratch; `close()` and `expand()` end the hold.
+  - The page is not let into full screen while the window is being left (`MainActivity.playerExitHeld` in `canEnterFullscreen`), like NouTube's
+    refusal while backgrounded / in the window.
+  - **In the page (`wardtube.js`, `afterPipExit`), in the order of NouTube's `setPictureInPicture(false)`:** when the window's rules go, after 500 ms
+    YouTube gets a `resize` and a video that was playing and was paused by the page is played again (never one that was paused on purpose); the
+    video's layer is nudged (`will-change` toggle). For 14 seconds `renderTick` also WATCHES the picture: a video whose time moves while
+    `getVideoPlaybackQuality().totalVideoFrames` does not is a black one, and it is brought back step by step (seek to the same second; the video
+    element taken out of the layout and put back; only then the page is opened again at the same second with `t=`). Paused, buffering, seeking and
+    ended videos are never touched.
+  - **Not tried:** not compiled here (no Android SDK) and not tried on a phone. The page's script was syntax-checked and run against a fake page.
+    Please build it and try: (1) play a video, press Home, tap the window to come back, repeat 10 times, (2) the same from full screen (landscape),
+    (3) the same while the video is ending / the next one opens, (4) close the window with its X, (5) press Home again right after coming back.
+    If it still goes black, please say how long after coming back, and whether it was full screen.
+
+## 2.6.164
+- Fixed (ported from NouTube's `background-guard.ts`): **the video stopped after a few seconds inside the picture-in-picture window**
+  (`assets/wardtube/wardtube.js`, `player/PlayerController.kt`, `web/NativeBridge.kt`, `MainActivity.kt`, `fastlane/.../210.txt`,
+  `app/build.gradle.kts`). Found by comparing with NouTube's code: YouTube's page pauses a video by itself when the window shrinks or changes
+  shape, and nothing started it again. The app's own guard (`guardPipPlayback`) only looked for 3 seconds after the window came, and only when the
+  video had been in full screen; from the normal watch page it did not run at all. WardTube's `keepWatching` only answers a "Continue watching?"
+  prompt, it does not start a video that was paused without one.
+  - **Now, like NouTube:** while the window is up the page watches its video every second and on every `pause` event. A video that was playing and is
+    paused now, without the person or the app having asked for it, is played again (`pipGuardTick`): at most 3 tries in a row (counted again when the
+    video is seen playing, or after 20 seconds), not while a call is on (`WardTubeNative.canAutoResume`, like NouTube's `canAutoResume`), not for a
+    video that ended, and not for a moment after next / previous (the old video pauses while the page changes over).
+  - **A pause that was asked for is never fought:** every `PlayerController.play / pause / toggle` first tells the page (`window.__wardtube.wantPlay`):
+    the window's play / pause button, the notification, a headset, the sleep timer and the Library all go through it.
+  - The app's own guard now also runs when the window comes from the normal watch page (not only after full screen), and looks for 8 seconds
+    instead of 3 (`PIP_RESUME_CHECKS_MS`).
+  - **Not tried:** not compiled here (no Android SDK) and not tried on a phone. The page's guard was run against a fake page (pause by YouTube is
+    undone, pause by the person is not, 3-try limit, call, ended video, next / previous). Please build it and try: (1) play a video, press Home,
+    let it run for a minute in the window, (2) the same from full screen, (3) press pause in the window (it must stay paused), then play,
+    (4) next / previous from the window. If it still stops, please say after how many seconds, and whether it was full screen.
+
+## 2.6.163
+- Fixed: **a black picture-in-picture window when a video is opened and the app is left at once** (`MainActivity.kt`, `fastlane/.../209.txt`,
+  `app/build.gradle.kts`). The cause is one line, found by reading the code, and it was there in 2.6.161 and 2.6.162: `openVideo` set `videoPlaying = true`
+  ("a video starts by itself: leaving the app at once already means picture in picture"). That armed the little window (Android 12+) or let
+  `onUserLeaveHint` ask for it (before 12) while the player's page was still loading, so the window opened with no picture to show: black.
+  - **Now, like NouTube** (whose native side stays disarmed until the page reports a picture): `openVideo` sets `videoPlaying = false` and
+    sends the params at once (the window is disarmed), and the window is armed only when the page reports a picture that really plays
+    (`onPageVideoReport`, added in 2.6.162) or, for a video that was already open, when the poll sees it playing (up to 3 seconds).
+  - **What the person sees:** leaving the app before the video has started no longer opens a window; the app goes to the background and, with background
+    play on, the video plays as sound (as it already did without the window). Leaving after the video plays opens the window as before.
+  - **Not tried:** not compiled here (no Android SDK) and not tried on a phone. Please build it and try: (1) open a video from the home page and press Home
+    at once (no black window), (2) open a video, wait until the picture moves, press Home (the window comes with the picture), (3) tap a video link
+    while another one plays in the floating box and press Home at once (no black window), (4) the same video's link tapped again while it plays
+    (the window may need up to 3 seconds before it comes). If a black window still shows up, please say whether the video had started and which Android version.
+
+## 2.6.162
+- Fixed (ported from NouTube's player injection: `picture-in-picture.ts`, `split-player-window.ts`): **picture in picture is switched on the way
+  NouTube does it** (`assets/wardtube/wardtube.js`, `web/NativeBridge.kt`, `MainActivity.kt`, `fastlane/.../208.txt`, `app/build.gradle.kts`).
+  What was wrong, found by reading the code (not by seeing it fail on a phone):
+  1. **The app learned "a video is playing" only from its own poll** (`keepAwakePoll`: every 3 seconds while the video is full screen).
+     The window is armed (Android 12+: `setAutoEnterEnabled`) or asked for (`onUserLeaveHint`) from that value (`videoPlaying`), so pressing Home
+     within those seconds of pressing play found no window at all, and pressing Home just after pausing still opened a window with a paused video.
+  2. **YouTube's own check for "this is the little window / the background"** compares the page's *outer* window size with the screen and pauses the
+     video. The WebView reports its own size as the outer size, so while the window shrank (before the app lays the page out at full size again) the
+     player could stop by itself. `guardPipPlayback` only started it again afterwards (at 0.6 / 1.5 / 3 seconds).
+  - **Now, like NouTube:** the player's page reports at once, on every `play`, `playing`, `pause`, `ended`, `emptied`, `loadedmetadata` and
+    `resize` of its video and on every page change, the picture's size while a video plays and 0 x 0 when none does
+    (`WardTubeNative.setPipVideo` -> `MainActivity.onPageVideoReport`). The window is armed from that the moment the video starts and disarmed the moment
+    it pauses; the picture's own shape is known at once too (`videoAspect`, so the window's shape is right). The window's own play/pause button keeps its
+    1.5 second grace, as before. Only the player's page reports (`route` "player"); an older page script without the call keeps working through the poll.
+  - **And, like NouTube's `split-player-window.ts`:** in the player's page `outerWidth` / `outerHeight` never report less than the screen's size
+    (`Math.max(real, screen)`), so YouTube's check never sees a small window and does not pause. `innerWidth` / `innerHeight` are the real viewport and are
+    untouched, so the layout and the app's own picture-in-picture box (`PlayerHost.enterPip`) are exactly as before. `guardPipPlayback` stays as a safety net.
+  - **Not changed on purpose:** the window's own layout code (`PlayerHost.enterPip` / `applyPip`, the page's `data-wt-pip` rules), the Android 12+ rule that
+    the system enters the window by itself when armed, and the menu switch. NouTube instead lets the WebView follow the small window and fills it with
+    the video by CSS; that is a different layout and was not copied, because it would replace code that works.
+  - **Not tried:** the Kotlin was not compiled here (no Android SDK; names and brackets were checked by reading), the script was only syntax-checked
+    (`node --check`) and its outer-size part run against a fake window, and nothing was tried on a phone. Please build it and try: (1) start a video and
+    press Home at once (the window must come), (2) pause a video and press Home (no window must come, or on Android 12+ the app goes to the background as usual),
+    (3) play from the window's own button, pause, play again, (4) watch a few minutes in the window (the video must not stop by itself), (5) tap the window to
+    return to the app (full screen and the floating box both come back as before). If the window still fails, please say **what you see** (no window, black,
+    paused, cut-off picture, from full screen or from the box) and the phone's Android version: that decides which of the two causes is the real one.
+
+## 2.6.161
+- Fixed: **a post's poll and its like work from the card in the Subscriptions page** (`subs/SubsModels.kt`, `subs/SubsRepository.kt`,
+  `subs/SubsScreen.kt`, `subs/SubsController.kt`, `res/values*/strings.xml`, `fastlane/.../207.txt`, `app/build.gradle.kts`). Before, the
+  card showed the poll's choices and the like count but did not own the taps: any tap fell through to the card, which opened YouTube's page
+  of the post, and the vote or the like had to be made there.
+  - The post's data already carries what YouTube's own page uses to vote and like, and the app was throwing it away. Now it is kept:
+    each poll choice's `selectServiceEndpoint` / `deselectServiceEndpoint` and its `votePercentageIfSelected` / `votePercentageIfNotSelected`
+    / `selected`, and the like button's `defaultServiceEndpoint` / `toggledServiceEndpoint` / `isToggled` (`PostChoice`, `SubsPost`; also
+    in the phone's saved copy of the feed, under new keys, so an older saved copy simply has none).
+  - **Voting:** a tap on a choice draws the vote at once (the voted choice in the accent colour and bold, every row with its share as a bar
+    behind the words and the percentage at the end, as YouTube's page does) and sends YouTube's own command in the background
+    (`SubsRepository.runCommand`, through the same signed-in `postApi` that the video menu's "Save to playlist" already uses). A second tap on the
+    voted choice takes the vote back (when YouTube gave a deselect command). A second tap while YouTube is still being asked is ignored.
+  - **Liking:** the thumb on the card is now a button (a 6 dp padding around it makes it an easy target; the row's own padding was reduced by the
+    same amount, so nothing moves). It turns accent-coloured and a plain number count moves by one (`41` → `42`; a short form like `1.2K` stays);
+    a second tap takes the like back.
+  - **If YouTube does not take it** (no sign-in, no network, a refused call) the card goes back to what it was and a message says so
+    (`subsPostFailed`: "open the post and try from its page"). **A choice or a like with no command** (a saved copy from before this version,
+    or a page that gave none) is not tappable and behaves exactly as before: the tap opens the post. Nothing else on the card changed (the card tap,
+    the three dots, links, pictures, the attached video, the comments count).
+  - What the person did stays for the session (`PostLive`, by post id), so a refresh that reads the post again does not undo it on screen.
+  - **Not tried:** the Kotlin was not compiled here (no Android SDK; the references and the brackets were checked by reading), and nothing was
+    tried against the live YouTube or on a phone. The field names above are the ones YouTube's page is known to use (the poll's
+    `selectServiceEndpoint`, `votePercentageIf*`, the like button's `toggleButtonRenderer`), but the exact body of the vote call is built generically
+    (the endpoint's own `apiUrl` and its own fields; a like sends `target` and `params`; a comment action sends `actions`), so it is **not confirmed
+    that YouTube accepts it**. Please build it and try: (1) vote on a poll in the Subscriptions page, (2) tap the voted choice again, (3) like and unlike
+    a post, (4) turn the network off and vote (the card must go back and say so), (5) open the post to see that the vote or the like is really there.
+    If a vote or a like is refused, the app puts it back and shows the message with a short reason in brackets (`HTTP 400`, `refused`,
+    `nothing to send`, `no key`...): that reason is what is needed to correct the call, so please send it.
+
 ## 2.6.160
 - Added (ported from NouTube's player injection: `background-guard.ts`, `audio.ts`, `h264ify.ts`): **three things for long listening on a
   phone** (`assets/wardtube/wardtube.js`, `Prefs.kt`, `web/PageScripts.kt`, `ui/MenuController.kt`, `res/values*/strings.xml`,

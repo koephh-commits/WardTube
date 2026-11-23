@@ -411,7 +411,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (!browseLoaded) loadBrowse(browseHomepage()) // something to browse behind the mini player
         errorSnackbar?.dismiss()
         errorSnackbar = null
-        videoPlaying = true // a video starts by itself: leaving the app at once already means picture in picture
+        // NOT "true, because a video starts by itself": that armed the little window while the page was still loading, so
+        // leaving the app at once opened a window with nothing to show (a black one). The window is armed only once the page
+        // reports a picture that really plays (onPageVideoReport, or the poll for a video that is already open), as NouTube does;
+        // leaving before that simply goes to the background, and with background play on the video plays as sound.
+        videoPlaying = false
+        updatePipParams()
         playerHost.play(url)
     }
 
@@ -453,6 +458,14 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         onOpenPage = { url -> openPageFromPlayer(url) },
         isMiniNow = { ::playerHost.isInitialized && playerHost.miniWanted },
         pipAspectNow = { if (::playerHost.isInitialized) playerHost.pipAspect else 0f },
+        onPipVideo = { width, height -> onPageVideoReport(width, height) },
+        // A call (ringing or on) paused the video: it is not started again behind the person's back.
+        canAutoResumeNow = {
+            runCatching {
+                (getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager).mode ==
+                    android.media.AudioManager.MODE_NORMAL
+            }.getOrDefault(true)
+        },
     )
 
     // ---- The video player ----
@@ -564,8 +577,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         override fun onFullscreenChanged(fullscreen: Boolean) = handleFullscreen(fullscreen, target())
 
         // In the little window the page is not let into full screen (YouTube asks for it again when the window's shape
-        // changes, which put the landscape lock and the app's bars back inside the window).
-        override fun canEnterFullscreen(): Boolean = !pipUiOn && !isInPictureInPictureMode && !leavingForPip()
+        // changes, which put the landscape lock and the app's bars back inside the window). The same while the window is being
+        // left: Android says it is over before it has grown back, the page then sees small in-between sizes, and a full-screen
+        // request made for one of them attached the video to a window that was not ready (the picture went black, the sound
+        // went on). NouTube refuses it for the same reason (content/player.ts: "Entering fullscreen while backgrounded ...").
+        override fun canEnterFullscreen(): Boolean =
+            !pipUiOn && !isInPictureInPictureMode && !leavingForPip() && !playerExitHeld()
     }
 
     // ---- Setup ----
@@ -1095,9 +1112,27 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
     private fun canEnterPip(): Boolean = pipSupported && ::playerHost.isInitialized && playerHost.canPip
 
+    /** The little window was just left and the player still shows its picture until the window has its size back (see PlayerHost.exitHolding). */
+    private fun playerExitHeld(): Boolean = ::playerHost.isInitialized && playerHost.exitHolding
+
     /** True in the little window, and for a moment before it (asked for, or Android 12+ is about to do it by itself). */
     private fun isPipActiveOrComing(): Boolean = pipSupported &&
         (isInPictureInPictureMode || pipArmed || SystemClock.uptimeMillis() - pipAskedAt < PIP_ASK_WINDOW_MS)
+
+    /**
+     * The player's page said what plays, at once (NativeBridge.setPipVideo; "Picture in picture: what the page tells the app" in
+     * wardtube.js): a picture of [width] x [height] is playing, or 0 x 0 when nothing that the window could show is. This arms the
+     * window the moment a video starts and disarms it the moment the video pauses, where [onVideoState] only knows at the
+     * next poll (up to 3 seconds later while the video is full screen): leaving the app inside that time found the window not
+     * armed, or armed for a video that had just been paused. Same grace after the window's own button as the poll has.
+     */
+    private fun onPageVideoReport(width: Int, height: Int) {
+        if (isDestroyed || !::playerHost.isInitialized) return
+        val playing = width > 0 && height > 0
+        if (playing) videoAspect = width.toFloat() / height
+        if (SystemClock.uptimeMillis() - pipToggledAt > PIP_TOGGLE_GRACE_MS) videoPlaying = playing
+        updatePipParams()
+    }
 
     /** The player's report (every second or three): keeps the window's shape and play/pause button up to date. */
     private fun onVideoState(state: PlayerController.State?) {
@@ -1263,7 +1298,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             pipWindowRatio = ratio
             playerHost.enterPip(screen.x, screen.y, ratio.toFloat())
         }
-        if (takeOver && wasPlaying) guardPipPlayback()
+        // From the normal watch page too, not only after full screen: the page can pause the video when the window shrinks.
+        if (wasPlaying) guardPipPlayback()
     }
 
     /**
@@ -1986,7 +2022,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
         /** How long full screen waits for the page to say the picture's shape before it locks sideways (see lockFullscreenOrientation). */
         const val FULLSCREEN_ORIENTATION_WAIT_MS = 350L
-        val PIP_RESUME_CHECKS_MS = longArrayOf(600L, 1500L, 3000L)
+        val PIP_RESUME_CHECKS_MS = longArrayOf(600L, 1500L, 3000L, 5000L, 8000L)
         const val OWN_LAUNCH_MS = 1500L
     }
 }

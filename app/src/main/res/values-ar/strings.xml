@@ -424,6 +424,7 @@
     <string name="subsMenuHide">إخفاء</string>
     <string name="subsMenuWorking">جارٍ التحميل…</string>
     <string name="subsMenuFailed">لم تنجح العملية. تحقق من الاتصال وحاول مرة أخرى.</string>
+    <string name="subsPostFailed">تعذّر التنفيذ من هنا (%1$s). افتح المنشور وجرّب من صفحته.</string>
     <string name="subsWatchLaterAdded">تم الحفظ في «المشاهدة لاحقًا»</string>
     <string name="subsPlaylistTitle">حفظ في…</string>
     <string name="subsPlaylistAdded">تمت الإضافة إلى %1$s</string>
