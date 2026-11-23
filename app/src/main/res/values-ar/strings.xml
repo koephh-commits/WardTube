@@ -389,6 +389,7 @@
     <string name="subsEmpty">لا توجد فيديوهات حديثة</string>
     <string name="subsEmptyLive">لا توجد بثوث مباشرة</string>
     <string name="subsEmptyPosts">لا توجد منشورات حديثة</string>
+    <string name="subsNoComments">لا توجد تعليقات، كن أول من يعلق</string>
     <string name="subsEmptyUnwatched">لا يوجد ما لم تشاهده ضمن المحمَّل</string>
     <string name="subsEmptyContinue">لا توجد فيديوهات لمتابعة مشاهدتها</string>
     <string name="subsLoadError">تعذّر تحميل الفيديوهات</string>

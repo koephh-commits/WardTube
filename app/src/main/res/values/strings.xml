@@ -383,6 +383,7 @@
     <string name="subsEmpty">No recent videos</string>
     <string name="subsEmptyLive">No live streams</string>
     <string name="subsEmptyPosts">No recent posts</string>
+    <string name="subsNoComments">No comments, be the first to comment</string>
     <string name="subsEmptyUnwatched">Nothing unwatched in what is loaded</string>
     <string name="subsEmptyContinue">No videos to continue</string>
     <string name="subsLoadError">Couldn\'t load videos</string>

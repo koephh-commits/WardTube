@@ -1,0 +1,1 @@
+Changed: the comments button under a post in Subscriptions now always shows. A post with no comments reads "No comments, be the first to comment" and opens the comment box as usual.

@@ -94,9 +94,6 @@ interface SubsListener {
 
     fun onVideo(video: SubsVideo)
 
-    /** The comments count under a post was tapped: YouTube's page of the post opens with its list of comments on view (the keyboard stays down). */
-    fun onPostComments(video: SubsVideo)
-
     /** The three dots of a video's card were tapped: [anchor] is the button, the menu opens beside it. */
     fun onVideoMenu(video: SubsVideo, anchor: View)
 
@@ -105,6 +102,12 @@ interface SubsListener {
 
     /** "Manage" in the screen's own list of every subscription: YouTube's page that lists them (to unsubscribe, to set bells). */
     fun onOpenAllChannels()
+
+    /**
+     * The comments button under a post was tapped: the owner opens the post on YouTube's own page, opens its comments
+     * list there and brings up the keyboard, so the person can write at once.
+     */
+    fun onPostComments(video: SubsVideo)
 
     /** A link inside a post's text, or the video attached to a post, was tapped. */
     fun onLink(url: String)
@@ -1699,6 +1702,8 @@ class SubsScreen(
         val label = TextView(context)
         label.textSize = 14f
         label.setTextColor(palette.text)
+        label.maxLines = 1
+        label.ellipsize = TextUtils.TruncateAt.END
         val labelParams = LinearLayout.LayoutParams(WRAP, WRAP)
         labelParams.marginStart = dp(8)
         group.addView(label, labelParams)
@@ -1739,14 +1744,16 @@ class SubsScreen(
             holder.likes.group.isClickable = false
             holder.likes.group.background = null
         }
-        holder.comments.label.text = post.comments
-        holder.comments.group.visibility = if (post.comments.isEmpty()) View.GONE else View.VISIBLE
-        // The comments: a tap opens YouTube's own comments of the post (the list of comments, to read; the keyboard stays down).
+        // The comments button is always there: YouTube gives no count for a post without comments, so it invites the first one.
+        val commentCount = post.comments.trim()
+        val noComments = commentCount.isEmpty() || commentCount == "0" || commentCount == "٠"
+        holder.comments.label.text = if (noComments) context.getString(R.string.subsNoComments) else commentCount
+        holder.comments.group.visibility = View.VISIBLE
+        // The comments button: YouTube's own comments list of the post, with the keyboard ready (not the post's top).
         holder.comments.group.isClickable = true
         holder.comments.group.background = selectableBackground()
         holder.comments.group.setOnClickListener { listener.onPostComments(video) }
-        holder.actions.visibility =
-            if (holder.likes.group.visibility == View.GONE && post.comments.isEmpty()) View.GONE else View.VISIBLE
+        holder.actions.visibility = View.VISIBLE
 
         holder.itemView.setOnClickListener { listener.onVideo(video) }
         holder.more.setOnClickListener { listener.onVideoMenu(video, it) }

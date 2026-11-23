@@ -8,7 +8,10 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.widget.FrameLayout
@@ -76,6 +79,11 @@ class SubsController(
 
     /** The address of the page the browsing WebView last reported (it may still be loading). */
     private var pageUrl: String? = null
+
+    /** The post whose comments are being opened by [commentsStep] (null when nothing is waiting), its tries and taps so far. */
+    private var commentsFor: String? = null
+    private var commentsTries = 0
+    private var commentsTaps = 0
 
     /**
      * True from the tap on "Go to channel" until the channel's page has painted its first content ([onPageShown]), or
@@ -1627,6 +1635,7 @@ class SubsController(
     }
 
     override fun onVideo(video: SubsVideo) {
+        commentsFor = null // another place was chosen: no comments list to open any more
         if (video.post != null) {
             // A post opens as YouTube's own page of it (its comments, all its pictures); the screen stays over the old page
             // until that page is on view, as it does for a channel's page.
@@ -1643,19 +1652,89 @@ class SubsController(
     }
 
     /**
-     * The comments of a post: YouTube's page of the post opens (as for a tap on the card) with [COMMENTS_HASH] after its
-     * address, which tells the page script (wardtube.js, "Comments of a post") to bring the list of comments into view.
-     * The box to write in is not opened and the keyboard stays down: the person taps the box when they want to write.
+     * The comments button of a post: the post opens on YouTube's own page (the screen stays over the old page until it is
+     * on view, as for a post), then [commentsStep] opens the comments list there and taps its text box, so the keyboard
+     * comes up by itself. The taps are real touches sent to the page (a script's own focus() does not bring the keyboard
+     * up: the phone wants a touch). If the page's comments are not found in time the person is simply on the post's page.
      */
     override fun onPostComments(video: SubsVideo) {
         if (released) return
+        commentsFor = video.id
+        commentsTries = 0
+        commentsTaps = 0
+        main.removeCallbacks(commentsStep)
         startHold()
-        openUrl("${SubsRepository.MOBILE_SITE}/post/${video.id}$COMMENTS_HASH")
+        openUrl("${SubsRepository.MOBILE_SITE}/post/${video.id}")
+        main.postDelayed(commentsStep, COMMENTS_FIRST_MS)
+    }
+
+    /** One look at the post's page (see [COMMENTS_JS]) and the touch it asks for; repeats until the text box is tapped. */
+    private val commentsStep = object : Runnable {
+        override fun run() {
+            val id = commentsFor ?: return
+            if (released) return
+            if (commentsTries++ >= COMMENTS_MAX_TRIES) {
+                commentsFor = null
+                return
+            }
+            val url = pageUrl.orEmpty()
+            // Not on the post's page yet (the old page is still the WebView's): look again soon.
+            if (!url.contains(id) && !url.contains("/post/") && !url.contains("/community")) {
+                main.postDelayed(this, COMMENTS_STEP_MS)
+                return
+            }
+            val web = browse()
+            web.evaluateJavascript("($COMMENTS_JS)(${org.json.JSONObject.quote(id)})") { raw ->
+                if (released || commentsFor != id) return@evaluateJavascript
+                val parts = raw?.trim('"')?.split('|').orEmpty()
+                when (parts.firstOrNull()) {
+                    "input" -> {
+                        // The text box is open: a touch on it brings the keyboard up. Done.
+                        commentsFor = null
+                        tapPage(web, parts)
+                        main.postDelayed({
+                            if (released) return@postDelayed
+                            web.requestFocus()
+                            (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+                                ?.showSoftInput(web, 0)
+                        }, 350)
+                    }
+                    "entry" -> {
+                        if (commentsTaps++ >= COMMENTS_MAX_TAPS) {
+                            commentsFor = null
+                        } else {
+                            tapPage(web, parts)
+                            main.postDelayed(this, COMMENTS_AFTER_TAP_MS)
+                        }
+                    }
+                    else -> main.postDelayed(this, COMMENTS_STEP_MS)
+                }
+            }
+        }
+    }
+
+    /** A touch (down, then up) on the page at the place [parts] gives: "kind|x|y|ratio", x and y in the page's own pixels. */
+    private fun tapPage(web: WebView, parts: List<String>) {
+        if (parts.size < 4) return
+        val ratio = parts[3].toFloatOrNull() ?: activity.resources.displayMetrics.density
+        val x = (parts[1].toFloatOrNull() ?: return) * ratio
+        val y = (parts[2].toFloatOrNull() ?: return) * ratio
+        val down = SystemClock.uptimeMillis()
+        val press = MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, y, 0)
+        web.dispatchTouchEvent(press)
+        press.recycle()
+        main.postDelayed({
+            if (released) return@postDelayed
+            val release = MotionEvent.obtain(down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0)
+            web.dispatchTouchEvent(release)
+            release.recycle()
+        }, 60)
     }
 
     /** A link inside a post's text, or the video attached to a post: a video plays, a YouTube page opens, another site goes to the phone's browser. */
     override fun onLink(url: String) {
         if (released) return
+        commentsFor = null
         if (!UrlUtils.isYouTubeUrl(url)) {
             try {
                 activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -1973,9 +2052,6 @@ class SubsController(
         /** The screen stays over a channel's page that is still loading for this long at most (see [holding]). */
         const val HOLD_MAX_MS = 12_000L
 
-        /** What follows a post's address when its comments were asked for: the page script (wardtube.js) looks for it. */
-        const val COMMENTS_HASH = "#wt-comments"
-
         /**
          * The feed stops growing here: every page that arrives rebuilds the whole list on the main thread, so a very
          * long feed slows the screen down (most of all on a phone with little memory).
@@ -2081,6 +2157,49 @@ class SubsController(
         /** Shown once per run: why YouTube's own page is shown instead of the app's screen. */
         @Volatile
         var warned = false
+
+        const val COMMENTS_FIRST_MS = 900L
+        const val COMMENTS_STEP_MS = 400L
+        const val COMMENTS_AFTER_TAP_MS = 700L
+        const val COMMENTS_MAX_TRIES = 40
+        const val COMMENTS_MAX_TAPS = 3
+
+        /**
+         * What to tap on a post's page to write a comment, found by what the elements are and say, as YouTube's names
+         * for them change: "input|x|y|ratio" when a comment text box is open on view, "entry|x|y|ratio" for the
+         * comments row / "Add a comment" box to tap first, "wait" when there is nothing yet (the page is still loading or
+         * was scrolled toward the comments). x and y are in the page's own pixels, ratio is the pixels per one of them.
+         */
+        const val COMMENTS_JS =
+            "function(id){try{" +
+                "var p=location.pathname;" +
+                "if(location.href.indexOf(id)<0&&p.indexOf('/post/')<0&&p.indexOf('/community')<0)return 'wait';" +
+                "var W=window.innerWidth,H=window.innerHeight,D=window.devicePixelRatio||1;" +
+                "function box(e){if(!e)return null;var r=e.getBoundingClientRect();if(r.width<8||r.height<8)return null;" +
+                "var c=getComputedStyle(e);if(c.visibility==='hidden'||c.display==='none')return null;return r;}" +
+                "function inView(r){return r.bottom>4&&r.top<H-4&&r.right>0&&r.left<W;}" +
+                "function out(k,r){return k+'|'+Math.round(r.left+r.width/2)+'|'+Math.round(r.top+r.height/2)+'|'+D;}" +
+                "var SEARCH=/search|بحث/i;" +
+                // 1. A comment text box that is open on view.
+                "var boxes=document.querySelectorAll('textarea,[contenteditable=\"\"],[contenteditable=\"true\"],input[type=\"text\"]');" +
+                "for(var i=0;i<boxes.length;i++){var b=boxes[i];" +
+                "if(b.closest('ytm-mobile-topbar-renderer,ytm-searchbox,form[role=\"search\"]')||b.name==='search_query')continue;" +
+                "if(SEARCH.test((b.getAttribute('placeholder')||'')+(b.getAttribute('aria-label')||'')))continue;" +
+                "var r=box(b);if(r&&inView(r))return out('input',r);}" +
+                // 2. The comments row or the "Add a comment" box.
+                "var sel=['ytm-comment-simplebox-renderer','[class*=\"simplebox\"]','ytm-comments-entry-point-header-renderer'," +
+                "'ytm-comments-entry-point-teaser-renderer'];" +
+                "var t=null;" +
+                "for(var j=0;j<sel.length&&!t;j++){var f=document.querySelector(sel[j]);if(f&&box(f))t=f;}" +
+                "if(!t){var bs=document.querySelectorAll('button,[role=\"button\"]');" +
+                "for(var k=0;k<bs.length;k++){var a=(bs[k].getAttribute('aria-label')||'');" +
+                "if(a.length&&a.length<60&&/comment|تعليق/i.test(a)&&box(bs[k])){t=bs[k];break;}}}" +
+                "if(t){var r2=box(t);" +
+                "if(!inView(r2)||r2.top<H*0.15||r2.bottom>H*0.9){t.scrollIntoView({block:'center'});return 'wait';}" +
+                "return out('entry',r2);}" +
+                // 3. Nothing yet: the comments load when the page is scrolled toward them.
+                "window.__wtCs=(window.__wtCs||0)+1;if(window.__wtCs<=6)window.scrollBy(0,Math.round(H*0.7));" +
+                "return 'wait';}catch(e){return 'wait';}}"
 
         /** "top,bottom": where YouTube's header ends and its bottom tabs start, in device pixels. */
         const val MEASURE_JS =

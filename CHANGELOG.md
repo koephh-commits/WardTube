@@ -1,25 +1,28 @@
 # Changelog
 
+## 2.6.167
+- Changed: **the comments button under a post in the Subscriptions screen now always shows** (`subs/SubsScreen.kt`, `res/values/strings.xml`,
+  `res/values-ar/strings.xml`, `fastlane/.../213.txt`, `app/build.gradle.kts`).
+  - **Before:** YouTube gives no comment count for a post without comments, and the card hid the button (and the whole row of counts when the likes
+    were missing too), so such a post had no way to start the first comment.
+  - **Now:** the button is always shown. With no count (empty, or "0") it reads "No comments, be the first to comment" / "لا توجد تعليقات، كن أول من
+    يعلق" (`subsNoComments`); otherwise it shows the count as before. The tap is the same as for any post (it opens the post's page and taps the
+    "Add a comment" box; that YouTube shows that box on a post with no comments is expected, not checked). The count label is kept to one line (ellipsis) so the longer text
+    cannot push the row out of the card.
+  - **Not tried:** not compiled here (no Android SDK) and not tried on a phone. Please build it and look at a post that has comments and one that has none.
+
 ## 2.6.166
-- Fixed: **the comments button under a post in the Subscriptions page (Posts) opened the box to write a comment with the keyboard up, instead of the
-  comments** (`assets/wardtube/wardtube.js`, `web/NativeBridge.kt`, `MainActivity.kt`, `subs/SubsScreen.kt`, `subs/SubsController.kt`,
-  `fastlane/.../212.txt`, `app/build.gradle.kts`).
-  - **Cause (read from the code, not tried on a phone):** the page script that runs after the button's tap (wardtube.js, "Comments of a post") listed
-    YouTube's "Add a comment" row first among what it opens, then put the cursor in the box that row opens and asked the app to raise the keyboard
-    (`NativeBridge.showKeyboard` -> `MainActivity.showBrowseKeyboard`). So the list of comments was never what ended up on the screen.
-  - **Now:** the script brings YouTube's own list of comments into view and keeps its first comment on view for a moment (the page above it can still
-    change its height). If YouTube keeps the list behind a "Comments" row, that row is opened; if the list has not been made yet, the page is
-    scrolled towards where it will be so that YouTube fills it in. The box to write in is never opened or clicked (everything inside
-    `ytm-comment-simplebox-renderer` / `ytm-comment-dialog-renderer` is skipped, also by the last-resort button search), nothing gets the cursor, and a
-    box the page focuses on its own is blurred, so the keyboard stays down. The person taps the box when they want to write.
-  - The app's side of the old behaviour is removed: `NativeBridge.showKeyboard` / `onShowKeyboard` and `MainActivity.showBrowseKeyboard`.
-  - It still gives up after about 15 seconds or at the first touch of the person, as before.
-  - **Not tried:** not compiled here (no Android SDK) and not tried on a phone; YouTube's markup could not be looked at from here. The page's script
-    was syntax-checked and run against a fake page (comments on view, comments below the screen, a "Comments" row that fills the list, the
-    write box never clicked, a focused box blurred, no mark = nothing done, a touch stops it). Please build it and try: (1) Subscriptions -> Posts, tap the
-    comments count of a post that has comments, (2) the same on a post with no comments count (the button is hidden there), (3) tap the box to write
-    yourself (the keyboard must come then), (4) go back to the Subscriptions page.
-    If the comments still do not show, please say what the screen shows (the post only, the post and an empty space, or the box).
+- Changed: **the comments button under a post in the Subscriptions screen** (`subs/SubsScreen.kt`, `subs/SubsController.kt`, `fastlane/.../212.txt`,
+  `app/build.gradle.kts`).
+  - **Before:** the button did nothing of its own: the tap fell through to the card and opened the post's top.
+  - **Now:** the button opens the post on YouTube's own page, opens its comments list there (the "Add a comment" box / the comments row, found by what
+    the elements are and say, not by YouTube's class names) and taps the comment text box with a real touch, so the keyboard comes up by itself
+    (a script's own `focus()` does not bring it up). The probe script (`SubsController.COMMENTS_JS`) answers `entry` / `input` / `wait`; the app looks
+    every 0.4 s for up to about 16 s, taps at most 3 times, and stops as soon as the text box is tapped or another place is opened. If YouTube's
+    comments are not found in time the person is simply on the post's page, as before.
+  - **Not tried:** not compiled here (no Android SDK) and not tried on a phone or against live YouTube. The probe script was run on mock pages in
+    headless Chromium (comment box below the fold, open text box, a button labelled in English or Arabic, the page still being the old one): it found
+    the right element each time and left the search box alone. Please build it and try a post that has comments and one that has none.
 
 ## 2.6.165
 - Fixed (compared with NouTube's `picture-in-picture.ts` and `player.ts`): **leaving the picture-in-picture window: the video showed for a moment and then
