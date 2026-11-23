@@ -1,5 +1,96 @@
 # Changelog
 
+## 2.6.160
+- Added (ported from NouTube's player injection: `background-guard.ts`, `audio.ts`, `h264ify.ts`): **three things for long listening on a
+  phone** (`assets/wardtube/wardtube.js`, `Prefs.kt`, `web/PageScripts.kt`, `ui/MenuController.kt`, `res/values*/strings.xml`,
+  `res/drawable/ic_menu_battery.xml` (new), `fastlane/.../206.txt`, `app/build.gradle.kts`).
+  1. **A long playback in the background no longer stops at "Continue watching?"**.
+     - YouTube's "last activity" clock (`window._lact`) is refreshed every minute, so the page never looks abandoned (NouTube does the same).
+     - If the prompt shows up anyway, it is answered and the video plays again. NouTube's guard asks the shell whether the app is in the
+       background and whether the pause was the user's; WardTube has no such flag, so the page decides by what it can see: the prompt
+       (`ytmusic-you-there-renderer`, `ytm-confirm-dialog-renderer`, `yt-confirm-dialog-renderer`) must be in the page, the video must be paused,
+       it must have been playing within the last 30 s, and a button is only clicked when the prompt has exactly one (with more, the video is
+       just played again). At most three tries, two seconds apart. A pause from the notification or from the page's own button, with no
+       prompt in the page, is never resumed.
+  2. **Automatic dubbing: the original audio track is chosen** (the player's page only). When a video has two or more audio tracks, the
+     one YouTube labels "original" (the 94 labels of NouTube's `audio.ts`, so also Arabic: «أصلي» / «الأصلية») is chosen once per video, as
+     soon as the tracks are known (up to about 30 s). A track you pick by hand afterwards stays. Nothing is done when the video has a
+     single track, no track is labelled original, or the player is already on it. There is no switch for it.
+  3. **"Prefer H.264" switch** (Menu > Playback, off by default). The page tells YouTube it cannot play WebM / VP8 / VP9 / VP09 / AV1
+     (`MediaSource.isTypeSupported`, `canPlayType` of the video element, and `mediaCapabilities.decodingInfo`), so YouTube sends H.264 video and
+     AAC audio, which phones decode in hardware: less heat, less battery. YouTube offers H.264 up to 1080p only. It must be in place before
+     YouTube's scripts ask, so it is part of the document-start script; the switch registers the script again for both WebViews and reloads
+     the browsing page, and a video that is already playing changes format when the next one opens. (`vp09`, VP9 named inside an mp4, was added
+     to NouTube's list: it is not covered by `vp9`.)
+  - Tried in headless Chromium on fake watch pages (24 checks: the codec filters on / off / key missing, `_lact` refreshed twice, the prompt
+    answered with one and with two buttons, no action on a pause without a prompt or on a prompt long after a pause, the original track
+    chosen with Arabic and English names, tracks that appear late, already on it, picked by hand, no label, one track, the next video, and
+    the browsing page untouched). 12 of them fail on 2.6.159's script. **Not tried:** the Kotlin side was not compiled here (no Android SDK;
+    the references were checked by reading), and nothing was tried against the live YouTube page or on a phone, so the real names of the
+    prompt's elements and of the audio track objects are NouTube's, not confirmed here. Please build it and try: (1) leave a long video or a
+    playlist playing in the background for a few hours, (2) a video with automatic dubbing (Arabic interface), (3) the new switch, then open a
+    video and look at "Stats for nerds" for the codec (`avc1`, not `vp09` / `av01`).
+
+## 2.6.159
+- Fixed: **the picture-in-picture window no longer depends on timing** (`player/PlayerHost.kt`, `MainActivity.kt`, `web/NativeBridge.kt`,
+  `assets/wardtube/wardtube.js`, `app/build.gradle.kts`). The symptoms reported over the versions (the video cut off, black under the
+  picture, the picture in the wrong part of the window, the video going black after the window) had one cause.
+  - Cause: the app MEASURED where the player's box ended up in YouTube's page and fitted the WebView to what it found, while YouTube
+    was still laying the page out (leaving the system's full screen, the viewport changing from sideways to the window's size to upright,
+    the next video opening). What a measure found depended on the moment, so each version added a timer to catch the moment: six
+    settle looks, a "do not trust a box that is not pinned" window of 6 s, a nudge of the page 6 px narrower, a measure every 2 s.
+  - Now it is the other way round, and nothing is measured in the window. The app decides the box: at the page's top-left corner, as wide
+    as the page and `aspect` high (never higher than the page), where `aspect` is the shape the system's window was given
+    (`MainActivity.pipRatioInEffect`, the last params handed to Android; kept for as long as the window is up, so what the page reports can
+    not feed back into the window's shape). The page is told the shape (`PlayerHost.pipAspect`, asked through the new
+    `NativeBridge.pipAspect()` on every tick and at script start, and sent with `setMini(true, aspect)`), and the page script pins every
+    element from the video up to the body to that box with `!important` CSS (`html[data-wt-pip]`, the elements marked with the attribute
+    `data-wt-pip-box`) and makes the video fill it (`object-fit: contain`), whatever size YouTube's inline styles give its player at that
+    moment. The page's own controls are hidden in the window (the system draws its own).
+  - The WebView is still laid out at the screen's upright size and only scaled down, as before (so the page does not reflow, and YouTube does
+    not see a landscape-shaped window, which makes it go full screen). Nothing in YouTube's layout is disturbed while the window is up, so when
+    it is left and the marks go, the player is as it was; the page is told to lay out again (three resize events) in case it was not.
+  - Removed as no longer needed: `pipSettle` (the six looks), `pipStrictUntil`, the in-window `nudgePage` and its counters, `relayoutPage`, and
+    the in-window parts of `measureVideoBox` (the picture's-own-box fit). Not touched: the floating box's measuring, the exit settle after the
+    window (`startExitSettle`, `nudgeAfterExit`), the keep-playing guard (`guardPipPlayback`), and the Library player's own window
+    (`PlayerActivity`).
+  - Tried in headless Chromium on fake watch pages (11 cases, 45 checks: the box pinned at 16:9, 4:3, 21:9 and vertical shapes; YouTube resizing
+    its player behind the page's back; the video element or its wrappers being swapped; entering before the video exists; leaving for the
+    floating box and for full screen; an old app without `pipAspect`; the browsing page untouched). The same cases fail on 2.6.158's script
+    (23 failures), which is how the checks were shown to mean something. **Not tried:** the Kotlin side was not compiled here (no Android SDK
+    here; only the references and brackets were checked by reading), and nothing was tried against the live YouTube page or on a phone.
+    Please build it and try, in this order: (1) the window from the normal watch page, (2) from the system's full screen (Home while it
+    plays), (3) tap the window to come back, (4) a video that ends in the window and the next one opening, (5) the window from the floating
+    box.
+
+## 2.6.158
+- Fixed (a guess at the cause, see below): **in a mix, the list of the mix opened by itself while the player was a small box or the
+  picture-in-picture window, and the video went black** (`assets/wardtube/wardtube.js`, `app/build.gradle.kts`).
+  - What the code shows: nothing in the app opens the list. The only clicks the page script makes are on the next / previous video, a
+    suggested video and the ad skip button. So it is YouTube's page opening the list's sheet (the title with the shuffle and repeat
+    buttons, and the videos), and while the player is a box the page is hidden around the video (`html[data-wt-mini]`), so nobody can see
+    or tap the sheet and the box can be left showing black.
+  - Now, while the player is a box (the floating window or picture in picture), the page script looks about twice a second for a sheet
+    that is open: a layer above the page (fixed position or a dialog, not the page's own frame around the video) that holds the links of
+    the current list's videos. If it finds one on screen it presses its close button (found by its label: Close / إغلاق and the other
+    common languages), one try every 1.5 s. The full-screen player is never touched, so a list you open yourself there stays open.
+  - The sheet is found by what it holds, not by YouTube's element names; if YouTube's page differs from this, nothing is done.
+  - Tried in headless Chromium on fake watch pages (seven cases: the sheet opening in the box and being closed, English and Arabic
+    labels, the sheet already open when the player became a box, and no action for the full-screen player, a list inside the page, the
+    page's own fixed frame, and a closed sheet pushed off screen). **Not tried against the live YouTube page** (no network here); the
+    Kotlin side was not touched.
+
+## 2.6.157
+- Fixed: **with a video open, the sideways swipe did not open the side menu** (`MainActivity.kt`, `player/PlayerHost.kt`, `app/build.gradle.kts`).
+  - Cause: the swipe was only watched on the browsing page's WebView, and the video is a different WebView (the player's); on top of that
+    `sideMenuMayOpenBySwipe()` refused to open the menu whenever the player was full screen (`PlayerHost.Mode.EXPANDED`). So the swipe worked
+    on Home, Subscriptions and the other pages but never with a video open (the three-bars button always did).
+  - Now the player's page reports a quick sideways swipe too (`PlayerHost.trackSideSwipe` -> `onSideSwipe`), with the same rules as on the
+    browsing page (long enough, quick, not slanted, toward the middle from the drawer's side). It is only watched, never consumed.
+  - A swipe that begins on the video itself (its box plus a little below it, where the seek bar is), or on a row that scrolls sideways (the
+    chips, a shelf), keeps its own meaning and does not open the menu (`PLAYER_SWIPE_PROBE_JS`). The swipe down that minimizes the video is
+    untouched. Landscape full screen, the little window and picture in picture still never open it.
+
 ## 2.6.156
 - Changed: **in the Library, the swipe between the filters (All / Video / Audio / Lyrics) is now a real drag: the list follows the finger and
   changes smoothly** (`ui/FilterSwipeLayout.kt` (new), `ui/LibraryActivity.kt`, `res/layout/activity_library.xml`, `app/build.gradle.kts`).

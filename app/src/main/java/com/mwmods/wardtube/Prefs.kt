@@ -39,6 +39,16 @@ class Prefs(context: Context) {
         set(value) = sp.edit { putBoolean(PIP_AUTO, value) }
 
     /**
+     * Ask YouTube for H.264 video (and AAC sound) only, by telling its pages the device cannot play VP9 / AV1 / WebM
+     * (the "Prefer H.264" part of assets/wardtube/wardtube.js). Hardware decoders handle H.264 for little power, so the
+     * phone stays cooler and the battery lasts longer; YouTube offers H.264 up to 1080p. Off by default. It has to be in
+     * place before the page's own scripts run, so a change applies from the next page load.
+     */
+    var preferH264: Boolean
+        get() = sp.getBoolean(PREFER_H264, false)
+        set(value) = sp.edit { putBoolean(PREFER_H264, value) }
+
+    /**
      * What a tap on a video or a song of the Library opens: [PLAYER_ASK] (the chooser sheet asks every time),
      * [PLAYER_BUILT_IN], or the package name of another player app the person asked to always use.
      */
@@ -185,6 +195,7 @@ class Prefs(context: Context) {
         private const val HOMEPAGE = "homepage"
         private const val BACKGROUND_PLAY = "backgroundPlayEnabled"
         private const val PIP_AUTO = "pipAuto"
+        private const val PREFER_H264 = "preferH264"
         private const val PLAYER_CHOICE = "libraryPlayerChoice"
         private const val COOKIES = "cookiesEnabled"
         private const val AD_BLOCK = "adBlockEnabled"

@@ -284,6 +284,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             createWebView = { createPlayerWebView() },
             releaseWebView = { releasePlayerWebView(it) },
             onModeChanged = { onPlayerModeChanged(it) },
+            onSideSwipe = { view, x, y, dx, stray, ms ->
+                (view as? WebView)?.let { openSideMenuBySwipe(x, y, dx, stray, ms, it, fromPlayer = true) }
+            },
         )
         updateBarColors()
 
@@ -449,6 +452,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         onOpenVideo = { url -> if (!isDestroyed) openVideo(url) },
         onOpenPage = { url -> openPageFromPlayer(url) },
         isMiniNow = { ::playerHost.isInitialized && playerHost.miniWanted },
+        pipAspectNow = { if (::playerHost.isInitialized) playerHost.pipAspect else 0f },
     )
 
     // ---- The video player ----
@@ -792,7 +796,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     /**
-     * A quick sideways swipe across the browsing page, toward the middle of the screen from the side where the drawer
+     * A quick sideways swipe across the browsing page (or the open video's page, below the video itself: see
+     * [PLAYER_SWIPE_PROBE_JS]), toward the middle of the screen from the side where the drawer
      * is (to the left in Arabic, where the drawer is on the right), opens the side menu: the same drawer as the
      * three-bars button, without reaching for the button or for the screen's edge (where the system's own Back
      * gesture sits). [dx] is how far the finger went sideways (the sign tells which way), [stray] the most it went up
@@ -803,27 +808,42 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * keeps its own swipe: the page is asked what is under the place where the touch began ([SWIPE_PROBE_JS]) and the
      * menu opens only when it is not one of those.
      */
-    private fun openSideMenuBySwipe(startX: Float, startY: Float, dx: Float, stray: Float, duration: Long) {
-        if (!sideMenuMayOpenBySwipe()) return
+    private fun openSideMenuBySwipe(
+        startX: Float, startY: Float, dx: Float, stray: Float, duration: Long,
+        view: WebView = webView, fromPlayer: Boolean = false,
+    ) {
+        if (!sideMenuMayOpenBySwipe(fromPlayer)) return
         val towardMiddle = if (drawerLayout.layoutDirection == View.LAYOUT_DIRECTION_RTL) -dx else dx
         val density = resources.displayMetrics.density
         if (towardMiddle < SIDE_SWIPE_MIN_DP * density) return
         if (stray > towardMiddle * SIDE_SWIPE_MAX_SLANT || duration > SIDE_SWIPE_MAX_MS) return
-        val js = "$SWIPE_PROBE_JS(${(startX / density).toInt()},${(startY / density).toInt()})"
-        webView.evaluateJavascript(js) { insideScroller ->
+        // The player's page is asked in the view's own pixels (with the view's width, so it finds its own scale); a swipe
+        // that begins on the video (its seek bar included) is the video's own and never opens the menu.
+        val js = if (fromPlayer) {
+            "$PLAYER_SWIPE_PROBE_JS(${startX.toInt()},${startY.toInt()},${view.width})"
+        } else {
+            "$SWIPE_PROBE_JS(${(startX / density).toInt()},${(startY / density).toInt()})"
+        }
+        view.evaluateJavascript(js) { insideScroller ->
             // "false" only: a page that cannot answer (still loading, an error page) does not open the menu.
-            if (insideScroller == "false") openSideMenuFromSwipe()
+            if (insideScroller == "false") openSideMenuFromSwipe(fromPlayer)
         }
     }
 
-    /** A swipe opens the side menu only in that mode, when it is not open yet, and not over a full screen video or the little window. */
-    private fun sideMenuMayOpenBySwipe(): Boolean =
+    /**
+     * A swipe opens the side menu only in that mode, when it is not open yet, and not over a full screen (landscape)
+     * video, picture in picture or the little window. The browsing page and the Subscriptions screen ask with
+     * [fromPlayer] false (they are under the player while it is open, so they only count while it is not); the open
+     * player's page asks with it true and counts only while the player is the screen.
+     */
+    private fun sideMenuMayOpenBySwipe(fromPlayer: Boolean = false): Boolean =
         !isDestroyed && prefs.sideMenu && ::sideMenu.isInitialized && !sideMenu.isOpen() &&
-            !isFullscreen && !pipUiOn && playerHost.mode != PlayerHost.Mode.EXPANDED
+            !isFullscreen && !pipUiOn &&
+            (playerHost.mode == PlayerHost.Mode.EXPANDED) == fromPlayer
 
     /** Opens the side menu for a swipe (also the one on the Subscriptions screen), if it may open now. */
-    private fun openSideMenuFromSwipe() {
-        if (sideMenuMayOpenBySwipe()) sideMenu.open()
+    private fun openSideMenuFromSwipe(fromPlayer: Boolean = false) {
+        if (sideMenuMayOpenBySwipe(fromPlayer)) sideMenu.open()
     }
 
     private fun onPageScrolled(down: Boolean) {
@@ -1005,6 +1025,19 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     /** What was last handed to setPictureInPictureParams, so it is only sent again when it changes. */
     private var pipParamsKey = ""
 
+    /**
+     * The shape last handed to Android for the little window (setPictureInPictureParams / enterPictureInPictureMode): the
+     * window comes out in it, so it is the best answer to "what shape is the window?" at the moment it appears.
+     */
+    private var pipRatioInEffect: Rational? = null
+
+    /**
+     * The shape of the little window while it is on screen. The player's box in it is the app's own (PlayerHost.enterPip),
+     * so the shape is decided once, when the window appears, and kept: what the page reports about its player's box while
+     * the window is up is the box this shape made, and must not feed back into the window's shape.
+     */
+    private var pipWindowRatio: Rational? = null
+
     /** Until when a "user leaves" signal is really the app opening one of its own screens or a permission dialog. */
     private var ownLaunchUntil = 0L
 
@@ -1082,6 +1115,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * otherwise (that is what the window shows), 16:9 until either is known. Android refuses shapes beyond 2.39:1.
      */
     private fun pipRatio(): Rational {
+        pipWindowRatio?.let { return it } // the window is up: its shape is fixed (see [pipWindowRatio])
         val aspect = when {
             isFullscreen && videoAspect > 0f -> videoAspect
             boxAspect > 0f -> boxAspect
@@ -1153,6 +1187,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         pipParamsKey = key
         try {
             setPictureInPictureParams(buildPipParams(ratio, sourceRect))
+            pipRatioInEffect = ratio
         } catch (e: Exception) {
             // The system refused the params (the feature was switched off meanwhile): the app works without them.
         }
@@ -1173,7 +1208,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             menuController.dismissSheet()
             val ratio = pipRatio()
             val entered = enterPictureInPictureMode(buildPipParams(ratio, pipSourceRect(ratio)))
-            if (!entered) pipAskedAt = 0L
+            if (entered) pipRatioInEffect = ratio else pipAskedAt = 0L
             entered
         } catch (e: Exception) {
             pipAskedAt = 0L
@@ -1221,9 +1256,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         // otherwise the player takes it over.
         if (takeOver || !fullscreen) {
             val screen = pipLayoutSize()
-            // After full screen the page is still leaving it: the player does not trust its first measures and lays
-            // the page out again (see PlayerHost.enterPip).
-            playerHost.enterPip(screen.x, screen.y, afterFullscreen = takeOver)
+            // The window's shape is what Android was last given (the window came out in it), not what the page says now:
+            // after full screen the page is still leaving it, and what it says about its player's box depends on the
+            // moment. The player pins its box to this shape and the page is made to fit it (see PlayerHost.enterPip).
+            val ratio = pipRatioInEffect ?: pipRatio()
+            pipWindowRatio = ratio
+            playerHost.enterPip(screen.x, screen.y, ratio.toFloat())
         }
         if (takeOver && wasPlaying) guardPipPlayback()
     }
@@ -1261,6 +1299,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     /** The window is the app again (the person tapped it) or it was closed (the video stops). */
     private fun leavePipUi() {
         unregisterPipReceiver()
+        pipWindowRatio = null // the shape is free to follow the page again (see [pipWindowRatio])
         if (!pipUiOn) return
         pipUiOn = false
         showChrome(true)
@@ -1900,6 +1939,24 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
          */
         const val SWIPE_PROBE_JS =
             "(function(x,y){try{" +
+                "var e=document.elementFromPoint(x,y);" +
+                "while(e&&e!==document.body&&e!==document.documentElement){" +
+                "if(e.tagName==='INPUT'&&e.type==='range')return true;" +
+                "if(e.scrollWidth>e.clientWidth+1){var o=getComputedStyle(e).overflowX;" +
+                "if(o==='auto'||o==='scroll'||o==='overlay')return true;}" +
+                "e=e.parentElement;}" +
+                "return false;}catch(err){return true;}})"
+
+        /**
+         * Like [SWIPE_PROBE_JS], for the player's page: it takes the touch in the view's pixels and the view's width, and
+         * also answers true for a touch on the video's box (plus a little below it, where the seek bar sits).
+         */
+        const val PLAYER_SWIPE_PROBE_JS =
+            "(function(px,py,w){try{" +
+                "var k=w>0?window.innerWidth/w:1;var x=px*k,y=py*k;" +
+                "var v=document.querySelector('video');" +
+                "if(v){var r=v.getBoundingClientRect();" +
+                "if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom+28)return true;}" +
                 "var e=document.elementFromPoint(x,y);" +
                 "while(e&&e!==document.body&&e!==document.documentElement){" +
                 "if(e.tagName==='INPUT'&&e.type==='range')return true;" +

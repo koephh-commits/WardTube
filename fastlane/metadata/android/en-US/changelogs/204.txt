@@ -1,0 +1,1 @@
+Fixed: when a mix opens its list by itself while the player is the small window or picture in picture (and the video goes black), the list is now closed again.

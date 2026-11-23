@@ -18,6 +18,8 @@ class NativeBridge(
     private val onOpenPage: (String) -> Unit,
     /** True while the player is shown as the small floating box. Called on a WebView thread, so it must be thread-safe. */
     private val isMiniNow: () -> Boolean = { false },
+    /** The shape (width / height) of the system's picture-in-picture window while the player is that window, else 0. Thread-safe too. */
+    private val pipAspectNow: () -> Float = { 0f },
 ) {
     private val main = Handler(Looper.getMainLooper())
 
@@ -40,6 +42,15 @@ class NativeBridge(
      */
     @JavascriptInterface
     fun isMini(): Boolean = isMiniNow()
+
+    /**
+     * The shape (width / height) the player's page has to give its player while the app is the picture-in-picture window,
+     * 0 when it is not. The app decides it and the page fits itself to it, so nothing has to be measured in the page (see
+     * PlayerHost.enterPip and the "Picture in picture" part of wardtube.js). Asked on every tick and when the script starts,
+     * for the same reason as [isMini].
+     */
+    @JavascriptInterface
+    fun pipAspect(): Float = pipAspectNow()
 
     /**
      * A video of the page started to play with sound: the built-in player of the Library (a video or a song that plays from there)

@@ -1,0 +1,1 @@
+Fixed: the sideways swipe that opens the side menu now also works while a video is open (below the video; a swipe that starts on the video itself or on a sideways-scrolling row keeps its own job).

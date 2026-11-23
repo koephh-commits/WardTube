@@ -75,7 +75,7 @@ class PageScripts(
     }
 
     private fun flags(): JSONObject =
-        JSONObject().put("adblock", prefs.adBlock).put("background", prefs.backgroundPlay)
+        JSONObject().put("adblock", prefs.adBlock).put("background", prefs.backgroundPlay).put("h264", prefs.preferH264)
 
     private fun source(): String {
         val config = flags().put("baseCss", baseCss).put("adCss", adBlocker.cosmeticCss)

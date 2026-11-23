@@ -1,0 +1,3 @@
+Added: Prefer H.264 option (Menu > Playback) — a cooler phone and a longer battery; YouTube sends H.264 up to 1080p.
+Added: a long listen in the background no longer stops at "Continue watching?" — the session is kept active and the prompt is answered.
+Added: videos with automatic dubbing start with their original audio track (Arabic interface included).

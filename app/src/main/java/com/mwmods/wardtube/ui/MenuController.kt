@@ -277,6 +277,16 @@ class MenuController(
                 onPipChanged()
             }
         }
+        addSwitchRow(
+            R.string.preferH264, R.drawable.ic_menu_battery, prefs.preferH264,
+            subtitle = { on -> activity.getString(if (on) R.string.preferH264On else R.string.preferH264Off) }
+        ) { on ->
+            prefs.preferH264 = on
+            // The page script reads it when a page starts: registered again for the next pages of both WebViews, and the
+            // browsing page is reloaded to follow it now. The video that plays keeps its format until the next one opens.
+            applyScriptSettings()
+            targets.current.reload()
+        }
         sleepValue = addRow(R.string.sleepTimer, R.drawable.ic_menu_moon, value = sleepLabel, chevron = true) {
             showSleepTimerDialog()
         }

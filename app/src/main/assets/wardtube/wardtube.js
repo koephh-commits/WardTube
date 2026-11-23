@@ -5,7 +5,7 @@
  * WardTube page script. Injected at document start (or right after the page starts
  * loading on WebViews without document-start scripts).
  *
- * window.__wardtubeConfig = { adblock, background, baseCss, adCss } is prepended by PageScripts.kt.
+ * window.__wardtubeConfig = { adblock, background, h264, baseCss, adCss } is prepended by PageScripts.kt.
  * Settings can be changed live with window.__wardtube.configure({ adblock, background, adCss }).
  */
 (function () {
@@ -18,6 +18,55 @@
     adblock: cfg.adblock !== false,
     background: cfg.background !== false
   };
+
+  // ---- Prefer H.264 (optional) ----------------------------------------------
+  // cfg.h264: the page claims it cannot play WebM / VP8 / VP9 / AV1, so YouTube serves H.264 video and AAC audio. A phone
+  // decodes H.264 in hardware for very little power, while VP9 / AV1 often end up on the processor, which is what warms the
+  // phone and drains the battery over a long video. The price: YouTube offers H.264 up to 1080p only (no 1440p / 4K).
+  // YouTube's player asks what the device can play when it starts, so this has to be in place before its scripts run
+  // (document start); a changed setting therefore applies from the next page load.
+  // Adapted from NouTube's h264ify.ts, which is adapted from h264ify (MIT, github.com/erkserkserks/h264ify).
+  if (cfg.h264 === true) {
+    try {
+      var BLOCKED_CODECS = ['webm', 'vp8', 'vp9', 'vp09', 'av01']; // vp09 is how VP9 is named when it comes in an mp4
+      var codecBlocked = function (type) {
+        if (typeof type !== 'string') return false;
+        type = type.toLowerCase();
+        for (var c = 0; c < BLOCKED_CODECS.length; c++) {
+          if (type.indexOf(BLOCKED_CODECS[c]) !== -1) return true;
+        }
+        return false;
+      };
+
+      var videoProto = window.HTMLVideoElement && HTMLVideoElement.prototype;
+      if (videoProto && videoProto.canPlayType) {
+        var nativeCanPlayType = videoProto.canPlayType;
+        videoProto.canPlayType = function (type) {
+          return codecBlocked(type) ? '' : nativeCanPlayType.apply(this, arguments);
+        };
+      }
+
+      if (window.MediaSource && typeof MediaSource.isTypeSupported === 'function') {
+        var nativeIsTypeSupported = MediaSource.isTypeSupported.bind(MediaSource);
+        MediaSource.isTypeSupported = function (type) {
+          return codecBlocked(type) ? false : nativeIsTypeSupported(type);
+        };
+      }
+
+      // Newer players also ask the Media Capabilities API which codec is smooth and power efficient.
+      var mediaCaps = navigator.mediaCapabilities;
+      if (mediaCaps && typeof mediaCaps.decodingInfo === 'function') {
+        var nativeDecodingInfo = mediaCaps.decodingInfo.bind(mediaCaps);
+        mediaCaps.decodingInfo = function (config) {
+          var v = config && config.video, a = config && config.audio;
+          if ((v && codecBlocked(v.contentType)) || (a && codecBlocked(a.contentType))) {
+            return Promise.resolve({ supported: false, smooth: false, powerEfficient: false });
+          }
+          return nativeDecodingInfo(config);
+        };
+      }
+    } catch (e) { /* never break the page */ }
+  }
 
   var baseStyle = null;
   var adStyle = null;
@@ -252,6 +301,59 @@
     });
   } catch (e) {}
 
+  // ---- Long playback: no "Continue watching?" -------------------------------------
+  // YouTube takes a page nobody touched for hours for an abandoned one: it pauses the video and asks "Continue watching?"
+  // (a prompt that nobody sees when the phone is in a pocket). A long listen in the background is exactly that. Ported from
+  // NouTube's background guard, in two parts:
+  //  1. window._lact is YouTube's "last activity" clock. Keeping it fresh keeps the session active, so the prompt never
+  //     comes; it is refreshed every minute for as long as the page lives.
+  //  2. If the prompt comes anyway (the clock is only one of the things it looks at), answer it and play again. It is only
+  //     answered when the video was playing a moment ago and is paused now, and only when the prompt has a single button, so
+  //     a pause the person asked for, or a question with a choice in it, is never answered for them. With more buttons the
+  //     video is just played again, which makes YouTube drop the prompt itself.
+
+  setInterval(function () { window._lact = Date.now(); }, 60 * 1000);
+
+  var CONTINUE_PROMPTS = ['ytmusic-you-there-renderer', 'ytm-confirm-dialog-renderer', 'yt-confirm-dialog-renderer'];
+  var lastPlayingAt = 0;
+  var lastPromptTry = 0;
+  var promptTries = 0;
+
+  function answerContinuePrompt() {
+    for (var i = 0; i < CONTINUE_PROMPTS.length; i++) {
+      var dialog = document.querySelector(CONTINUE_PROMPTS[i]);
+      if (!dialog) continue;
+      var buttons = dialog.querySelectorAll('button');
+      if (buttons.length === 1) { buttons[0].click(); return true; }
+      // a prompt left in the page that cannot be answered must not hide the next one
+    }
+    return false;
+  }
+
+  function keepWatching() {
+    var video = mainVideo();
+    if (!video) return;
+    var now = Date.now();
+    if (!video.paused && !video.ended) {
+      lastPlayingAt = now;
+      promptTries = 0;
+      return;
+    }
+    // paused: only a pause that followed playing within the last half minute can be the prompt's
+    if (video.ended || now - lastPlayingAt > 30000 || now - lastPromptTry < 2000 || promptTries >= 3) return;
+    var dialog = null;
+    for (var i = 0; i < CONTINUE_PROMPTS.length && !dialog; i++) dialog = document.querySelector(CONTINUE_PROMPTS[i]);
+    if (!dialog) return;
+    lastPromptTry = now;
+    promptTries++;
+    answerContinuePrompt();
+    try {
+      var player = document.getElementById('movie_player');
+      if (player && player.playVideo) player.playVideo();
+      else video.play();
+    } catch (e) {}
+  }
+
   // ---- Iframes ------------------------------------------------------------
   // Removed to prevent WebRTC exploits (WebRTC leak protection).
 
@@ -359,6 +461,75 @@
       var button = document.querySelector('.ytp-unmute');
       if (button && button.offsetParent !== null) button.click();
     }
+  }
+
+  // ---- Original audio track (player) ------------------------------------------------
+  // YouTube's automatic dubbing gives a video extra audio tracks and may start the one in the viewer's language (Arabic, for
+  // one) instead of the voice the video was made with. As soon as a video's tracks are known, the one YouTube labels
+  // "original" is chosen. It is done once per video, so a track picked by hand in YouTube's menu stays picked.
+  // The label is what YouTube writes in each interface language: the list comes from NouTube (audio.ts), which took it from
+  // github.com/Bilalkamal/YouTube-Original-Audio-Track. A track's name is found the way NouTube finds it: the track object
+  // keeps its details one level down, under a key that changes between YouTube builds, so look for the one that has a name
+  // and an isDefault.
+
+  var ORIGINAL_LABELS = [
+    'original', 'originale', 'оригинал', 'オリジナル', '원본', '原始', 'أصلي', 'मूल', 'মূল', 'asli', 'orijinal', 'nguyên bản',
+    'ต้นฉบับ', 'origineel', 'oryginalny', 'alkuperäinen', 'originál', 'πρωτότυπο', 'מקורי', 'eredeti', 'оригінал',
+    'اصلی', 'asal', 'orihinal', 'அசல்', 'اصل', 'izvorni', 'оригинален', 'izvirnik', 'originalus', 'oriģināls',
+    'originaal', 'ორიგინალი', 'asl', 'түпнұсқа', 'բնօրինակ', 'ដើម', 'မူရ်း', 'මුල්', 'የመጀመሪያው', 'मौलिक', 'ຕົ້ນສະບັບ',
+    'эх', 'དངོས་གཞི།', 'gwreiddiol', 'originala', 'jatorrizko', 'orixinal', 'મૂળ', 'asali', 'izugbe', 'upprunalegt',
+    'ಮೂಲ', 'orîjînal', 'түп нуска', 'taketake', 'യഥാർത്ഥ', 'मूळ', 'oriġinali', 'ମୌଳିକ', 'ਅਸਲ', 'اصلي', 'muamua',
+    'chaicho', 'asalka ah', 'origjinal', 'asili', 'అసలు', 'asyl', 'оригиналь', 'ئەسلى', 'אריגינעל', 'atilẹba',
+    'okwangempela', 'oorspronklik', 'originalni', 'uriginale', 'oarspronklik', 'bunaidh', 'tùsail', 'kumu', 'thawj',
+    'gwredhek', 'originalis', 'ya liboso', 'tany am-boalohany', 'yoyamba', 'qallariy', 'cy\'umwimerere', 'ea pele',
+    'аслӣ', 'ʻuluaki', 'njëkk', 'yokuqala'
+  ];
+
+  function audioTrackName(track) {
+    try {
+      var keys = Object.keys(track || {});
+      for (var i = 0; i < keys.length; i++) {
+        var v = track[keys[i]];
+        if (v && typeof v === 'object' && 'isDefault' in v && v.name) return String(v.name);
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  function isOriginalName(name) {
+    name = name.toLowerCase();
+    if (!name) return false;
+    for (var i = 0; i < ORIGINAL_LABELS.length; i++) {
+      if (name.indexOf(ORIGINAL_LABELS[i]) !== -1) return true;
+    }
+    return false;
+  }
+
+  var audioFor = '';  // the video id the two values below belong to
+  var audioDone = false;
+  var audioTries = 0;
+
+  function autoOriginalAudio() {
+    if (cfg.route !== 'player') return;
+    var id = currentId();
+    if (id !== audioFor) { audioFor = id; audioDone = false; audioTries = 0; }
+    if (audioDone || !id) return;
+    if (++audioTries > 100) { audioDone = true; return; } // gave up after about 30 seconds
+    var player = document.getElementById('movie_player');
+    if (!player || !player.getAvailableAudioTracks || !player.setAudioTrack || adShowing()) return;
+    try {
+      var tracks = player.getAvailableAudioTracks() || [];
+      if (tracks.length < 2) return; // one track, or the tracks are not known yet: nothing to choose from
+      var original = null;
+      for (var i = 0; i < tracks.length; i++) {
+        if (isOriginalName(audioTrackName(tracks[i]))) { original = tracks[i]; break; }
+      }
+      audioDone = true;
+      if (!original) return;
+      var current = player.getAudioTrack ? player.getAudioTrack() : null;
+      if (current && audioTrackName(current) === audioTrackName(original)) return; // already on it
+      player.setAudioTrack(original);
+    } catch (e) {}
   }
 
   // ---- Sound on in Shorts (browsing page) -------------------------------------
@@ -663,7 +834,23 @@
       'html[data-wt-mini] .html5-video-player,html[data-wt-mini] .html5-video-player *{visibility:visible!important}' +
       'html[data-wt-mini] #player-container-id{position:fixed!important;top:0!important;left:0!important;' +
       'right:auto!important;bottom:auto!important;width:100%!important;max-width:100%!important;margin:0!important;' +
-      'transform:none!important;z-index:2147483646!important}');
+      'transform:none!important;z-index:2147483646!important}' +
+      // The picture in picture window (see "Picture in picture" below). Every element from the video up to the page's body
+      // is pinned to the top-left corner at the page's width and at the height the app's window has (--wt-pip-aspect is
+      // its width / height; the height is never more than the page's, PlayerHost.applyPip fits the very same box), and the
+      // video fills that box whatever size YouTube's own inline styles give it.
+      'html[data-wt-pip] [data-wt-pip-box]{position:fixed!important;top:0!important;left:0!important;right:auto!important;' +
+      'bottom:auto!important;width:100vw!important;min-width:0!important;max-width:none!important;' +
+      'height:min(calc(100vw / var(--wt-pip-aspect,1.7778)),100vh)!important;min-height:0!important;max-height:none!important;' +
+      'margin:0!important;padding:0!important;border:0!important;transform:none!important;contain:none!important;' +
+      'overflow:hidden!important;background:#000!important}' +
+      'html[data-wt-pip] video{position:absolute!important;top:0!important;left:0!important;right:auto!important;' +
+      'bottom:auto!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;' +
+      'margin:0!important;transform:none!important;object-fit:contain!important}' +
+      // The system draws the window's own buttons; a tap on the window brings the app back, so the page's controls go.
+      'html[data-wt-pip] #player-control-overlay,html[data-wt-pip] .player-controls-background,' +
+      'html[data-wt-pip] .ytp-chrome-top,html[data-wt-pip] .ytp-chrome-bottom,html[data-wt-pip] .ytp-gradient-top,' +
+      'html[data-wt-pip] .ytp-gradient-bottom{display:none!important}');
   });
 
   // The app's answer to "is the player a small box right now?", or null when it cannot be asked (no bridge, old app).
@@ -673,6 +860,69 @@
       if (bridge && typeof bridge.isMini === 'function') return !!bridge.isMini();
     } catch (e) {}
     return null;
+  }
+
+  // ---- Picture in picture --------------------------------------------------------
+  // In the system's little window the app used to MEASURE where the player's box ended up and fit the WebView to what it
+  // found, while YouTube was still laying the page out (leaving full screen, a new viewport, the next video opening). What
+  // it measured depended on the moment, and timers (settle, nudge, distrust windows) tried to catch up with it.
+  // Now it is the other way round: the app decides the shape (the window's width / height, asked through
+  // WardTubeNative.pipAspect, 0 outside the window), and the page is made to fit it. Every element from the video up to
+  // the body is marked (data-wt-pip-box, an attribute: YouTube rewrites classes, not unknown attributes) and the CSS above
+  // pins them to the top-left corner at the page's width and at width / aspect high; the video fills the box, letterboxed
+  // by object-fit. The box is at the same place and the same shape whatever size YouTube gave its player, so nothing
+  // is measured and nothing has to be waited for. The page's own layout size is never touched, so when the window is left
+  // and the marks go, YouTube's player is exactly as it was.
+
+  var pipAspect = 0;
+  var PIP_BOX = 'data-wt-pip-box';
+
+  // The app's answer to "is the window the picture in picture one, and what shape is it?", or null when it cannot be asked.
+  function appSaysPipAspect() {
+    try {
+      var bridge = window.WardTubeNative;
+      if (bridge && typeof bridge.pipAspect === 'function') {
+        var a = Number(bridge.pipAspect());
+        return isFinite(a) && a > 0 ? a : 0;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Marks the video's ancestors (up to, not including, the body) and unmarks what was marked before and no longer holds it
+  // (YouTube swapped the video element or its wrappers).
+  function markPipBoxes(on) {
+    var keep = [];
+    var video = on ? mainVideo() : null;
+    for (var n = video && video.parentElement; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+      keep.push(n);
+    }
+    var old = document.querySelectorAll('[' + PIP_BOX + ']');
+    for (var i = 0; i < old.length; i++) {
+      if (keep.indexOf(old[i]) < 0) old[i].removeAttribute(PIP_BOX);
+    }
+    for (var j = 0; j < keep.length; j++) {
+      if (!keep[j].hasAttribute(PIP_BOX)) keep[j].setAttribute(PIP_BOX, '');
+    }
+  }
+
+  function markPip() {
+    var root = document.documentElement;
+    if (!root) return;
+    var on = pipAspect > 0 && mini && cfg.route === 'player';
+    if (on) {
+      var value = String(pipAspect);
+      if (root.style.getPropertyValue('--wt-pip-aspect') !== value) root.style.setProperty('--wt-pip-aspect', value);
+      if (!root.hasAttribute('data-wt-pip')) root.setAttribute('data-wt-pip', '');
+      markPipBoxes(true);
+    } else if (root.hasAttribute('data-wt-pip')) {
+      root.removeAttribute('data-wt-pip');
+      root.style.removeProperty('--wt-pip-aspect');
+      markPipBoxes(false);
+      // Back to the floating box (the full-screen player is told by markMini, which kicks the layout itself): YouTube's
+      // player is sized for the page again, and is told the page changed.
+      if (mini && cfg.route === 'player') kickLayout();
+    }
   }
 
   // Hides the page around the player while it is a small box. Only in the player's own WebView: the page being
@@ -716,12 +966,70 @@
     if (document.body && document.body.scrollTop > 0) document.body.scrollTop = 0;
   }
 
+  // ---- The list's sheet opening while the player is a small box ------------------
+  // In a mix YouTube sometimes opens the list's sheet (the title with the shuffle and repeat buttons, and the videos)
+  // over the page by itself. In the full-screen player that only gets in the way; in the small box and the picture in
+  // picture window it can leave the video black. Nothing in the app opens it, and nobody can tap it while the page is
+  // hidden behind the box, so while the player is a box a sheet that is open is closed again. The sheet is found by what
+  // it holds (the links of the list's videos in a layer above the page, one that is not the page around the player),
+  // not by YouTube's element names, and its close button by its label. If nothing matches, nothing is done.
+
+  var CLOSE_LABEL = /close|dismiss|إغلاق|اغلاق|إخفاء|fermer|cerrar|schlie|chiudi|fechar|закры|閉じ|关闭|關閉|닫기|kapat/i;
+  var lastSheetLook = 0;
+  var lastSheetClose = 0;
+
+  // The layer above the page that holds [el] (a fixed-position box or a dialog), or null when it is just in the page.
+  function overlayOf(el) {
+    for (var n = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+      var pos = '';
+      try { pos = getComputedStyle(n).position; } catch (e) {}
+      if (pos === 'fixed' || n.getAttribute('role') === 'dialog' || n.tagName === 'DIALOG') return n;
+    }
+    return null;
+  }
+
+  function closeListSheet() {
+    var now = Date.now();
+    if (now - lastSheetLook < 600) return false;
+    lastSheetLook = now;
+    var list = currentList();
+    if (!list) return false;
+    var video = mainVideo();
+    var items = panelItems(list);
+    for (var i = 0; i < items.length; i++) {
+      var sheet = overlayOf(items[i].link);
+      if (!sheet || (video && sheet.contains(video))) continue; // in the page, or the page's own fixed frame
+      var r = sheet.getBoundingClientRect();
+      // Open and on screen (closed sheets are display:none or pushed out of the window).
+      if (r.width < 100 || r.height < 100 || r.bottom <= 0 || r.top >= window.innerHeight ||
+          r.right <= 0 || r.left >= window.innerWidth) continue;
+      var buttons = sheet.querySelectorAll('button,[role="button"]');
+      for (var j = 0; j < buttons.length; j++) {
+        var b = buttons[j];
+        var label = (b.getAttribute('aria-label') || b.getAttribute('title') || '') + ' ' + (b.textContent || '').slice(0, 30);
+        if (CLOSE_LABEL.test(label)) {
+          if (now - lastSheetClose < 1500) return false; // one try at a time: give YouTube time to close it
+          lastSheetClose = now;
+          b.click();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function keepTop() {
     if (cfg.route !== 'player') return;
     var asked = appSaysMini();
     if (asked !== null) mini = asked;
+    var shape = appSaysPipAspect();
+    if (shape !== null) pipAspect = shape;
     markMini();
-    if (mini) scrollToTop();
+    markPip();
+    if (mini) {
+      scrollToTop();
+      try { closeListSheet(); } catch (e) {}
+    }
   }
 
   // The script has just started in a new document: ask at once, before the first tick.
@@ -890,10 +1198,11 @@
     if (ticks % 5 === 0) { hideOpenApp(); hideOpenAppRows(); }
     skipAd();
     autoUnmute();
+    autoOriginalAudio();
     keepTop();
     skipShortsAd();
     autoUnmuteShort();
-    if (ticks % 5 === 0) dropIframes();
+    if (ticks % 5 === 0) { dropIframes(); keepWatching(); }
   }, 300);
 
   // ---- Public API ---------------------------------------------------------
@@ -943,9 +1252,13 @@
     skip: function (step) {
       return step > 0 ? skipNext() : skipPrevious();
     },
-    /** The app shows the player as a small box (true) or full screen (false). */
-    setMini: function (on) {
+    /**
+     * The app shows the player as a small box (true) or full screen (false). [aspect]: the shape (width / height) of the
+     * system's picture in picture window when that is what the box is, else nothing.
+     */
+    setMini: function (on, aspect) {
       mini = !!on;
+      pipAspect = mini && aspect > 0 ? +aspect : 0;
       keepTop();
     },
     /**
