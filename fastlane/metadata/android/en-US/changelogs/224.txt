@@ -1,0 +1,1 @@
+Changed: the picture-in-picture button on Shorts is now on the left edge. Fixed: next / previous in the picture-in-picture window (and the notification) now really move to the next / previous Short.

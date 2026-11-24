@@ -492,6 +492,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         onMenuRowDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
         // The same row, or the button beside the like / share buttons, under the video of a watch page: the video that page shows.
         onMenuRowDownloadCurrent = { url -> if (!isDestroyed) startDownloadFlow(url) },
+        // The last way the page moves a Short on (wardtube.js, moveShort): a real swipe on the browsing page, only while a Short is on view.
+        onSwipeShort = { dir -> if (!isDestroyed && page === webView && PlayerController.onShort) PlayerController.swipeShort(dir) },
     )
 
     // ---- The video player ----

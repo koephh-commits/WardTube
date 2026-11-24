@@ -32,10 +32,13 @@ class NativeBridge(
     private val onMenuRowDownload: (url: String, title: String?) -> Unit = { _, _ -> },
     /** The same row (or the button beside the buttons under the video) of a watch page, for the video that page shows (see [menuDownloadCurrent]). Runs on the main thread. */
     private val onMenuRowDownloadCurrent: (url: String) -> Unit = {},
+    /** The page asks for a real swipe on itself to move a Short on (1) or back (-1) (see [swipeShort]). Runs on the main thread. */
+    private val onSwipeShort: (dir: Int) -> Unit = {},
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var lastEnterPipAt = 0L
     private var lastMenuRowAt = 0L
+    private var lastSwipeAt = 0L
 
     /** A video link was tapped on a browsing page: play it in the player instead of in the page. */
     @JavascriptInterface
@@ -146,6 +149,23 @@ class NativeBridge(
         main.post { onMenuRowDownloadCurrent(url) }
     }
 
+    /**
+     * The page script (wardtube.js, moveShort) asks the app to swipe on the page like a finger, to go to the next ([dir] >= 0) or the
+     * previous Short: the last way it tries, after its own button and its scrolling changed nothing. Any frame of a page can call
+     * this, but all it can do is swipe the browsing page while a Short is on view (MainActivity checks), and two calls less than
+     * 0.45 s apart count as one.
+     */
+    @JavascriptInterface
+    fun swipeShort(dir: Int) {
+        val now = android.os.SystemClock.uptimeMillis()
+        synchronized(this) {
+            if (now - lastSwipeAt < SWIPE_SHORT_GAP_MS) return
+            lastSwipeAt = now
+        }
+        val step = if (dir >= 0) 1 else -1
+        main.post { onSwipeShort(step) }
+    }
+
     /** The address of the video whose id the page gave; null when [id] is not a YouTube video id. */
     private fun videoUrl(kind: String?, id: String?): String? {
         val videoId = id?.takeIf { VIDEO_ID.matches(it) } ?: return null
@@ -165,6 +185,9 @@ class NativeBridge(
     private companion object {
         /** A second tap on the button this soon after the first is the same tap (a double click), not another request. */
         const val ENTER_PIP_GAP_MS = 1000L
+
+        /** Two requests for a swipe this close count as one (a swipe takes about 0.2 s). */
+        const val SWIPE_SHORT_GAP_MS = 450L
 
         /** Two taps on the "Download video" row of the three-dots menu this close count as one. */
         const val MENU_DOWNLOAD_GAP_MS = 600L

@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.6.178
+- Changed: **the picture-in-picture button on a Short is now at the left edge** (`assets/wardtube/wardtube.js`).
+  - It was at the right edge; it is now at the left edge, at the same height (22 % from the top) and with the same round dark button.
+    In landscape it keeps clear of the display's cut-out on that side. The button on the long video's page is unchanged.
+- Fixed: **next / previous (and the window's other buttons) on a Short** - the window's «التالي» did nothing on a real Short
+  (`assets/wardtube/wardtube.js`, `player/PlayerController.kt`, `web/NativeBridge.kt`, `MainActivity.kt`, `app/build.gradle.kts`).
+  - **Before:** next / previous looked for YouTube's own «next» button and, if the page had none, scrolled the next item of the feed into
+    view. It never checked that the Short really changed, so on a feed that does not move that way (nothing in the page changed) the press
+    was lost, in the window and in the notification (they use the same call).
+  - **Now:** one request tries a list of ways, one after the other, and **checks after each one that the Short really changed** (the
+    address, the active reel, its picture, the scroll position): the page's own button, the next item scrolled into view, the list
+    scrolled by a window, and last **a real finger swipe on the page made by the app** (`PlayerController.swipeShort`, asked through
+    `WardTubeNative.swipeShort`), which is what a person does and does not depend on how YouTube builds the feed. As soon as one way
+    moved the feed nothing more is done (a press never skips two Shorts); the way that worked is tried first the next time; a newer press
+    takes over from an older one still being checked; the swipe is not used while the comments or a menu are over the Short.
+  - **Previous:** unchanged on purpose: after more than 3 seconds it restarts the Short, before that it goes to the Short before (and if
+    nothing could move, it restarts it).
+  - **Play / pause:** audited, no change needed: the window's button reaches the page's `toggle` (the Short on view) and the page's guard
+    does not undo a pause that the app asked for.
+  - **Tried:** the move code of `wardtube.js` was run in Node against a mock page (10 checks): the button way, the item way, only the
+    swipe working (called once, after the others), a slow way (no double skip), two quick presses (one swipe), the remembered way first,
+    previous after 7 s (restart only), previous in the first seconds (moves back), previous with nothing working (restart), and no swipe
+    while a sheet is open; `wardtube.js` passes `node --check`. **Not tried:** the Kotlin side is not compiled here (no Android SDK) and
+    nothing was tried on a phone or against live YouTube. Please build it and try, in the window and in the notification: next, previous
+    (after 1 s and after 5 s), pause and play, and the button's new place.
+
 ## 2.6.177
 - New: **picture in picture and play in the background for Shorts**, the same way long videos have them
   (`assets/wardtube/wardtube.js`, `player/PlayerController.kt`, `MainActivity.kt`, `app/build.gradle.kts`).

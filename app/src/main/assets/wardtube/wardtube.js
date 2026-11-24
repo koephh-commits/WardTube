@@ -1565,8 +1565,8 @@
   //    the video up to the document is marked (data-wt-spip-chain), and the rules below hide the rest with `visibility`, which
   //    moves nothing (the Shorts feed is a scrolling list that YouTube keeps track of by position: its layout is left alone).
   //    The video stays where YouTube put it; the window has the shape of the picture, so it fills it.
-  //  - The button: the round button of the player's page (same size, colour and drawing, see "a button in the player"), at the right
-  //    edge above the column of buttons of the Short. It is the app that opens the window (WardTubeNative.enterPip).
+  //  - The button: the round button of the player's page (same size, colour and drawing, see "a button in the player"), at the LEFT
+  //    edge, high up, clear of the column of buttons of the Short. It is the app that opens the window (WardTubeNative.enterPip).
   var SPIP_CHAIN = 'data-wt-spip-chain';
   var SPIP_BTN_ID = 'wardtube-spip-btn';
   var spipBtn = null;
@@ -1580,7 +1580,7 @@
       'html[data-wt-spip] body *{visibility:hidden!important}' +
       'html[data-wt-spip] [' + SPIP_CHAIN + ']{visibility:visible!important}' +
       'html[data-wt-spip] video[' + SPIP_CHAIN + ']{object-fit:contain!important}' +
-      id + '{display:flex;position:fixed;top:22%;right:12px;left:auto;z-index:2147483646;align-items:center;' +
+      id + '{display:flex;position:fixed;top:22%;left:12px;right:auto;z-index:2147483646;align-items:center;' +
       'justify-content:center;width:40px;height:40px;margin:0;padding:0;border:0;border-radius:50%;' +
       'background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .2s;' +
       '-webkit-tap-highlight-color:transparent;touch-action:manipulation}' +
@@ -1588,7 +1588,7 @@
       id + ':active{background:rgba(255,255,255,.3)}' +
       id + ' svg{width:24px;height:24px;pointer-events:none}' +
       // Clear of the display's cut-out when the phone is turned.
-      '@media (orientation:landscape){' + id + '{right:calc(16px + env(safe-area-inset-right,0px))}}');
+      '@media (orientation:landscape){' + id + '{left:calc(16px + env(safe-area-inset-left,0px))}}');
   });
 
   // Marks the Short's video and every element above it (up to the document), and unmarks what was marked before and no longer
@@ -1704,20 +1704,114 @@
     return document.scrollingElement || document.documentElement;
   }
 
-  // Moves one Short on (dir = 1) or back (dir = -1): the page's own button if it has one, else the neighbouring item scrolled into
-  // view, else the list scrolled by one window. Returns how it was done, for tests.
-  function moveShort(dir) {
-    var active = document.querySelector(ACTIVE_REEL);
-    var button = document.querySelector(dir > 0 ? NEXT_BTN : PREV_BTN);
-    if (button && !button.disabled) { button.click(); return 'button'; }
-    var sib = active && (dir > 0 ? active.nextElementSibling : active.previousElementSibling);
-    if (sib && sib.scrollIntoView) { sib.scrollIntoView({ block: 'start' }); return 'item'; }
-    var box = shortScroller(currentVideo());
-    if (box && box.scrollBy) {
-      box.scrollBy({ top: dir * (box.clientHeight || window.innerHeight || 600), behavior: 'auto' });
-      return 'scroll';
+  // Which Short is on view, as a short string that changes when the feed has moved on: the address, the active reel, its picture
+  // and the scroll position of the list. Used to see whether a way of moving on worked (see moveShort).
+  var elKeySeq = 0;
+  function elKey(el) {
+    if (!el) return '';
+    try {
+      if (!el.__wtKey) el.__wtKey = ++elKeySeq;
+      return String(el.__wtKey);
+    } catch (e) { return ''; }
+  }
+
+  function shortSignature() {
+    var active = null, video = null, top = 0;
+    try {
+      active = document.querySelector(ACTIVE_REEL);
+      video = currentVideo();
+      var box = shortScroller(video);
+      top = box ? Math.round(box.scrollTop || 0) : 0;
+    } catch (e) {}
+    var src = '';
+    try { src = video ? (video.currentSrc || video.src || '') : ''; } catch (e) {}
+    return location.pathname + '|' + elKey(active) + '|' + elKey(video) + '|' + src + '|' + top;
+  }
+
+  // The item next to the active one (skipping empty spacers), or null.
+  function neighbourReel(active, dir) {
+    var sib = active;
+    for (var i = 0; i < 3 && sib; i++) {
+      sib = dir > 0 ? sib.nextElementSibling : sib.previousElementSibling;
+      if (!sib) return null;
+      try { if (sib.getBoundingClientRect().height > 40) return sib; } catch (e) {}
     }
-    return 'none';
+    return null;
+  }
+
+  // The ways of moving one Short on (dir = 1) or back (dir = -1). Each returns its name when it did something, else ''.
+  //  button: the page's own next / previous button (the page has one on some screens).
+  //  item:   the neighbouring item of the feed scrolled into view.
+  //  scroll: the list scrolled by one window.
+  //  swipe:  a real finger swipe on the page, made by the app (WardTubeNative.swipeShort): the way a person moves between Shorts,
+  //          and the one that does not depend on how YouTube builds the feed. Never while a sheet (comments, a menu) is over the Short.
+  var SHORT_STEPS = {
+    button: function (dir) {
+      var button = document.querySelector(dir > 0 ? NEXT_BTN : PREV_BTN);
+      if (button && !button.disabled) { button.click(); return 'button'; }
+      return '';
+    },
+    item: function (dir) {
+      var active = document.querySelector(ACTIVE_REEL);
+      var sib = active && neighbourReel(active, dir);
+      if (sib && sib.scrollIntoView) { sib.scrollIntoView({ block: 'start' }); return 'item'; }
+      return '';
+    },
+    scroll: function (dir) {
+      var box = shortScroller(currentVideo());
+      if (box && box.scrollBy) {
+        box.scrollBy({ top: dir * (box.clientHeight || window.innerHeight || 600), behavior: 'auto' });
+        return 'scroll';
+      }
+      return '';
+    },
+    swipe: function (dir) {
+      if (sheetOverShort()) return '';
+      var bridge = window.WardTubeNative;
+      if (bridge && typeof bridge.swipeShort === 'function') { bridge.swipeShort(dir); return 'swipe'; }
+      return '';
+    }
+  };
+  var SHORT_ORDER = ['button', 'item', 'scroll', 'swipe'];
+  var SHORT_MOVE_CHECK_MS = 500;  // how long a way gets to move the feed before the next way is tried
+  var shortMoveId = 0;            // the latest request: a newer press takes over from an older one still being checked
+  var shortWay = '';              // the way that moved the feed last time: tried first the next time
+
+  // Moves on (dir = 1) or back (dir = -1) and CHECKS that the feed really moved: a way that did something but changed nothing
+  // (a button that is not what it seems, a list that does not scroll) is followed by the next way after SHORT_MOVE_CHECK_MS, and
+  // once one moved the feed nothing more is done (so a press never skips two Shorts). [onFail] runs when no way moved it.
+  // Returns the name of the way tried first, for tests.
+  function moveShort(dir, onFail) {
+    var id = ++shortMoveId;
+    var before = shortSignature();
+    var order = SHORT_ORDER.slice();
+    if (shortWay && order.indexOf(shortWay) > 0) {
+      order.splice(order.indexOf(shortWay), 1);
+      order.unshift(shortWay);
+    }
+    var next = 0, first = '';
+    var attempt = function () {
+      if (id !== shortMoveId) return;                      // a newer press took over
+      if (next > 0 && shortSignature() !== before) {       // the last way worked
+        shortWay = order[next - 1];
+        try { keepShortPip(); } catch (e) {}
+        return;
+      }
+      while (next < order.length) {
+        var name = '';
+        try { name = SHORT_STEPS[order[next]](dir); } catch (e) { name = ''; }
+        next++;
+        if (name) {
+          if (!first) first = name;
+          setTimeout(attempt, SHORT_MOVE_CHECK_MS);
+          return;
+        }
+      }
+      // every way was tried (the last one is being checked above, or none did anything)
+      if (shortSignature() === before && onFail) { try { onFail(); } catch (e) {} }
+    };
+    attempt();
+    return first || 'none';
   }
 
   function skipShort(step) {
@@ -1726,9 +1820,7 @@
       var v = currentVideo();
       // Like every media player: back to the start after the first seconds, the Short before it otherwise.
       if (v && v.currentTime > 3) { v.currentTime = 0; return 'restart'; }
-      var how = moveShort(-1);
-      if (how === 'none' && v) { v.currentTime = 0; return 'restart-fallback'; }
-      return how;
+      return moveShort(-1, function () { if (v) v.currentTime = 0; }); // nothing moved: at least a restart
     } catch (e) { return 'none'; }
   }
 

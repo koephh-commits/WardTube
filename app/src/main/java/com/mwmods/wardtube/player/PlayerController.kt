@@ -4,6 +4,11 @@
 package com.mwmods.wardtube.player
 
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.webkit.WebView
 import java.lang.ref.WeakReference
 
@@ -130,6 +135,44 @@ object PlayerController {
      * the playlist, else the video watched before this one (browser history), else a restart. See wardtube.js.
      */
     fun previous() = run("window.__wardtube&&window.__wardtube.skip(-1);")
+
+    private val main = Handler(Looper.getMainLooper())
+
+    /**
+     * A real finger swipe on the Short that is on view: up for the next Short ([dir] > 0), down for the one before it. It is the
+     * last way the page script moves the feed (wardtube.js, moveShort), used when the page's own button and its scrolling changed
+     * nothing: it is exactly what a person does, so it does not depend on how YouTube builds the feed. Main thread only.
+     * Returns false when no Short is on view or the page has no size yet.
+     */
+    fun swipeShort(dir: Int): Boolean {
+        val webView = shortRef?.get() ?: return false
+        val w = webView.width
+        val h = webView.height
+        if (w <= 0 || h <= 0) return false
+        val x = w / 2f
+        val fromY = h * (if (dir > 0) 0.75f else 0.25f)
+        val toY = h * (if (dir > 0) 0.25f else 0.75f)
+        val downTime = SystemClock.uptimeMillis()
+        fun send(action: Int, y: Float) {
+            val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try {
+                webView.dispatchTouchEvent(event)
+            } finally {
+                event.recycle()
+            }
+        }
+        send(MotionEvent.ACTION_DOWN, fromY)
+        for (i in 1..SWIPE_STEPS) {
+            val y = fromY + (toY - fromY) * i / SWIPE_STEPS
+            main.postDelayed({ send(MotionEvent.ACTION_MOVE, y) }, SWIPE_MS * i / SWIPE_STEPS)
+        }
+        main.postDelayed({ send(MotionEvent.ACTION_UP, toY) }, SWIPE_MS + 20L)
+        return true
+    }
+
+    private const val SWIPE_MS = 180L
+    private const val SWIPE_STEPS = 9
 
     /** Id of the video on the current page (watch, Shorts or youtu.be link), or "" if there is none. */
     fun videoId(): String {
