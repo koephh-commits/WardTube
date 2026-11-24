@@ -84,6 +84,7 @@ class SubsController(
     private var commentsFor: String? = null
     private var commentsTries = 0
     private var commentsTaps = 0
+    private var commentsMenus = 0
 
     /**
      * True from the tap on "Go to channel" until the channel's page has painted its first content ([onPageShown]), or
@@ -1662,6 +1663,7 @@ class SubsController(
         commentsFor = video.id
         commentsTries = 0
         commentsTaps = 0
+        commentsMenus = 0
         main.removeCallbacks(commentsStep)
         startHold()
         openUrl("${SubsRepository.MOBILE_SITE}/post/${video.id}")
@@ -1684,22 +1686,33 @@ class SubsController(
                 return
             }
             val web = browse()
-            web.evaluateJavascript("($COMMENTS_JS)(${org.json.JSONObject.quote(id)})") { raw ->
+            web.evaluateJavascript("($COMMENTS_JS)(${org.json.JSONObject.quote(id)},$commentsTaps)") { raw ->
                 if (released || commentsFor != id) return@evaluateJavascript
                 val parts = raw?.trim('"')?.split('|').orEmpty()
                 when (parts.firstOrNull()) {
-                    "input" -> {
-                        // The text box is open: a touch on it brings the keyboard up. Done.
+                    "done" -> {
+                        // The comment text box is open and has the focus: nothing more is touched (a further touch, made while the
+                        // keyboard moves the page, could land on a comment and open its menu). Only the keyboard is asked for.
                         commentsFor = null
-                        tapPage(web, parts)
                         main.postDelayed({
                             if (released) return@postDelayed
                             web.requestFocus()
                             (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
                                 ?.showSoftInput(web, 0)
-                        }, 350)
+                        }, 200)
                     }
-                    "entry" -> {
+                    "sheet" -> {
+                        // A menu (reply, like, dislike, report ...) opened after a touch of ours: the touch hit a comment. The menu
+                        // is closed and the comments are left alone, there is no other touch on that place.
+                        if (commentsMenus++ >= COMMENTS_MAX_MENUS) {
+                            commentsFor = null
+                        } else {
+                            web.evaluateJavascript(CLOSE_SHEET_JS, null)
+                            main.postDelayed(this, COMMENTS_AFTER_TAP_MS)
+                        }
+                    }
+                    "input", "entry" -> {
+                        // The place was the same at two looks one after the other and a touch there reaches the box (see [COMMENTS_JS]).
                         if (commentsTaps++ >= COMMENTS_MAX_TAPS) {
                             commentsFor = null
                         } else {
@@ -2163,43 +2176,80 @@ class SubsController(
         const val COMMENTS_AFTER_TAP_MS = 700L
         const val COMMENTS_MAX_TRIES = 40
         const val COMMENTS_MAX_TAPS = 3
+        const val COMMENTS_MAX_MENUS = 2
 
         /**
          * What to tap on a post's page to write a comment, found by what the elements are and say, as YouTube's names
-         * for them change: "input|x|y|ratio" when a comment text box is open on view, "entry|x|y|ratio" for the
-         * comments row / "Add a comment" box to tap first, "wait" when there is nothing yet (the page is still loading or
-         * was scrolled toward the comments). x and y are in the page's own pixels, ratio is the pixels per one of them.
+         * for them change. [taps] is how many touches were already sent. The answer is one of:
+         *  - "done": a comment text box is open and has the focus (nothing more is touched);
+         *  - "sheet": a menu with rows is open on view after a touch of ours (a comment was hit): it is to be closed;
+         *  - "input|x|y|ratio": a comment text box is open on view; "entry|x|y|ratio": the comments row / "Add a comment" box
+         *    to touch first (x and y are in the page's own pixels, ratio is the pixels per one of them). These two are given only
+         *    when the place was the same at the last look too (a page that is still moving is not touched) and a touch there
+         *    reaches that element and not something else (never a comment: a touch on a comment opens its menu);
+         *  - "wait": nothing yet (the page is still loading or was scrolled toward the comments).
+         * An answer "input" or "entry" also tells menu-download.js (`__wtNoDl`) that the menu that may follow is not a video's.
          */
-        const val COMMENTS_JS =
-            "function(id){try{" +
-                "var p=location.pathname;" +
-                "if(location.href.indexOf(id)<0&&p.indexOf('/post/')<0&&p.indexOf('/community')<0)return 'wait';" +
-                "var W=window.innerWidth,H=window.innerHeight,D=window.devicePixelRatio||1;" +
-                "function box(e){if(!e)return null;var r=e.getBoundingClientRect();if(r.width<8||r.height<8)return null;" +
-                "var c=getComputedStyle(e);if(c.visibility==='hidden'||c.display==='none')return null;return r;}" +
-                "function inView(r){return r.bottom>4&&r.top<H-4&&r.right>0&&r.left<W;}" +
-                "function out(k,r){return k+'|'+Math.round(r.left+r.width/2)+'|'+Math.round(r.top+r.height/2)+'|'+D;}" +
-                "var SEARCH=/search|بحث/i;" +
-                // 1. A comment text box that is open on view.
-                "var boxes=document.querySelectorAll('textarea,[contenteditable=\"\"],[contenteditable=\"true\"],input[type=\"text\"]');" +
-                "for(var i=0;i<boxes.length;i++){var b=boxes[i];" +
-                "if(b.closest('ytm-mobile-topbar-renderer,ytm-searchbox,form[role=\"search\"]')||b.name==='search_query')continue;" +
-                "if(SEARCH.test((b.getAttribute('placeholder')||'')+(b.getAttribute('aria-label')||'')))continue;" +
-                "var r=box(b);if(r&&inView(r))return out('input',r);}" +
-                // 2. The comments row or the "Add a comment" box.
-                "var sel=['ytm-comment-simplebox-renderer','[class*=\"simplebox\"]','ytm-comments-entry-point-header-renderer'," +
-                "'ytm-comments-entry-point-teaser-renderer'];" +
-                "var t=null;" +
-                "for(var j=0;j<sel.length&&!t;j++){var f=document.querySelector(sel[j]);if(f&&box(f))t=f;}" +
-                "if(!t){var bs=document.querySelectorAll('button,[role=\"button\"]');" +
-                "for(var k=0;k<bs.length;k++){var a=(bs[k].getAttribute('aria-label')||'');" +
-                "if(a.length&&a.length<60&&/comment|تعليق/i.test(a)&&box(bs[k])){t=bs[k];break;}}}" +
-                "if(t){var r2=box(t);" +
-                "if(!inView(r2)||r2.top<H*0.15||r2.bottom>H*0.9){t.scrollIntoView({block:'center'});return 'wait';}" +
-                "return out('entry',r2);}" +
-                // 3. Nothing yet: the comments load when the page is scrolled toward them.
-                "window.__wtCs=(window.__wtCs||0)+1;if(window.__wtCs<=6)window.scrollBy(0,Math.round(H*0.7));" +
-                "return 'wait';}catch(e){return 'wait';}}"
+        const val COMMENTS_JS = """function(id,taps){try{
+var p=location.pathname;
+if(location.href.indexOf(id)<0&&p.indexOf('/post/')<0&&p.indexOf('/community')<0)return 'wait';
+var W=window.innerWidth,H=window.innerHeight,D=window.devicePixelRatio||1;
+function box(e){if(!e)return null;var r=e.getBoundingClientRect();if(r.width<8||r.height<8)return null;
+var c=getComputedStyle(e);if(c.visibility==='hidden'||c.display==='none')return null;return r;}
+function inView(r){return r.bottom>4&&r.top<H-4&&r.right>0&&r.left<W;}
+function out(k,r){return k+'|'+Math.round(r.left+r.width/2)+'|'+Math.round(r.top+r.height/2)+'|'+D;}
+var SEARCH=/search|بحث/i;
+var NOEDIT='ytm-mobile-topbar-renderer,ytm-searchbox,form[role="search"]';
+var ITEM='ytm-comment-thread-renderer,ytm-comment-renderer,ytm-comment-replies-renderer';
+var AREA='ytm-comment-simplebox-renderer,[class*="simplebox"],ytm-comments-entry-point-header-renderer,ytm-comments-entry-point-teaser-renderer';
+function editable(b){
+if(!b||b.nodeType!==1||!b.closest||b.closest(NOEDIT)||b.name==='search_query')return false;
+if(SEARCH.test((b.getAttribute('placeholder')||'')+(b.getAttribute('aria-label')||'')))return false;
+var ce=b.getAttribute('contenteditable');
+return b.tagName==='TEXTAREA'||(b.tagName==='INPUT'&&(!b.type||b.type==='text'))||(ce!==null&&ce!=='false');}
+function still(k,el,r){
+var s=out(k,r),now=Date.now(),prev=window.__wtCsS;
+window.__wtCsS={s:s,t:now};
+if(!prev||prev.s!==s||now-prev.t>2500)return 'wait';
+var hit=document.elementFromPoint(Math.round(r.left+r.width/2),Math.round(r.top+r.height/2));
+var area=el.closest(AREA)||el;
+if(!hit||!area.contains(hit)||(hit.closest&&hit.closest(ITEM)))return 'wait';
+window.__wtNoDl=now+3000;
+return s;}
+if(taps>0){
+var rows=document.querySelectorAll('ytm-menu-service-item-renderer,ytm-menu-navigation-item-renderer,yt-list-item-view-model,[role="menuitem"]');
+for(var m=0;m<rows.length;m++){var row=rows[m];
+var rr=row.getBoundingClientRect();
+if((!rr.width||!rr.height)&&row.firstElementChild)rr=row.firstElementChild.getBoundingClientRect();
+if(rr.width<W*0.5||rr.height<20||!inView(rr))continue;
+var tr=false;for(var q=row;q&&q!==document.body;q=q.parentElement){if(getComputedStyle(q).opacity==='0'){tr=true;break;}}
+if(tr)continue;
+var h=document.elementFromPoint(Math.round(rr.left+rr.width/2),Math.round(rr.top+rr.height/2));
+if(h&&row.contains(h)&&!row.closest('[data-wt-dl]'))return 'sheet';}}
+if(editable(document.activeElement))return 'done';
+var boxes=document.querySelectorAll('textarea,input[type="text"],[contenteditable]');
+for(var i=0;i<boxes.length;i++){var b=boxes[i];
+if(!editable(b)||b.closest(ITEM))continue;
+var r=box(b);if(r&&inView(r))return still('input',b,r);}
+var sel=['ytm-comment-simplebox-renderer','[class*="simplebox"]','ytm-comments-entry-point-header-renderer','ytm-comments-entry-point-teaser-renderer'];
+var t=null;
+for(var j=0;j<sel.length&&!t;j++){var f=document.querySelector(sel[j]);if(f&&box(f)&&!f.closest(ITEM))t=f;}
+if(!t){var bs=document.querySelectorAll('button,[role="button"]');
+for(var k=0;k<bs.length;k++){var a=(bs[k].getAttribute('aria-label')||'');
+if(a.length&&a.length<60&&/comment|تعليق/i.test(a)&&box(bs[k])&&!bs[k].closest(ITEM)){t=bs[k];break;}}}
+if(t){var r2=box(t);
+if(!inView(r2)||r2.top<H*0.15||r2.bottom>H*0.9){t.scrollIntoView({block:'center'});return 'wait';}
+return still('entry',t,r2);}
+window.__wtCs=(window.__wtCs||0)+1;if(window.__wtCs<=6)window.scrollBy(0,Math.round(H*0.7));
+return 'wait';}catch(e){return 'wait';}}"""
+
+        /** Closes the menu that is open on the page the way a finger would: a touch on the dimmed page above it, then Escape. */
+        const val CLOSE_SHEET_JS = """(function(){try{
+var el=document.elementFromPoint(Math.round(window.innerWidth/2),8);
+if(el&&!el.closest('a,button,input,[role="button"],[role="menuitem"]'))el.click();
+}catch(e){}
+try{document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',keyCode:27,which:27,bubbles:true}));}catch(e){}
+return 'ok';})()"""
 
         /** "top,bottom": where YouTube's header ends and its bottom tabs start, in device pixels. */
         const val MEASURE_JS =

@@ -513,6 +513,20 @@ class PlayerHost(
         area.postDelayed(remeasure, REMEASURE_DELAY_MS)
     }
 
+    /** The last video page the player showed (what [noteUrl] was given), or null when there is no player. */
+    val lastVideoUrl: String? get() = if (webView != null) lastUrl else null
+
+    /**
+     * Loads [url] (a video page) in the player again without changing how it is shown (full screen or the box). Used when the
+     * player's page was left for another page: the video comes back, at the second it was, and plays on.
+     */
+    fun reopen(url: String) {
+        val view = webView ?: return
+        lastUrl = url
+        view.loadUrl(url)
+        setPlaying(true)
+    }
+
     /** Remembers the page the player shows (called when its address changes). */
     fun noteUrl(url: String?) {
         if (url != null) lastUrl = url

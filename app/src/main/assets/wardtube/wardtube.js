@@ -415,6 +415,94 @@
     }, true);
   }
 
+  // ---- Search from the player's page ---------------------------------------------
+  // The search box of YouTube's watch page (the "#searching" state of the same page) used to take the player's own page to the
+  // results. YouTube drops the video when it does that, and the video then started again from its first second when the app put
+  // the page back. The search is now sent to the browsing page instead, the way a tapped link is, so the player's page is never
+  // left: the video plays on, in the mini player behind the results.
+
+  var lastVideoTime = 0; // seconds: where the main video of this page last was (lastTime, for the app, should the page be left anyway)
+
+  function isResultsForm(form) {
+    return /\/results(\?|\/|$)/.test((form && form.getAttribute && form.getAttribute('action')) || '');
+  }
+
+  function isSearchInput(el) {
+    if (!el || el.tagName !== 'INPUT') return false;
+    if (el.name === 'search_query') return true;
+    return !!el.form && isResultsForm(el.form);
+  }
+
+  function searchInputOf(form) {
+    if (!form || !form.querySelector) return null;
+    var input = form.querySelector('input[name="search_query"]');
+    if (!input && isResultsForm(form)) input = form.querySelector('input[type="search"],input[type="text"],input:not([type])');
+    return input;
+  }
+
+  // Sends [text] to the browsing page as a search. True when the app took it (the caller then stops the page's own handling).
+  function sendSearch(text) {
+    var query = String(text || '').replace(/\s+/g, ' ').trim();
+    var bridge = window.WardTubeNative;
+    if (!query || !bridge || typeof bridge.openPage !== 'function') return false;
+    bridge.openPage('https://m.youtube.com/results?search_query=' + encodeURIComponent(query));
+    // The page's search box is put away without leaving the page: the same as the person's own back out of it.
+    try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {}
+    try { if (location.hash === '#searching') history.back(); } catch (e) {}
+    return true;
+  }
+
+  if (cfg.route === 'player') {
+    // media events do not bubble: listen on the way down
+    ['timeupdate', 'loadstart', 'emptied'].forEach(function (type) {
+      document.addEventListener(type, function (e) {
+        try {
+          if (e.target !== mainVideo()) return;
+          if (type !== 'timeupdate') lastVideoTime = 0; // another video is coming: the old second does not belong to it
+          else if (e.target.currentTime > 0) lastVideoTime = e.target.currentTime;
+        } catch (err) {}
+      }, true);
+    });
+
+    // The search is sent: the form's own submit (the keyboard's search key, a real submit button)...
+    window.addEventListener('submit', function (e) {
+      try {
+        var input = searchInputOf(e.target);
+        if (input && sendSearch(input.value)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      } catch (err) { /* let the page handle it */ }
+    }, true);
+
+    // ...the Enter key in the box, when the page reads the key itself...
+    window.addEventListener('keydown', function (e) {
+      try {
+        if (e.key !== 'Enter' || e.isComposing || e.defaultPrevented || !isSearchInput(e.target)) return;
+        if (sendSearch(e.target.value)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      } catch (err) {}
+    }, true);
+
+    // ...or the search button, when the page reads the tap itself (the button that clears the box or speaks into it is left alone).
+    window.addEventListener('click', function (e) {
+      try {
+        if (e.defaultPrevented || e.button > 0 || !e.target || !e.target.closest) return;
+        var button = e.target.closest('button,[role="button"]');
+        var input = searchInputOf(button && button.closest ? button.closest('form') : null);
+        if (!button || !input || button.type !== 'submit') return;
+        var label = (button.getAttribute('aria-label') || '') + ' ' + (button.getAttribute('title') || '');
+        if (/clear|reset|voice|mic|speak|مسح|صوت|ميكروفون/i.test(label)) return;
+        if (sendSearch(input.value)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      } catch (err) {}
+    }, true);
+  }
+
   // ---- Sound on in the player -----------------------------------------------
   // YouTube's mobile page starts a video muted ("tap to unmute") when the page was opened without a tap inside it,
   // which is how the app's player opens every video. Turn the sound on once, right after each video starts. It is
@@ -1915,6 +2003,13 @@
     wantPlay: function (on) {
       pipUserPaused = !on;
       if (on) { pipPlaying = true; pipTries = 0; }
+    },
+    /**
+     * Where the page's video last was, in seconds (0 when unknown). The app asks when the player's page was left for another page
+     * (see MainActivity.putVideoBack): the same video is then loaded again at this second instead of from its start.
+     */
+    lastTime: function () {
+      return lastVideoTime;
     },
     /**
      * The app asks the page to lay itself out again. YouTube sizes its player (and the picture inside it) when the page

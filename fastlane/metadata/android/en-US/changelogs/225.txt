@@ -1,0 +1,1 @@
+Fixed: opening the comments of a post from the Subscriptions page no longer pops up a menu (reply / like / dislike / report / download video) over the comments.

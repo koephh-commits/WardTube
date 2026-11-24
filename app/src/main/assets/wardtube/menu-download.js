@@ -19,6 +19,10 @@
 //   (A tap is noted on `pointerup` as well as on `click`: a page that opens its menu from the touch and cancels the click
 //   would never have been seen.)
 //
+// A tap inside the comments (of a video, a Short or a post: the list, a comment, the box that writes one) never asks for the row, and
+// neither does a touch that the app itself made to open a post's comments (`__wtNoDl`): the menu a comment opens (reply, like,
+// dislike, report) is not a video's menu.
+//
 // On a Short (the vertical player at /shorts/ID) only the three dots of the Short count: a tap on any other button of it (like,
 // dislike, comments, share, subscribe ...) starts nothing, so the row never shows over the Short or in the comments sheet. The
 // video is the one the address names (it follows the swipes).
@@ -849,7 +853,32 @@
     return null;
   }
 
+  // True when `el` is inside the comments of a video, a Short or a post: the list, a comment, the box that writes one.
+  // The menu a comment opens (reply, like, dislike, report) is never offered a download, whatever else the page holds
+  // (a post with a video attached has one video on the whole page, which the guess of a card below would name).
+  function inComments(el) {
+    try {
+      if (el.closest(COMMENTS)) return true;
+      for (var n = el, hops = 0; n && n !== document.body && hops < 60; n = n.parentElement, hops++) {
+        if ((n.localName || '').indexOf('comment') >= 0) return true;
+        if (/(^|\s)(ytm-)?comment/i.test((n.getAttribute && n.getAttribute('class')) || '')) return true;
+      }
+    } catch (x) { /* not known: it is not taken for the comments */ }
+    return false;
+  }
+
+  // True for a short while after the app itself touched the page to open the comments of a post (SubsController sets
+  // `__wtNoDl`): a menu that follows such a touch is not a video's.
+  function appTouch() {
+    return Date.now() < (window.__wtNoDl || 0);
+  }
+
   function noteTap(t, e) {
+    if (appTouch() || inComments(t)) { // the comments: no wait for a menu, and a row that is still there goes
+      clearRows();
+      last = null;
+      return;
+    }
     if (onShorts()) {
       noteShortsTap(t, e, Date.now());
       return;

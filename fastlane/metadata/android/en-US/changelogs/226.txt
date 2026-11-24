@@ -1,0 +1,1 @@
+Fixed: searching from a playing video no longer restarts it. The video keeps playing and the results show with the video in the mini player.

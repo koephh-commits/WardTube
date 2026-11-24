@@ -1,5 +1,54 @@
 # Changelog
 
+## 2.6.180
+- Fixed: **searching while a video plays made the video stop and start again from its first second** (`assets/wardtube/wardtube.js`,
+  `MainActivity.kt`, `player/PlayerHost.kt`, `util/UrlUtils.kt`, `app/build.gradle.kts`).
+  - **Before:** the search box of YouTube's watch page (opened by its lens button, the `#searching` state of the same page) belongs to the
+    **player's own page**. Sending the search made YouTube take that page to the results, and YouTube drops the video when it does that.
+    The app saw the page leave the video, went back in the page's history (`goBack`) and showed the results in the browsing page, but the
+    watch page that came back loaded the video **again from the start**.
+  - **Now, the search never leaves the video page:** on the player's page the script catches the search where it is sent (the form's
+    `submit`, the Enter key in the box, and the search button of the form; the button that clears the box or speaks into it is left alone),
+    stops YouTube's own handling and asks the app to show the results in the browsing page (the same call a tapped link uses, `openPage`).
+    The page's search box is put away without leaving the page (the keyboard is dropped and `#searching` is closed with one step back, as
+    the person's own back would do). The player goes to the mini player and **the video plays on without a break**.
+  - **Now, if a page still gets away (a search or tap the script could not catch):** the script keeps where the video was (`lastTime`) and
+    the app, instead of going back in history, loads **the same video again at that second** (`putVideoBack`, `PlayerHost.reopen`,
+    `UrlUtils.withStartTime`), so at worst there is a short pause and the video goes on from where it was, not from its start.
+  - **Tried:** the script was run in Node with jsdom on a mock watch page, 18 checks, all passed (the search form's submit, Enter in the box,
+    the search button, the clear / reset / voice buttons, a form that is not a search, an empty box, other keys and Enter while composing, an
+    app without the bridge, no `#searching`, the browsing route, `lastTime`): the search is sent once, the page's own handler does not run,
+    and the cases that are not a search are left alone. **Not tried:** the Kotlin side is not compiled
+    here (no Android SDK) and nothing was tried on a phone or against live YouTube, whose real search box may be built differently from the
+    mock. Please build it and try: play a video, tap the lens, type, press search (keyboard key and the button, and a suggestion): the results
+    should show with the video still playing in the mini player.
+
+## 2.6.179
+- Fixed: **a menu (Download video / Reply / Like / Dislike / Report) popped up over the comments after tapping the comments button of a post in the
+  Subscriptions screen** (`subs/SubsController.kt`, `assets/wardtube/menu-download.js`, `app/build.gradle.kts`).
+  - **Before:** the button opens the post's page and the app touches the page itself to reach the comment box (up to 3 real touches, from the place
+    where the box was seen at that moment). It went on touching after the box was already open and focused, and it did not check that the place was
+    still the same: when the keyboard moved the page, a touch could land on a comment, and YouTube opens a comment's menu for that. On top of that,
+    `menu-download.js` took the touch for a tap on a video's button (a post with a video attached has exactly one video on the whole page) and added
+    its own «تنزيل الفيديو» row to that menu.
+  - **Now, the touches:** `COMMENTS_JS` answers `done` as soon as a comment text box has the focus (nothing more is touched; only the keyboard is asked
+    for); it gives a place only when it was the **same at two looks one after the other** and a touch there **really reaches the box / the comments row**
+    (never an element inside a comment); it also knows a box that is `contenteditable="plaintext-only"`; the label fallback never picks a button inside a
+    comment. If a menu with rows is still open after a touch of ours, it answers `sheet` and the app closes it (`CLOSE_SHEET_JS`: a touch on the dimmed page,
+    then Escape) and does not touch again there (at most 2 times).
+  - **Now, the download row:** a tap **inside the comments** (the list, a comment, the box that writes one) never asks for the row, on any page; and a
+    menu that follows a touch made by the app (`__wtNoDl`, 3 s) is never offered it. The row is still added to the menus of cards, to the
+    post's own three dots (when it has a video) and to the watch page / Short as before.
+  - **Checked elsewhere:** the only place that touches the page by itself for comments is `commentsStep`. The watch page and the Shorts player already
+    only accepted the known cards / the three dots, so their comments were not affected; the guess of a card (the one video of the page) was the part
+    that reached comments on post pages and on the posts of a channel page, and the new rule covers both.
+  - **Tried:** both scripts were run in headless Chromium on mock pages (21 checks for `COMMENTS_JS`: box still / moving / covered by a comment, hidden
+    menus, a composer dialog, the search box, plaintext-only box, label fallback, closing a menu; 9 checks for `menu-download.js`, the old script adding the row to a
+    comment's menu and the new one not, and the post's three dots / a Home card still getting it; and the whole loop with real touches: box tapped, page
+    moved by the keyboard, box focused, `done`, no menu). **Not tried:** the Kotlin side is not compiled here (no Android SDK) and nothing was tried on a
+    phone or against live YouTube, whose real elements may differ from the mock. Please build it and try the comments button of a post that has a video
+    attached, one with only a picture, and one without comments: the keyboard should come up and no menu should appear.
+
 ## 2.6.178
 - Changed: **the picture-in-picture button on a Short is now at the left edge** (`assets/wardtube/wardtube.js`).
   - It was at the right edge; it is now at the left edge, at the same height (22 % from the top) and with the same round dark button.

@@ -570,6 +570,24 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         navBarSpace.setBackgroundColor(color)
     }
 
+    /**
+     * The player's page was left for another YouTube page (a search or a tap that the page script could not catch). YouTube drops the
+     * video when it does that, and going back in the page's history made it start again from its first second. The same video is
+     * loaded again instead, at the second the page last reported (wardtube.js, lastTime), and plays on behind the page that is shown.
+     */
+    private fun putVideoBack(player: WebView) {
+        val videoUrl = playerHost.lastVideoUrl
+        if (videoUrl == null) {
+            if (player.canGoBack()) player.goBack()
+            return
+        }
+        player.evaluateJavascript("(window.__wardtube&&window.__wardtube.lastTime&&window.__wardtube.lastTime())||0") { value ->
+            if (isDestroyed || playerHost.webView !== player) return@evaluateJavascript
+            val seconds = value?.trim('"')?.toDoubleOrNull()?.toInt() ?: 0
+            playerHost.reopen(UrlUtils.withStartTime(videoUrl, seconds))
+        }
+    }
+
     /** What the player's WebView reports back. */
     private inner class PlayerPageEvents : PageEvents {
 
@@ -586,7 +604,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             if (url == playerNavigatedAwayFrom) return
             playerNavigatedAwayFrom = url
             val player = playerHost.webView ?: return
-            if (player.canGoBack()) player.goBack()
+            putVideoBack(player)
             openPageFromPlayer(url)
         }
 

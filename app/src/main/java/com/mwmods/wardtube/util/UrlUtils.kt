@@ -71,6 +71,22 @@ object UrlUtils {
         return if (id != null && ID_PATTERN.matches(id)) id else null
     }
 
+    /**
+     * [url] with its start time set to [seconds] (a `t` of less than 3 seconds is left out: the video starts from its beginning), and
+     * without a fragment (`#searching` and the like belong to the page that was open, not to the video).
+     */
+    fun withStartTime(url: String, seconds: Int): String {
+        val uri = Uri.parse(url)
+        if (!uri.isHierarchical) return url
+        val builder = uri.buildUpon().clearQuery().fragment(null)
+        for (name in uri.queryParameterNames) {
+            if (name == "t" || name == "start") continue
+            for (value in uri.getQueryParameters(name)) builder.appendQueryParameter(name, value)
+        }
+        if (seconds >= 3) builder.appendQueryParameter("t", "${seconds}s")
+        return builder.build().toString()
+    }
+
     /** Removes the `t` (start time) parameter. */
     fun withoutTime(url: String): String {
         val uri = Uri.parse(url)
