@@ -1,0 +1,1 @@
+Removed: the floating "Download" button that showed over a video's three-dots menu (the "Download video" row inside the menu and the long press stay). New: a message with pictures that explains the ways to download a video, shown when the app opens until "Don't show again" is pressed; it replaces the old tip about the long press.

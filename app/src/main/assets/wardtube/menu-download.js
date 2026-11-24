@@ -14,9 +14,8 @@
 //      kept in the page hidden, transparent or off the screen is never used), the top one: the row goes before it;
 //   2. no such row (a menu whose rows have names this script does not know): the rows are found by how they are drawn
 //      (wide boxes with text, one above the other, in a layer fixed to the screen) and the row goes before the top one;
-//   3. still none, or the row cannot be seen where it was put: nothing more is done here. wardtube.js (the floating
-//      "Download" button over a video's three-dots menu) then offers the download itself, whatever the menu looks like; it
-//      stays away while this script's row is in sight (it looks for the `data-wt-dl` row).
+//   3. still none, or the row cannot be seen where it was put: nothing more is done here (since 2.6.172 there is no floating
+//      button over the menu any more; the long press on the video is the other way into a download).
 //   (A tap is noted on `pointerup` as well as on `click`: a page that opens its menu from the touch and cancels the click
 //   would never have been seen.)
 //
@@ -442,8 +441,8 @@
       insertedAt = now;
       return;
     }
-    // (no row in the menu: wardtube.js offers its floating button for a card; the watch page has a button of its own for
-    // this: see the end of startPolling)
+    // (no row in the menu: nothing more is done for a card; the long press on the video is the other way; the watch page has
+    // a button of its own for this: see the end of startPolling)
   }
 
   function startPolling() {

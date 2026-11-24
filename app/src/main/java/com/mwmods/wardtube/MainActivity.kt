@@ -72,6 +72,7 @@ import com.mwmods.wardtube.player.PlayerController
 import com.mwmods.wardtube.player.PlayerHost
 import com.mwmods.wardtube.player.SleepTimer
 import com.mwmods.wardtube.subs.SubsController
+import com.mwmods.wardtube.ui.DownloadGuideDialog
 import com.mwmods.wardtube.ui.MenuController
 import com.mwmods.wardtube.ui.PullRefreshLayout
 import com.mwmods.wardtube.ui.SideMenu
@@ -147,7 +148,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
     }
     private lateinit var scripts: PageScripts
-    /** A long press on a video's picture or title, or the floating "Download" button over its three-dots menu, opens its sheet with the "Download video" button (see [VideoLongPress]). */
+    /** A long press on a video's picture or title opens its sheet with the "Download video" button (see [VideoLongPress]). */
     private lateinit var videoLongPress: VideoLongPress
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
@@ -358,6 +359,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             }
             !loadUrlFromIntent(intent) -> openUrl(prefs.homepage)
         }
+
+        // The message about the ways to download a video: each time the app is opened, until "Don't show again" is pressed.
+        // Not when the activity is only rebuilt (savedInstanceState is set then), so it does not come back by itself.
+        if (savedInstanceState == null && !prefs.downloadGuideHidden) {
+            appWindow.post { if (!isFinishing && !isDestroyed) DownloadGuideDialog.show(this, prefs) }
+        }
     }
 
     // ---- Opening pages and videos ----
@@ -470,10 +477,6 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         // The button on the player's page (wardtube.js, "Picture in picture: a button in the player").
         onEnterPip = { enterPipFromButton() },
         pipSupportedNow = { pipSupported },
-        // The floating "Download" button over a card's three-dots menu (wardtube.js): the same sheet as a long press on the card.
-        onMenuDownload = { url, title ->
-            if (!isDestroyed && ::videoLongPress.isInitialized) videoLongPress.openFromPage(page, url, title)
-        },
         // The "Download video" row of the menu of a card's three dots (menu-download.js): the usual download flow, straight away.
         onMenuRowDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
         // The same row, or the button beside the like / share buttons, under the video of a watch page: the video that page shows.
@@ -529,7 +532,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * The download button of the bottom bar is only at full strength (otherwise dimmed, never hidden, so the other
      * buttons do not move) while there is something to download: a video open in the player (full screen or in the
      * mini player), a Short on the browsing page, or a playlist / channel page (downloaded as a list). The video of a
-     * card is downloaded by a long press on it or by the floating button over its three-dots menu (see [VideoLongPress]).
+     * card is downloaded by a long press on it or by the row of its three-dots menu (see [VideoLongPress]).
      * [browseUrl] is the page of the browsing WebView.
      */
     private fun updateDownloadButton(browseUrl: String? = webView.url) {
@@ -1633,35 +1636,6 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
     override fun onPageFinished(url: String?) {
         endPullRefresh()
-        showVideoPressTip(url)
-    }
-
-    /**
-     * Once, the first time a page with video cards is on screen: a long press on a video is how it is downloaded, and
-     * nothing on the page says so. It is a plain notice above the bar (not a dialog), so it never stands in the way; it
-     * stays until the person presses OK (it does not go away on its own), and it is never shown again (also for someone who used the three-dots row that this replaced).
-     */
-    private fun showVideoPressTip(url: String?) {
-        if (prefs.videoPressTipSeen || !isPageWithVideos(url)) return
-        if (errorSnackbar?.isShownOrQueued == true || !canOpenVideoSheet(webView)) return
-        prefs.videoPressTipSeen = true
-        val tip = Snackbar.make(appWindow, R.string.videoPressTip, Snackbar.LENGTH_INDEFINITE)
-            .setAnchorView(snackbarAnchorView())
-            .setAction(android.R.string.ok) {}
-        // The tip is longer than a Snackbar's default two lines (it also says where the long press does not work).
-        tip.view.findViewById<android.widget.TextView>(com.google.android.material.R.id.snackbar_text)?.maxLines = 3
-        tip.show()
-    }
-
-    /** The home page, the results, a feed, a channel or a playlist on YouTube's own host (not a sign-in page, not a video). */
-    private fun isPageWithVideos(url: String?): Boolean {
-        if (url == null || !UrlUtils.isYouTubeUrl(url) || UrlUtils.isVideoUrl(url) || UrlUtils.isShortsPage(url)) return false
-        val uri = Uri.parse(url)
-        val host = uri.host?.lowercase(java.util.Locale.ROOT) ?: return false
-        if (host != "youtube.com" && !host.endsWith(".youtube.com")) return false
-        val path = uri.path.orEmpty()
-        return path.isEmpty() || path == "/" ||
-            VIDEO_LIST_PATHS.any { path.startsWith(it) }
     }
 
     override fun onPageChanged(url: String?) {
@@ -1989,9 +1963,6 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
 
         /** The height of the page's progress line, on the bottom bar or (side menu mode) on the top bar. */
         const val PROGRESS_HEIGHT_DP = 3f
-
-        // The one-time tip about the long press on a video (see showVideoPressTip): the pages it is for.
-        val VIDEO_LIST_PATHS = listOf("/results", "/feed/", "/@", "/channel/", "/playlist", "/hashtag/")
 
         // Pull down to refresh: the longest the spinner stays when the page never reports that it has loaded, and the
         // script that asks the page whether it (or the list under the finger) is scrolled away from its top. It is a

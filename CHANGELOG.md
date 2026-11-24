@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.6.172
+- Removed: **the floating "Download" button that showed over the menu of a video's three dots** (`assets/wardtube/wardtube.js`,
+  `web/NativeBridge.kt`, `web/VideoLongPress.kt`, `MainActivity.kt`, `assets/wardtube/menu-download.js` (comments only)).
+  - **Gone:** the whole "floating button over the menu" part of `wardtube.js` (the button, the look for the menu that a tap on the dots
+    opens, the tap on a card's dots), the bridge method `downloadFromMenu` and its callback, and `VideoLongPress.openFromPage`.
+  - **Unchanged:** the *Download video* row inside the menu of a video's three dots and the *Download* button beside the buttons under the
+    video (2.6.171, `menu-download.js`), the long press on a video, the bottom bar's button, the Subscriptions screen's own menu.
+    A menu that the row cannot be put in now shows nothing extra: the long press on the video is the way there.
+- Added: **a message, with pictures, that explains the ways to download a video**, shown when the app opens, with a *Don't show again*
+  button (`ui/DownloadGuideDialog.kt`, `res/layout/dialog_download_guide.xml`, `res/layout/item_guide_image.xml`,
+  `res/drawable-nodpi/guide_download_{buttons,menu,bar,longpress}.png`, `Prefs.kt`, `MainActivity.kt`, `values/strings.xml`,
+  `values-ar/strings.xml`).
+  - **Text:** two ways, as asked: (1) the Download button, beside the like buttons or in the three-dots menu while a video plays, and, if it
+    does not show, in the side menu or the bottom bar; (2) the long press on any video, and on the Home page the three dots then Download,
+    or the long press if it does not show.
+  - **Pictures:** four small drawn illustrations (the buttons under a video, the three-dots menu, the bottom bar, the long press), the same in
+    day and night mode (about 30 KB together). They are not screenshots: to use a screenshot, put a PNG of the same name in
+    `res/drawable-nodpi/`.
+  - **When:** each time the app is opened (a new start, not a rotation or a theme change), until *Don't show again* is pressed
+    (`Prefs.downloadGuideHidden`). *OK*, a tap outside or Back only closes it.
+  - **The old message is gone:** the one-time tip above the bottom bar ("press and hold any video to download it"), with its page check,
+    its preference (`videoPressTipSeen`) and its strings. Everyone sees the new message once more, also those who had seen the old tip.
+  - **Not tried:** not compiled here (no Android SDK) and not tried on a phone. Please build it and try: (1) open the app: the message shows
+    over the page, scrolls, and the four pictures are in it, in Arabic and in English, in day and night mode, (2) *OK*: it closes and shows
+    again at the next start, (3) *Don't show again*: it never shows again, (4) tap the three dots of a video on Home: YouTube's menu with the
+    *Download video* row and no floating red button, also in Search results, a channel and the list under the player.
+
 ## 2.6.171
 - Added: **a "Download video" row inside the menu of a video's three dots, and a "Download" button beside the buttons under the video when
   that row has no three dots**, the way the older versions had them (`assets/wardtube/menu-download.js` back, `web/PageScripts.kt`,

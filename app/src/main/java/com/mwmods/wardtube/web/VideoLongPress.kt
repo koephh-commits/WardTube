@@ -18,8 +18,8 @@ import org.json.JSONTokener
 /**
  * Download from anywhere a video is listed: a long press on a video's picture or title opens a sheet with the video and
  * its "Download video" button ([VideoSheet]). That is the way into a download from a card, in the browsing page and in
- * the player's page (the list under the video) alike. The second way is the floating "Download" button that shows over
- * the menu of a card's three dots (wardtube.js): it opens the same sheet through [openFromPage].
+ * the player's page (the list under the video) alike. (The other way, the "Download video" row in the menu of a card's
+ * three dots, is put there by the page script menu-download.js and does not come through here.)
  *
  * It is NouTube's way (`NouTubeView.onCreateContextMenu`, `content/link-title.ts`): Android's own hit test of the WebView
  * says which link is under the finger, whatever the page is made of, and the video is that link's. So nothing here looks
@@ -67,19 +67,6 @@ class VideoLongPress(
                 view.requestFocusNodeHref(answer)
             }
         }
-    }
-
-    /**
-     * The second way in: the page's own script names the video (the floating "Download" button over a card's three-dots menu,
-     * wardtube.js; it reaches here through NativeBridge.downloadFromMenu), so there is no hit test and no title to look for. [link]
-     * is the card's video link and [title] its heading, or empty. The sheet is the one a long press opens, and it opens under the
-     * same conditions ([canOpen]).
-     */
-    fun openFromPage(view: WebView, link: String, title: String?) {
-        if (activity.isDestroyed || sheet.isShowing || !canOpen(view)) return
-        val video = VideoLinks.parse(link) ?: return
-        ++press // the answer of a long press that is still looking for its title is dropped
-        showSheet(view, video, usable(title))
     }
 
     private fun showSheet(view: WebView, video: VideoLinks.Video, title: String?) {
