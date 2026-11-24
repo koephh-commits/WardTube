@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.6.175
+- Changed: **the description under the "Picture in picture" row now says the window opens when the person presses Home**
+  (`values/strings.xml`, `values-ar/strings.xml`, `app/build.gradle.kts`).
+  - **Before:** "When you leave the app, the video keeps playing in a small floating window" / «عند الخروج من التطبيق يستمر الفيديو في نافذة
+    صغيرة عائمة».
+  - **Now:** "When you press Home, the video keeps playing in a small floating window" / «عند الخروج بزر الهوم يستمر الفيديو في نافذة صغيرة
+    عائمة». The "Off" line follows it: "Off: pressing Home keeps only the sound (if play in background is on)" / «متوقف: الخروج بزر الهوم
+    يُبقي الصوت فقط (إذا كان التشغيل في الخلفية مفعّلاً)».
+  - **Unchanged:** the picture-in-picture feature itself and the switch; only the two description strings changed.
+- Removed: the empty `NouTube` folder at the root of the project (it held no files).
+- **Not tried:** not compiled here (no Android SDK) and not tried on a phone.
+
 ## 2.6.174
 - Removed: **the note under the "Picture in picture" row of the three-dots menu** ("not reliable when the video is in fill or
   full-screen mode...", added in 2.6.90) (`ui/MenuController.kt`, `values/strings.xml`, `values-ar/strings.xml`,

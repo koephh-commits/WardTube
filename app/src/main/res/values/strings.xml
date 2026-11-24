@@ -13,8 +13,8 @@
     <string name="menu">Menu</string>
     <string name="playInBackground">Play in background</string>
     <string name="pictureInPicture">Picture in picture</string>
-    <string name="pictureInPictureOn">When you leave the app, the video keeps playing in a small floating window</string>
-    <string name="pictureInPictureOff">Off: leaving the app keeps only the sound (if play in background is on)</string>
+    <string name="pictureInPictureOn">When you press Home, the video keeps playing in a small floating window</string>
+    <string name="pictureInPictureOff">Off: pressing Home keeps only the sound (if play in background is on)</string>
     <string name="preferH264">Prefer H.264 (cooler, saves battery)</string>
     <string name="preferH264On">YouTube sends H.264 video, which the phone decodes in hardware: less heat and battery use. Quality goes up to 1080p only. Applies from the next video you open.</string>
     <string name="preferH264Off">Off: YouTube may send VP9 / AV1, which can heat the phone and drain the battery on long videos</string>

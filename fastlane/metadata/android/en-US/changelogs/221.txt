@@ -1,0 +1,1 @@
+Changed: the description under the "Picture in picture" switch now says the small floating window opens when you press Home.

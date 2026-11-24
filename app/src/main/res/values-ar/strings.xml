@@ -11,8 +11,8 @@
     <string name="menu">القائمة</string>
     <string name="playInBackground">التشغيل في الخلفية</string>
     <string name="pictureInPicture">صورة داخل صورة</string>
-    <string name="pictureInPictureOn">عند الخروج من التطبيق يستمر الفيديو في نافذة صغيرة عائمة</string>
-    <string name="pictureInPictureOff">متوقف: الخروج من التطبيق يُبقي الصوت فقط (إذا كان التشغيل في الخلفية مفعّلاً)</string>
+    <string name="pictureInPictureOn">عند الخروج بزر الهوم يستمر الفيديو في نافذة صغيرة عائمة</string>
+    <string name="pictureInPictureOff">متوقف: الخروج بزر الهوم يُبقي الصوت فقط (إذا كان التشغيل في الخلفية مفعّلاً)</string>
     <string name="preferH264">تفضيل H.264 (حرارة أقل وبطارية أطول)</string>
     <string name="preferH264On">يرسل يوتيوب فيديو H.264 الذي يفكّه الهاتف بالعتاد مباشرةً: حرارة أقل واستهلاك بطارية أقل. أعلى جودة 1080p فقط. يُطبَّق من الفيديو التالي الذي تفتحه.</string>
     <string name="preferH264Off">متوقف: قد يرسل يوتيوب VP9 / AV1 وهذا قد يُسخّن الهاتف ويستنزف البطارية في الفيديوهات الطويلة</string>
