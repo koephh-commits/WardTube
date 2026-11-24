@@ -24,8 +24,16 @@ class NativeBridge(
     private val onPipVideo: (Int, Int) -> Unit = { _, _ -> },
     /** May the page start its video again after a pause nobody asked for (see [canAutoResume])? Called on a WebView thread. */
     private val canAutoResumeNow: () -> Boolean = { true },
+    /** The person pressed the picture-in-picture button on the player's page (see [enterPip]). Runs on the main thread. */
+    private val onEnterPip: () -> Unit = {},
+    /** Does this phone have picture in picture (Android 8+, the feature not switched off)? Called on a WebView thread. */
+    private val pipSupportedNow: () -> Boolean = { false },
+    /** The floating "Download" button over a video's three-dots menu was pressed (see [downloadFromMenu]). [title] may be empty. Runs on the main thread. */
+    private val onMenuDownload: (url: String, title: String?) -> Unit = { _, _ -> },
 ) {
     private val main = Handler(Looper.getMainLooper())
+    private var lastEnterPipAt = 0L
+    private var lastMenuDownloadAt = 0L
 
     /** A video link was tapped on a browsing page: play it in the player instead of in the page. */
     @JavascriptInterface
@@ -86,7 +94,58 @@ class NativeBridge(
     @JavascriptInterface
     fun canAutoResume(): Boolean = canAutoResumeNow()
 
+    /**
+     * Has this phone picture in picture? The player's page asks once before it puts its picture-in-picture button on the
+     * player (wardtube.js, "Picture in picture: a button in the player"), so a phone without the feature has no dead button.
+     */
+    @JavascriptInterface
+    fun pipSupported(): Boolean = pipSupportedNow()
+
+    /**
+     * The person pressed the picture-in-picture button on the player: the app shrinks into the system's little window now, the
+     * same window that opens by itself when the person leaves with Home (MainActivity.enterPipFromButton decides whether it can).
+     * Any frame of a page can call this, but all it can do is open that window for a video that is already open in the player
+     * (nothing happens without one), and two calls less than a second apart count as one.
+     */
+    @JavascriptInterface
+    fun enterPip() {
+        val now = android.os.SystemClock.uptimeMillis()
+        synchronized(this) {
+            if (now - lastEnterPipAt < ENTER_PIP_GAP_MS) return
+            lastEnterPipAt = now
+        }
+        main.post { onEnterPip() }
+    }
+
+    /**
+     * The person pressed the floating "Download" button that shows over the menu of a video's three dots (wardtube.js, "A floating
+     * "Download" button over a video's three-dots menu"): [url] is the link of the card's video and [title] the card's heading. The
+     * app answers with the sheet that a long press on the card opens ([VideoLongPress.openFromPage] decides whether it can).
+     * Any frame of a page can call this, but all it can do is open that sheet for a link that VideoLinks.parse accepts (a YouTube
+     * video, a Short, a live page or a youtu.be link; the title is cut to a line there), and the sheet downloads nothing by itself:
+     * the person still taps "Download video". Two calls less than 0.6 s apart count as one.
+     */
+    @JavascriptInterface
+    fun downloadFromMenu(url: String?, title: String?) {
+        if (url == null || url.length > MAX_LINK_LENGTH) return
+        val now = android.os.SystemClock.uptimeMillis()
+        synchronized(this) {
+            if (now - lastMenuDownloadAt < MENU_DOWNLOAD_GAP_MS) return
+            lastMenuDownloadAt = now
+        }
+        main.post { onMenuDownload(url, title) }
+    }
+
     private companion object {
+        /** A second tap on the button this soon after the first is the same tap (a double click), not another request. */
+        const val ENTER_PIP_GAP_MS = 1000L
+
+        /** The same, for the Download button of the three-dots menu. */
+        const val MENU_DOWNLOAD_GAP_MS = 600L
+
+        /** No video link of a page is longer than this; anything beyond is not one. */
+        const val MAX_LINK_LENGTH = 2048
+
         /** No real picture is wider or higher; anything beyond is a wrong value. */
         const val MAX_VIDEO_SIDE = 16384
     }

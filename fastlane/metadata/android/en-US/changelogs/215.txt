@@ -1,0 +1,1 @@
+New: a second way to download from a video. Tap the three dots of any video on YouTube and a "Download" button floats above the menu. It opens the same sheet as a long press on the video. The long press works as before.

@@ -147,7 +147,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
     }
     private lateinit var scripts: PageScripts
-    /** A long press on a video's picture or title opens its sheet with the "Download video" button (see [VideoLongPress]). */
+    /** A long press on a video's picture or title, or the floating "Download" button over its three-dots menu, opens its sheet with the "Download video" button (see [VideoLongPress]). */
     private lateinit var videoLongPress: VideoLongPress
     private lateinit var chromeClient: WardTubeChromeClient
     private lateinit var menuController: MenuController
@@ -260,7 +260,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         )
         webView.webChromeClient = chromeClient
         webView.webViewClient = WardTubeWebViewClient(adBlocker, scripts, this)
-        webView.addJavascriptInterface(createBridge(), BRIDGE_NAME)
+        webView.addJavascriptInterface(createBridge(webView), BRIDGE_NAME)
         // Download from any card: a long press on a video's picture or title opens its sheet. The browsing page gets it
         // here, the player's page (the list under the video) with each player (see createPlayerWebView).
         videoLongPress = VideoLongPress(
@@ -453,7 +453,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         playerHost.webView?.let { playerScripts.applySettings(it) }
     }
 
-    private fun createBridge() = NativeBridge(
+    /** The bridge of [page], the WebView it is added to: the page's own requests that need to know which page asked (the sheet of a video) go back to it. */
+    private fun createBridge(page: WebView) = NativeBridge(
         onOpenVideo = { url -> if (!isDestroyed) openVideo(url) },
         onOpenPage = { url -> openPageFromPlayer(url) },
         isMiniNow = { ::playerHost.isInitialized && playerHost.miniWanted },
@@ -465,6 +466,13 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 (getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager).mode ==
                     android.media.AudioManager.MODE_NORMAL
             }.getOrDefault(true)
+        },
+        // The button on the player's page (wardtube.js, "Picture in picture: a button in the player").
+        onEnterPip = { enterPipFromButton() },
+        pipSupportedNow = { pipSupported },
+        // The floating "Download" button over a card's three-dots menu (wardtube.js): the same sheet as a long press on the card.
+        onMenuDownload = { url, title ->
+            if (!isDestroyed && ::videoLongPress.isInitialized) videoLongPress.openFromPage(page, url, title)
         },
     )
 
@@ -485,7 +493,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         playerChrome = chrome
         view.webChromeClient = chrome
         view.webViewClient = WardTubeWebViewClient(adBlocker, playerScripts, PlayerPageEvents())
-        view.addJavascriptInterface(createBridge(), BRIDGE_NAME)
+        view.addJavascriptInterface(createBridge(view), BRIDGE_NAME)
         // A long press on a video of the list under the player's video opens the same sheet as on the browsing page.
         videoLongPress.attach(view)
         view.keepVisible = prefs.backgroundPlay
@@ -517,7 +525,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * The download button of the bottom bar is only at full strength (otherwise dimmed, never hidden, so the other
      * buttons do not move) while there is something to download: a video open in the player (full screen or in the
      * mini player), a Short on the browsing page, or a playlist / channel page (downloaded as a list). The video of a
-     * card is downloaded by a long press on it (see [VideoLongPress]).
+     * card is downloaded by a long press on it or by the floating button over its three-dots menu (see [VideoLongPress]).
      * [browseUrl] is the page of the browsing WebView.
      */
     private fun updateDownloadButton(browseUrl: String? = webView.url) {
@@ -1107,8 +1115,12 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * The app was just left and the little window has not come yet: the page may not go back into full screen now (it asks
      * again when the window's shape changes), which would put the landscape lock and the app's bars inside the window.
      */
-    private fun leavingForPip(): Boolean =
-        !resumed && pipSupported && prefs.pipAuto && SystemClock.uptimeMillis() - leftAppAt < PIP_LEAVE_MEMORY_MS
+    private fun leavingForPip(): Boolean {
+        if (!pipSupported) return false
+        // Asked for by the button on the player: the window is coming whether or not the Home switch of the menu is on.
+        if (SystemClock.uptimeMillis() - pipAskedAt < PIP_ASK_WINDOW_MS) return true
+        return !resumed && prefs.pipAuto && SystemClock.uptimeMillis() - leftAppAt < PIP_LEAVE_MEMORY_MS
+    }
 
     private fun canEnterPip(): Boolean = pipSupported && ::playerHost.isInitialized && playerHost.canPip
 
@@ -1248,6 +1260,30 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         } catch (e: Exception) {
             pipAskedAt = 0L
             false
+        }
+    }
+
+    /**
+     * The picture-in-picture button on the player's page was pressed (NativeBridge.enterPip): the same little window that opens
+     * when the person leaves with Home, asked for by hand. It works whether or not the menu's switch for leaving with Home is on:
+     * that switch is only about the window coming by itself.
+     *
+     * What the window is made from is remembered first, at the one moment that is certain, exactly as when the person leaves
+     * (see [rememberStateAtLeave]): from the system's full screen the page can leave full screen by itself before the window
+     * is announced. [onResume] forgets it again, and [enterPipUi] uses it only for a few seconds ([PIP_LEAVE_MEMORY_MS]).
+     */
+    private fun enterPipFromButton() {
+        if (isDestroyed || isFinishing || !resumed || isInPictureInPictureMode || pipUiOn) return
+        if (!pipSupported) {
+            Snackbar.make(appWindow, R.string.playerPipUnavailable, Snackbar.LENGTH_LONG).show()
+            return
+        }
+        if (!canEnterPip()) return // no video in the player (it was closed meanwhile), or the box is tucked away
+        rememberStateAtLeave()
+        if (!enterPip()) {
+            forgetStateAtLeave()
+            // The phone refused: most often picture in picture was switched off for this app in the phone's settings.
+            Snackbar.make(appWindow, R.string.playerPipUnavailable, Snackbar.LENGTH_LONG).show()
         }
     }
 

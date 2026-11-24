@@ -1,5 +1,61 @@
 # Changelog
 
+## 2.6.169
+- Added: **a floating "Download" button over a video's three-dots menu**, a second way into a download from a card beside the long press
+  (`assets/wardtube/wardtube.js`, `web/NativeBridge.kt`, `web/VideoLongPress.kt`, `MainActivity.kt`, `ui/VideoSheet.kt`, `README.md`,
+  `README.ar.md`, `fastlane/.../215.txt`, `app/build.gradle.kts`).
+  - **Before:** the only way into a download from a card was a long press on its picture or title.
+  - **Now:** tap the three dots of a video's card (the browsing page, or the list under the player) and YouTube's menu opens as usual; a red
+    "Download" / "تنزيل" button floats just above it, centred. Tap it and the app's own sheet opens (the video, "Download video", share, copy the
+    link), exactly as after a long press, and YouTube's menu is closed behind it. The button shows only after a tap on a card's three dots, and
+    only if a menu really opened because of that tap. It goes with the menu (a tap outside, a row or button of the menu used, back, a page change).
+    A card that names no single video (a playlist or channel card) gets no button. The long press is unchanged.
+  - **How:** a touch / click listener in `wardtube.js` finds the card's menu button (by YouTube's element and class names, by its label in a few
+    languages, or as a small icon-only button inside a video card), notes which menu rows / sheets (`MENU_ROWS` / `MENU_SHEETS`, the ones the "Open
+    app" row code already uses) are on screen, and then watches for new ones; the button waits until the menu has stopped sliding in and sits above
+    its first row (or above the middle of the window when the menu is made of something unknown). The video is the card's own link and the title its
+    heading. The press calls the new `NativeBridge.downloadFromMenu(url, title)` (two calls less than 0.6 s apart count as one), which reaches
+    `VideoLongPress.openFromPage(view, link, title)`: the same sheet and the same conditions (`canOpenVideoSheet`) as a long press, and the link is
+    checked again with `VideoLinks.parse`. `MainActivity.createBridge` now takes the WebView it is added to, so the answer opens on the page that asked.
+    The button is built with `createElement` / `createElementNS` (Trusted Types) and added to `<html>`.
+  - **Also:** `fastlane/.../en-US/changelogs/214.txt` was missing (only the Arabic one existed): added.
+  - **Tried:** `wardtube.js` was run on mock pages in headless Chromium with touch (30 checks): three layouts of the card and menu (the old `ytm-media-item`
+    with `ytm-menu` and a bottom sheet, the new `yt-lockup-view-model` with a separate scrim, a Short's card) plus one the script does not know
+    (icon-only button, a `role="dialog"` layer over the whole window). The button shows above the first row once the menu has stopped sliding;
+    one bridge call with the right link and title; the menu closes behind it; the page never sees the touch on the button; no button for a playlist
+    card, for dots that open nothing, for the picture link, or without the bridge method; it goes on a tap outside the menu and on a row; it is
+    hidden in the small box; a tall menu keeps it on screen. **Not tried:** not compiled here (no Android SDK) and not tried on a phone or against
+    live YouTube, whose real menu elements may differ from the mocks. Please build it and try: (1) Home: tap the dots of a video: the button shows
+    above the menu, tap it: the sheet opens, and YouTube's menu is closed, (2) the same on a search result, a channel's video, a Short's card and a
+    video of the list under the player, (3) open the menu and tap outside: the button goes, (4) long press a card: it works as before. If the button
+    does not show for some card, or sits on the menu, please say where (and which page).
+
+## 2.6.168
+- Added (compared with NouTube's `fullscreen-controls.ts` and `css.txt`): **a picture-in-picture button on the player** (`assets/wardtube/wardtube.js`,
+  `web/NativeBridge.kt`, `MainActivity.kt`, `fastlane/.../214.txt`, `app/build.gradle.kts`).
+  - **Before:** the little window only opened by itself when the person left the app with Home (and only with the menu's switch on).
+  - **Now:** a round button (40 px, the app's own picture-in-picture drawing) sits on the player, on its right edge at the middle of the video's
+    height (in full screen a little higher, clear of the camera of a phone turned sideways and of the display's cut-out). It shows and hides with the
+    page's own controls and opens the same little window at once. It works from the normal watch page and from the system's full screen, and also
+    when the menu's "Picture in picture" switch is off (that switch is only about the window coming by itself on Home).
+  - **How it is placed (from NouTube):** a direct child of `#player-container-id`, NEXT TO the control overlay and not inside it (YouTube's control
+    layers hit-test above anything put into the overlay, so a button there is seen but never gets the tap), shown while `#player-control-overlay` has
+    the `fadein` class. If YouTube is found not to use that class, the button shows for 3.5 s after each touch on the player instead. Its touches never
+    reach the page (no seek, no toggling of the controls). Built with `createElementNS` / `setAttribute` (no `innerHTML`: Trusted Types). Hidden in the
+    small box and in the window (`html[data-wt-mini]`, `html[data-wt-pip]`); not on the browsing page; not on a phone without picture in picture.
+  - **In the app:** `NativeBridge.enterPip()` (two calls less than 1 s apart count as one) and `NativeBridge.pipSupported()`;
+    `MainActivity.enterPipFromButton()` remembers what the window is made from (`rememberStateAtLeave`, as when the person leaves with Home), asks for
+    the window through the existing `enterPip()` and, if the phone refuses (picture in picture switched off for the app), shows the existing
+    "Picture in picture is not available..." message. `leavingForPip()` is also true for the 1.5 s after the window was asked for, so the page is not let
+    back into full screen while the window is coming, with or without the Home switch.
+  - **Tried:** `wardtube.js` was run on a mock player page in headless Chromium (20 checks: shown with `fadein` and hidden without it, 40 x 40 at the
+    middle of the right edge, higher in full screen, one `enterPip` per tap and the page sees no touch, hidden with `data-wt-mini` / `data-wt-pip`,
+    put back after the page removes it, absent on the browsing page and when `pipSupported()` is false, the touch fallback). **Not tried:** not compiled
+    here (no Android SDK) and not tried on a phone or against live YouTube. Please build it and try: (1) open a video, tap the player: the button
+    shows with the controls; tap it: the window opens and the video goes on, (2) the same from full screen (landscape), (3) switch the menu's
+    "Picture in picture" off and press the button, (4) tap the window to come back and press the button again. If the button is not seen, or sits on
+    one of YouTube's buttons, please say where and in which mode (normal / full screen).
+
 ## 2.6.167
 - Changed: **the comments button under a post in the Subscriptions screen now always shows** (`subs/SubsScreen.kt`, `res/values/strings.xml`,
   `res/values-ar/strings.xml`, `fastlane/.../213.txt`, `app/build.gradle.kts`).

@@ -1,0 +1,1 @@
+New: a "Picture in picture" button on the player. Tap the video to show the buttons, then tap the round button to open the little window at once, besides the one that opens when you leave with Home. Works in the normal view and in full screen.

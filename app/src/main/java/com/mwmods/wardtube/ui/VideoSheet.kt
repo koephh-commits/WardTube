@@ -23,8 +23,8 @@ import com.mwmods.wardtube.R
 import com.mwmods.wardtube.util.VideoLinks
 
 /**
- * The sheet a long press on a video's picture or title opens, wherever that video is shown (Home, search, history,
- * a channel, the list under the player ...): the video itself (its picture and title, so it is plain which one the press
+ * The sheet a long press on a video's picture or title opens (or the floating "Download" button over its three-dots menu),
+ * wherever that video is shown (Home, search, history, a channel, the list under the player ...): the video itself (its picture and title, so it is plain which one the press
  * found), the big "Download video" button and, below it, the smaller actions (share, copy the link).
  *
  * It is drawn like the three-dots menu (the same sheet style, rounded card and tinted rows), and it only shows what it

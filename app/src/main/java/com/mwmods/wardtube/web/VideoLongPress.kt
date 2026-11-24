@@ -17,8 +17,9 @@ import org.json.JSONTokener
 
 /**
  * Download from anywhere a video is listed: a long press on a video's picture or title opens a sheet with the video and
- * its "Download video" button ([VideoSheet]). This is the one way into a download from a card, in the browsing page
- * and in the player's page (the list under the video) alike.
+ * its "Download video" button ([VideoSheet]). That is the way into a download from a card, in the browsing page and in
+ * the player's page (the list under the video) alike. The second way is the floating "Download" button that shows over
+ * the menu of a card's three dots (wardtube.js): it opens the same sheet through [openFromPage].
  *
  * It is NouTube's way (`NouTubeView.onCreateContextMenu`, `content/link-title.ts`): Android's own hit test of the WebView
  * says which link is under the finger, whatever the page is made of, and the video is that link's. So nothing here looks
@@ -68,19 +69,36 @@ class VideoLongPress(
         }
     }
 
+    /**
+     * The second way in: the page's own script names the video (the floating "Download" button over a card's three-dots menu,
+     * wardtube.js; it reaches here through NativeBridge.downloadFromMenu), so there is no hit test and no title to look for. [link]
+     * is the card's video link and [title] its heading, or empty. The sheet is the one a long press opens, and it opens under the
+     * same conditions ([canOpen]).
+     */
+    fun openFromPage(view: WebView, link: String, title: String?) {
+        if (activity.isDestroyed || sheet.isShowing || !canOpen(view)) return
+        val video = VideoLinks.parse(link) ?: return
+        ++press // the answer of a long press that is still looking for its title is dropped
+        showSheet(view, video, usable(title))
+    }
+
+    private fun showSheet(view: WebView, video: VideoLinks.Video, title: String?) {
+        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        sheet.show(
+            video,
+            title,
+            onDownload = { onDownload(video.downloadUrl, title) },
+            onShare = { onShare(video.shareUrl, title.orEmpty()) },
+        )
+    }
+
     private fun open(view: WebView, link: String, focusedTitle: String?, current: Int) {
         val video = VideoLinks.parse(link) ?: return
         var opened = false
         fun show(title: String?) {
             if (opened || current != press || activity.isDestroyed || sheet.isShowing || !canOpen(view)) return
             opened = true
-            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            sheet.show(
-                video,
-                title,
-                onDownload = { onDownload(video.downloadUrl, title) },
-                onShare = { onShare(video.shareUrl, title.orEmpty()) },
-            )
+            showSheet(view, video, title)
         }
         // The card's heading names the video best. The title the hit test gives is often only the picture's badge
         // (its length, or LIVE), so it is the second choice. A page that is slow to answer does not hold the sheet back.
