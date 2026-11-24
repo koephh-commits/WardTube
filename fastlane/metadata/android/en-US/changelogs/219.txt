@@ -1,0 +1,1 @@
+Changed: tapping the three dots of a video now opens the same sheet as a long press on it (Download video, share, copy the link), at once and whatever YouTube's menu looks like. YouTube's own menu still opens behind it and closes when you pick an action.

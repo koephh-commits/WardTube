@@ -18,8 +18,9 @@ import org.json.JSONTokener
 /**
  * Download from anywhere a video is listed: a long press on a video's picture or title opens a sheet with the video and
  * its "Download video" button ([VideoSheet]). That is the way into a download from a card, in the browsing page and in
- * the player's page (the list under the video) alike. The second way is the floating "Download" button that shows over
- * the menu of a card's three dots (wardtube.js): it opens the same sheet through [openFromPage].
+ * the player's page (the list under the video) alike. The same sheet opens when the three dots of a card are tapped, without
+ * a long press ([openFromPage]): the page script menu-download.js says which video the dots belong to. (The "Download video"
+ * row that script also puts in YouTube's menu does not come through here.)
  *
  * It is NouTube's way (`NouTubeView.onCreateContextMenu`, `content/link-title.ts`): Android's own hit test of the WebView
  * says which link is under the finger, whatever the page is made of, and the video is that link's. So nothing here looks
@@ -70,35 +71,40 @@ class VideoLongPress(
     }
 
     /**
-     * The second way in: the page's own script names the video (the floating "Download" button over a card's three-dots menu,
-     * wardtube.js; it reaches here through NativeBridge.downloadFromMenu), so there is no hit test and no title to look for. [link]
-     * is the card's video link and [title] its heading, or empty. The sheet is the one a long press opens, and it opens under the
-     * same conditions ([canOpen]).
+     * The three dots of a card were tapped in [view] (the page script says so, menu-download.js): the same sheet as for a long
+     * press on that card's video, with the same conditions ([canOpen]) and the same way of finding the card's title, so nothing
+     * depends on finding YouTube's own menu. [link] is the address of the card's video and [title] the card's title, or null.
+     * YouTube's menu, which the same tap opens behind the sheet, is closed again once one of the sheet's actions is picked.
      */
     fun openFromPage(view: WebView, link: String, title: String?) {
         if (activity.isDestroyed || sheet.isShowing || !canOpen(view)) return
-        val video = VideoLinks.parse(link) ?: return
-        ++press // the answer of a long press that is still looking for its title is dropped
-        showSheet(view, video, usable(title))
+        open(view, link, title, ++press, fromMenu = true)
     }
 
-    private fun showSheet(view: WebView, video: VideoLinks.Video, title: String?) {
-        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+    private fun showSheet(view: WebView, video: VideoLinks.Video, title: String?, fromMenu: Boolean) {
+        if (!fromMenu) view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         sheet.show(
             video,
             title,
             onDownload = { onDownload(video.downloadUrl, title) },
             onShare = { onShare(video.shareUrl, title.orEmpty()) },
+            // An action was picked: YouTube's menu behind the sheet (opened by the same tap) has done its part.
+            onAction = { if (fromMenu) closePageMenu(view) },
         )
     }
 
-    private fun open(view: WebView, link: String, focusedTitle: String?, current: Int) {
+    /** Asks the page script to close YouTube's menu, when one is open (see `window.__wtCloseMenu` in menu-download.js). */
+    private fun closePageMenu(view: WebView) {
+        runCatching { view.evaluateJavascript(CLOSE_MENU_JS, null) }
+    }
+
+    private fun open(view: WebView, link: String, focusedTitle: String?, current: Int, fromMenu: Boolean = false) {
         val video = VideoLinks.parse(link) ?: return
         var opened = false
         fun show(title: String?) {
             if (opened || current != press || activity.isDestroyed || sheet.isShowing || !canOpen(view)) return
             opened = true
-            showSheet(view, video, title)
+            showSheet(view, video, title, fromMenu)
         }
         // The card's heading names the video best. The title the hit test gives is often only the picture's badge
         // (its length, or LIVE), so it is the second choice. A page that is slow to answer does not hold the sheet back.
@@ -124,6 +130,7 @@ class VideoLongPress(
         const val TITLE_WAIT_MS = 350L
         const val MAX_TITLE = 200
         val BADGE = Regex("^(?:\\d+:)*\\d+\$|^live\$", RegexOption.IGNORE_CASE)
+        const val CLOSE_MENU_JS = "(function(){try{if(window.__wtCloseMenu)window.__wtCloseMenu();}catch(e){}})()"
 
         /**
          * A function (self-contained: it needs nothing of the page script) that is given a video link and answers the

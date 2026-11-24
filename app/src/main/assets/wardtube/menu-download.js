@@ -8,15 +8,24 @@
 // It never changes YouTube's own rows: it adds one row of its own, built by hand, and never uses innerHTML
 // (YouTube's Trusted Types rules refuse it).
 //
-// On a card (the Home feed, search results, channels ...): after a tap on a button inside the card, the row goes into the
-// menu that opens, in this order:
+// On a card (the Home feed, search results, channels ...), a tap on the card's three dots does what a long press on the video
+// does (since 2.6.173): the app's own sheet (the video, "Download video", share, copy the link) opens at once, through
+// WardTubeNative.openVideoSheet, whatever YouTube's menu looks like: it needs no menu to be found, only the card's video.
+// YouTube's menu opens behind it as usual (the person can still use it after closing the sheet) and is closed again when
+// one of the sheet's actions is picked (window.__wtCloseMenu, called by the app). Which video the dots belong to is found
+// in this order: the card around the button, the data YouTube keeps on the elements the tap went through, and, for a button
+// that is surely the three dots (YouTube's menu element, a "more / menu / actions" label, or a drawing of three dots), the
+// video whose picture or title is at the tap's line. A tap on any other button of a card (a button this script cannot
+// name as the three dots) opens the sheet only if YouTube's menu really opens because of it.
+//
+// The row in YouTube's menu is still added (the second way, and the one for a sheet that cannot open): after a tap on a
+// button inside the card, the row goes into the menu that opens, in this order:
 //   1. a row of YouTube's menu that is really in sight (what is drawn at its centre is the row itself: a menu that is
 //      kept in the page hidden, transparent or off the screen is never used), the top one: the row goes before it;
 //   2. no such row (a menu whose rows have names this script does not know): the rows are found by how they are drawn
 //      (wide boxes with text, one above the other, in a layer fixed to the screen) and the row goes before the top one;
-//   3. still none, or the row cannot be seen where it was put: nothing more is done here. wardtube.js (the floating
-//      "Download" button over a video's three-dots menu) then offers the download itself, whatever the menu looks like; it
-//      stays away while this script's row is in sight (it looks for the `data-wt-dl` row).
+//   3. still none, or the row cannot be seen where it was put: nothing more is done here (there is no floating button over
+//      the menu any more since 2.6.172; the sheet above is the way into a download from the three dots).
 //   (A tap is noted on `pointerup` as well as on `click`: a page that opens its menu from the touch and cancels the click
 //   would never have been seen.)
 //
@@ -67,6 +76,12 @@
     'ytd-video-renderer, ytd-grid-video-renderer';
   // What the label of the three dots can say (read only inside the row of buttons of a watch page).
   var MORE_RE = /more|المزيد|إضافي|أخرى|plus|más|mehr|altro|もっと|更多|더보기|mais|еще|daha/i;
+  // What the label of the three dots of a CARD can say (wider than MORE_RE: YouTube's own label is "Action menu").
+  var DOTS_RE = /more|menu|action|option|المزيد|إضافي|أخرى|إجراء|إجراءات|خيارات|القائمة|plus|más|mehr|altro|もっと|更多|더보기|mais|еще|daha/i;
+  // Never a card's video: the menu itself, the bars of the page, its player and the script's own row and button.
+  var SKIP_LINKS = 'ytm-bottom-sheet-renderer, bottom-sheet-layout, ytm-menu-popup-renderer, yt-contextual-sheet-layout, ' +
+    'yt-sheet-view-model, [role="dialog"], [role="menu"], ytm-pivot-bar-renderer, ytm-mobile-topbar-renderer, header, nav, ' +
+    '[role="tablist"], ytm-chip-cloud-renderer, video, [data-wt-dl], [data-wt-dlb]';
 
   // { v: { kind, id }, title, at, cur }: the video of the last tapped button (inside a card, or the three dots of a
   // watch page: then `cur` is true).
@@ -152,6 +167,76 @@
       hops++;
     }
     return null;
+  }
+
+  // A small box with a drawing in it (an icon) around `t`: a button of a kind this script has no name for.
+  function iconBox(t) {
+    for (var n = t, h = 0; n && n !== document.body && h < 4; n = n.parentElement, h++) {
+      var r = n.getBoundingClientRect();
+      if (r.width > 72 || r.height > 72) return null;
+      if (r.width >= 12 && r.height >= 12 &&
+          (/^(svg|img|yt-icon|c3-icon)$/i.test(n.tagName) || n.querySelector('svg, img, yt-icon, c3-icon'))) return n;
+    }
+    return null;
+  }
+
+  // True when `b` is surely the three dots of a card: inside YouTube's menu element, named "more / menu / actions" by its
+  // label, or drawn as three dots.
+  function dotsButton(b) {
+    if (!b || !b.closest) return false;
+    if (b.closest('ytm-menu, ytm-menu-renderer')) return true;
+    var label = b.getAttribute('aria-label') || b.getAttribute('title') || '';
+    if (label && DOTS_RE.test(label)) return true;
+    return looksLikeDots(b);
+  }
+
+  // The last way to the video of three dots, for a card whose layout nothing else could read: the video whose picture and
+  // title (every card has them linked, whatever else it is made of) are at the line of the tap, or just above it.
+  function cardByPosition(e) {
+    try {
+      var x = e.clientX, y = e.clientY;
+      if (typeof x !== 'number' || typeof y !== 'number' || (!x && !y)) return null;
+      var all = document.querySelectorAll(LINKS), groups = [], byId = {};
+      for (var i = 0; i < all.length; i++) {
+        var a = all[i], v = parse(a);
+        if (!v || a.closest(SKIP_LINKS)) continue;
+        var r = a.getBoundingClientRect();
+        if (r.width < 8 || r.height < 8) continue;
+        var len = (a.textContent || '').replace(/\s+/g, ' ').trim().length;
+        var g = byId[v.id];
+        if (!g) {
+          g = { v: v, l: r.left, t: r.top, r: r.right, b: r.bottom, a: a, n: len };
+          byId[v.id] = g;
+          groups.push(g);
+        } else {
+          g.l = Math.min(g.l, r.left);
+          g.t = Math.min(g.t, r.top);
+          g.r = Math.max(g.r, r.right);
+          g.b = Math.max(g.b, r.bottom);
+          if (len > g.n) { g.a = a; g.n = len; }
+        }
+      }
+      var single = window.innerWidth < 700, best = null, bestCost = 1e9;
+      for (var q = 0; q < groups.length; q++) {
+        var G = groups[q];
+        if (y < G.t - 6) continue;                          // above the card: not its dots
+        var dy = y > G.b ? y - G.b : 0;
+        var dx = x < G.l ? G.l - x : (x > G.r ? x - G.r : 0);
+        if (dy > 90 || (!single && dx > 60)) continue;      // under it by more than a row: the next card's
+        var cost = (dy > 6 ? dy : 0) * 3 + (single ? 0 : dx * 0.5);
+        if (cost < bestCost) { bestCost = cost; best = G; }
+      }
+      if (!best) return null;
+      var el = best.a; // for the title: the widest box around the link that still links one video
+      for (var k = 0; k < 7; k++) {
+        var p = el.parentElement;
+        if (!p || p === document.body || videoIn(p) === 'many') break;
+        el = p;
+      }
+      return { v: best.v, el: el };
+    } catch (x2) {
+      return null;
+    }
   }
 
   function titleOf(el) {
@@ -440,11 +525,35 @@
       }
       inserted = true;
       insertedAt = now;
+      offerSheet(); // a menu really opened because of this tap: its card's video is offered in the app's sheet too
       return;
     }
-    // (no row in the menu: wardtube.js offers its floating button for a card; the watch page has a button of its own for
-    // this: see the end of startPolling)
+    // (no row in the menu: nothing more is done here for a card; the watch page has a button of its own for this: see the
+    // end of startPolling)
   }
+
+  // The app's own sheet (what a long press on the video opens) for the video of the last tap on a card, once per tap.
+  // The app checks the page it is in (browsing page, or the player's while it is full screen) and the video.
+  function offerSheet() {
+    try {
+      if (!last || last.cur || last.sheet) return;
+      var api = bridge();
+      if (!api || typeof api.openVideoSheet !== 'function') return;
+      last.sheet = true;
+      api.openVideoSheet(last.v.kind, last.v.id, last.title || '');
+    } catch (x) { /* the app is not there */ }
+  }
+
+  // Called by the app after the sheet's action was picked: YouTube's menu, which the same tap opened behind the sheet, is
+  // closed (only when one is really open, so a tap on the page's top is never made for nothing).
+  window.__wtCloseMenu = function () {
+    try {
+      last = null;
+      clearInterval(poll);
+      clearRows();
+      if (overlayUp() || menuRows().length) closeSheet(null);
+    } catch (x) { /* nothing to close */ }
+  };
 
   function startPolling() {
     clearInterval(poll);
@@ -785,6 +894,14 @@
     var more = !!(btn && watching && isMoreTap(btn));
     var card = !more && btn ? cardOf(btn, !!watching) : null;
     if (!more && btn && !card && !watching) card = cardFromPath(e);
+    // The three dots of a card (a button that is surely them, or a small icon that is drawn as them): their video is found by
+    // every way there is, the position of the tap being the last one (not on a watch page: a guess could name another video).
+    var db = more ? null : (btn || iconBox(t));
+    var isDots = !!db && !!db.closest && dotsButton(db);
+    if (isDots && !card) {
+      if (db !== btn) card = cardOf(db, !!watching);
+      if (!card && !watching) card = (db !== btn ? cardFromPath(e) : null) || cardByPosition(e);
+    }
     var late = !more && !card && !watching ? cardNou(t) : null; // inside a card, not on a known button: wait for a menu
     var now = Date.now();
     var vid = more ? watching : card ? card.v : null;
@@ -796,6 +913,7 @@
     } else if (card) {
       last = { v: card.v, title: titleOf(card.el), at: now };
       startPolling();
+      if (isDots) offerSheet(); // the sheet of a long press, at once: no menu has to be found first
     } else if (late) {
       last = { v: late.v, title: titleOf(late.el), at: now, late: true };
       startPolling(); // the row goes in only if a menu really opens (see scan)

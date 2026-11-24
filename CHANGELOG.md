@@ -1,5 +1,64 @@
 # Changelog
 
+## 2.6.173
+- Changed: **a tap on the three dots of a video's card now opens the same sheet as a long press on that video** (`assets/wardtube/menu-download.js`,
+  `web/NativeBridge.kt`, `web/VideoLongPress.kt`, `ui/VideoSheet.kt`, `MainActivity.kt`, `values/strings.xml`, `values-ar/strings.xml`,
+  `README.md`, `README.ar.md`, `fastlane/.../219.txt`, `app/build.gradle.kts`).
+  - **Why:** the floating "Download" button over YouTube's menu (2.6.169-2.6.171) could stay away, and the "Download video" row of 2.6.171 only
+    shows in a menu whose layout the script knows. Both depended on *finding YouTube's menu*. The long press never did: it only needs the video.
+  - **Now:** tap the three dots of a video (Home, Search, a channel, the list under the player): the sheet of the long press (the video, *Download
+    video*, share, copy the link) opens at once, with no long press and no menu to be found first. YouTube's own menu still opens behind it, so
+    its other rows (save to playlist ...) stay there after the sheet is closed with Back or a tap outside; when one of the sheet's actions is
+    picked, YouTube's menu is closed behind it. The *Download video* row in YouTube's menu is still added, and the watch page's own three dots
+    (the row of buttons under the video) are unchanged.
+  - **How:** `menu-download.js` already noted the tap on a card's button and found the card's video. A button that is surely the three dots
+    (YouTube's `ytm-menu` element, a label such as "Action menu" / "More actions" / "المزيد" / "قائمة الإجراءات", or a drawing of three dots; also
+    a small icon that is not a `button`) now calls the new `WardTubeNative.openVideoSheet(kind, id, title)` right away. The video is found by the
+    card around the button, then by the data YouTube keeps on the elements the tap went through, then (new, only for such surely-the-dots
+    buttons, never on a watch page) by position: the video whose picture or title is at the line of the tap. Any *other* button of a card opens
+    the sheet only if YouTube's menu really opens after it (the moment the row goes in). `NativeBridge.openVideoSheet` builds the address from the
+    11-character id itself (two calls less than 0.5 s apart count as one) and reaches `VideoLongPress.openFromPage(view, link, title)`: the same
+    `canOpenVideoSheet` conditions, the same title lookup and the same sheet as a long press, on the page that asked (`createBridge(page)`).
+    `VideoSheet.show` has a new `onAction` callback (download, share or copy picked) that closes YouTube's menu through `window.__wtCloseMenu`.
+  - **Also:** the download guide's second way now says that the three dots or a long press open the sheet (en + ar).
+  - **Tried:** `menu-download.js` was run on mock pages in headless Chromium with touch (19 checks): the old layout (`ytm-media-item` + `ytm-menu`), a
+    Short's card, the new `yt-lockup-view-model` with an Arabic label, a layout nothing knows (dots outside the card, no label, video found by
+    position, two results one after the other), a button that is neither named nor drawn as dots (sheet only after the menu really opened; a
+    button that opens nothing gives none), a watch page (related card: sheet; the video's own three dots: no sheet, the row as before), and an
+    app without the new bridge method (no error). One call per tap (`pointerup` and `click` together), a tap on the picture gives none, and
+    `__wtCloseMenu` closes the menu. The Kotlin files were parsed with the Kotlin compiler (no syntax errors) but **not compiled or run
+    here (no Android SDK)** and not tried on a phone or against live YouTube, whose real elements may differ from the mocks. Please build it and try:
+    (1) Home: tap the three dots of a video: the sheet opens at once, (2) pick *Download video*: the download choice opens and YouTube's menu is
+    closed, (3) tap the dots and press Back: the sheet closes and YouTube's menu is there to use, (4) the same in Search results, a channel, a
+    Short's card and the list under the player, (5) long press still works. If the sheet does not open for some card, please say on which page.
+
+## 2.6.172
+- Removed: **the floating "Download" button that showed over the menu of a video's three dots** (`assets/wardtube/wardtube.js`,
+  `web/NativeBridge.kt`, `web/VideoLongPress.kt`, `MainActivity.kt`, `assets/wardtube/menu-download.js` (comments only)).
+  - **Gone:** the whole "floating button over the menu" part of `wardtube.js` (the button, the look for the menu that a tap on the dots
+    opens, the tap on a card's dots), the bridge method `downloadFromMenu` and its callback, and `VideoLongPress.openFromPage`.
+  - **Unchanged:** the *Download video* row inside the menu of a video's three dots and the *Download* button beside the buttons under the
+    video (2.6.171, `menu-download.js`), the long press on a video, the bottom bar's button, the Subscriptions screen's own menu.
+    A menu that the row cannot be put in now shows nothing extra: the long press on the video is the way there.
+- Added: **a message, with pictures, that explains the ways to download a video**, shown when the app opens, with a *Don't show again*
+  button (`ui/DownloadGuideDialog.kt`, `res/layout/dialog_download_guide.xml`, `res/layout/item_guide_image.xml`,
+  `res/drawable-nodpi/guide_download_{buttons,menu,bar,longpress}.png`, `Prefs.kt`, `MainActivity.kt`, `values/strings.xml`,
+  `values-ar/strings.xml`).
+  - **Text:** two ways, as asked: (1) the Download button, beside the like buttons or in the three-dots menu while a video plays, and, if it
+    does not show, in the side menu or the bottom bar; (2) the long press on any video, and on the Home page the three dots then Download,
+    or the long press if it does not show.
+  - **Pictures:** four small drawn illustrations (the buttons under a video, the three-dots menu, the bottom bar, the long press), the same in
+    day and night mode (about 30 KB together). They are not screenshots: to use a screenshot, put a PNG of the same name in
+    `res/drawable-nodpi/`.
+  - **When:** each time the app is opened (a new start, not a rotation or a theme change), until *Don't show again* is pressed
+    (`Prefs.downloadGuideHidden`). *OK*, a tap outside or Back only closes it.
+  - **The old message is gone:** the one-time tip above the bottom bar ("press and hold any video to download it"), with its page check,
+    its preference (`videoPressTipSeen`) and its strings. Everyone sees the new message once more, also those who had seen the old tip.
+  - **Not tried:** not compiled here (no Android SDK) and not tried on a phone. Please build it and try: (1) open the app: the message shows
+    over the page, scrolls, and the four pictures are in it, in Arabic and in English, in day and night mode, (2) *OK*: it closes and shows
+    again at the next start, (3) *Don't show again*: it never shows again, (4) tap the three dots of a video on Home: YouTube's menu with the
+    *Download video* row and no floating red button, also in Search results, a channel and the list under the player.
+
 ## 2.6.171
 - Added: **a "Download video" row inside the menu of a video's three dots, and a "Download" button beside the buttons under the video when
   that row has no three dots**, the way the older versions had them (`assets/wardtube/menu-download.js` back, `web/PageScripts.kt`,
