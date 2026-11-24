@@ -1,5 +1,58 @@
 # Changelog
 
+## 2.6.177
+- New: **picture in picture and play in the background for Shorts**, the same way long videos have them
+  (`assets/wardtube/wardtube.js`, `player/PlayerController.kt`, `MainActivity.kt`, `app/build.gradle.kts`).
+  - **Before:** a Short plays in the browsing WebView (the player's own WebView is for long videos), and everything that makes the
+    little window and the background notification was pointed at the player only. Pressing Home on a Short stopped it, and no window opened.
+  - **Picture in picture:** pressing Home while a Short plays opens the little window (the switch of the three-dots menu decides, as for
+    long videos), and a **round button on the Short** opens it by hand. The button is the player's own (same size, dark disc and
+    drawing, label «صورة داخل صورة»), at the right edge above the column of buttons of the Short, and steps aside while the comments or a
+    menu are open. The window has the shape of the Short's picture (vertical as a rule), shows only the video, and has the system's
+    previous / play-pause / next buttons. Tapping it brings the app back; closing it stops the Short, as for a long video.
+  - **Background:** with *Play in background* on, a Short goes on playing with the screen off or the app left, with the same notification as a long
+    video (cover, title, previous / next, seek bar, stop) and the sleep timer. Previous / next move to the Short before / after (previous
+    restarts the Short first when it played for more than 3 seconds).
+  - **How:** `PlayerController` now acts on the Short of the browsing page while one is on view (and the player's video is not in front),
+    so the notification, the window's buttons and the screen-on poll work on it; the browsing page is kept "visible" to Chromium only
+    while a Short plays; the page script (`Picture in picture for a Short`) hides everything but the Short's video while the window
+    is up (with `visibility`, so the feed's layout and position are not touched) and reports the picture to the app.
+  - **Also:** a long video that opens in front of a Short now stops the Short (it played on behind it, unseen); a change of Short no longer
+    pauses a Short by mistake while a long video waits behind it.
+  - **Unchanged:** long videos, the mini player, the Subscriptions screen, the download button, the ad blocker.
+  - **Tried:** `wardtube.js` was run in headless Chromium with touch on a mock Shorts page (top bar, a feed of three Shorts that snaps and
+    marks the active one, a column of buttons, a title, a comments sheet): button shown once on a Short and not on other pages, round
+    40 px as the player's, clear of the Short's buttons and the top bar, one call to the app per tap and the Short not paused by it;
+    the picture reported; in the window only the active Short's video is visible, the feed is not moved, and everything is back when
+    the window is left; next / previous move the feed; no script errors, and the player route is unchanged (28 checks).
+    **Not tried:** the Kotlin side is not compiled here (no Android SDK), and nothing was tried on a phone or against live YouTube, whose real
+    Shorts elements may differ from the mock. Please build it and try: a Short + Home (window), the button on the Short, a Short
+    with the screen off (notification), next / previous, and leaving the window. If the button sits over something on your phone, or the
+    window shows more than the video, please say so: both are a few lines in `wardtube.js`.
+
+## 2.6.176
+- Fixed: **on a Short, the "Download video" row showed in the wrong places** (`assets/wardtube/menu-download.js`, `app/build.gradle.kts`).
+  - **Before:** a tap on *any* button of the Shorts player (like, comments, share ...) was taken for a tap on a menu button. The row was then
+    put into whatever looked like a menu: over the Short itself (beside its title, for about two seconds, after a tap on like) and at the top of
+    the comments sheet.
+  - **Cause:** on a Short the script took the video from the data of the player's elements, which every button of the player carries, so every
+    button started the wait for a menu; and the fallback that finds a menu "by how it is drawn" (wide boxes with text in a fixed layer) took the
+    Short's own title bar and the comments sheet for one.
+  - **Now:** on a Short (`/shorts/ID`) only the **three dots** of the Short start that wait (found by YouTube's menu element, its label or its
+    drawing; a button with `aria-pressed` or named like / comment / share / subscribe never counts). Any other tap ends the wait and takes a row
+    that is still there away. The video is the one the address names (it follows the swipes), as `shorts`. The comments panel is never taken for a
+    menu either (`COMMENTS`). The label test of the three dots also knows "مزيد" (as in "مزيد من الإجراءات"), not only "المزيد".
+  - **Unchanged:** the row in the three-dots menu of a Short, and everything on Home, Search, channels and the watch page.
+  - **Tried:** the old and the new script were run in headless Chromium with touch on a mock Shorts page (top bar with back, search and the three
+    dots; a column with like, comments and share; a title bar over the video; a menu sheet; a comments sheet). The old script shows the row over
+    the Short after like (gone after about 2 s), in the comments sheet, and after share and search, as in the screenshots. The new one shows it only
+    after the three dots: once in the menu, one call to the app with `shorts` and the right id; nothing after like, comments, share or search;
+    a menu with rows the script has no name for still gets it; after a swipe to another Short the new id is used; a tap on comments while the
+    menu is open adds nothing. **Not tried:** not compiled here (no Android SDK) and not tried on a phone or against live YouTube, whose real
+    elements may differ from the mock. Please build it and try on a Short: like, comments, share (nothing should appear), then the three dots
+    (the row should be in the menu). If the row is missing in the menu, please say so: the app's download button of the bottom bar and the
+    long press still work.
+
 ## 2.6.175
 - Changed: **the description under the "Picture in picture" row now says the window opens when the person presses Home**
   (`values/strings.xml`, `values-ar/strings.xml`, `app/build.gradle.kts`).

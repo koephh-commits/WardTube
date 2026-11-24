@@ -19,6 +19,10 @@
 //   (A tap is noted on `pointerup` as well as on `click`: a page that opens its menu from the touch and cancels the click
 //   would never have been seen.)
 //
+// On a Short (the vertical player at /shorts/ID) only the three dots of the Short count: a tap on any other button of it (like,
+// dislike, comments, share, subscribe ...) starts nothing, so the row never shows over the Short or in the comments sheet. The
+// video is the one the address names (it follows the swipes).
+//
 // On a watch page (the video's own row of buttons: like, dislike, share ... and the three dots) it works in this order:
 //   1. the three dots of that row are found: the row is added to the menu they open;
 //   2. no three dots in the row (or the menu could not take the row): a "Download" button is added to the row itself,
@@ -55,9 +59,13 @@
   var ACTION_ANCHORS = 'ytm-segmented-like-dislike-button-renderer, segmented-like-dislike-button-view-model, ' +
     'like-button-view-model, ytm-like-button-renderer, ytm-slim-video-action-bar-renderer, ' +
     'yt-flexible-actions-view-model, button[aria-pressed]';
+  // The comments panel of a video or a Short: a sheet that is never the three-dots menu, whatever its rows look like.
+  var COMMENTS = 'ytm-engagement-panel, ytm-engagement-panel-section-list-renderer, ytm-comments-header-renderer, ' +
+    'ytm-comment-section-renderer, ytm-comment-thread-renderer, ytm-comment-renderer, ytm-comments-entry-point-header-renderer, ' +
+    '[target-id*="comment" i], [panel-identifier*="comment" i]';
   // What is never the menu: the cards, the bars of the page and its player (and the script's own row and button).
   var NOT_MENU = CARDS + ', ytm-pivot-bar-renderer, ytm-mobile-topbar-renderer, header, nav, [role="tablist"], ' +
-    'ytm-chip-cloud-renderer, video, [data-wt-dl], [data-wt-dlb]';
+    'ytm-chip-cloud-renderer, video, [data-wt-dl], [data-wt-dlb], ' + COMMENTS;
   var PRESSABLE = 'button, [role="button"]';
   // NouTube's way: a click anywhere inside a video's card is the start of a possible menu; the menu is waited for, and
   // only when one opens is the video of that card offered (a tap on the picture just opens the video: nothing happens).
@@ -65,7 +73,7 @@
     'ytm-video-with-context-renderer, ytm-rich-item-renderer, yt-lockup-view-model, yt-lockup-metadata-view-model, ' +
     'ytd-video-renderer, ytd-grid-video-renderer';
   // What the label of the three dots can say (read only inside the row of buttons of a watch page).
-  var MORE_RE = /more|المزيد|إضافي|أخرى|plus|más|mehr|altro|もっと|更多|더보기|mais|еще|daha/i;
+  var MORE_RE = /more|مزيد|إضافي|أخرى|plus|más|mehr|altro|もっと|更多|더보기|mais|еще|daha/i;
 
   // { v: { kind, id }, title, at, cur }: the video of the last tapped button (inside a card, or the three dots of a
   // watch page: then `cur` is true).
@@ -160,6 +168,68 @@
       if (s.length > 1) return s.slice(0, 200);
     }
     return '';
+  }
+
+  // ---- Shorts ----
+
+  // True on the Shorts player (/shorts/ID), which swipes from one Short to the next.
+  function onShorts() {
+    try {
+      return /^\/shorts(?:\/|$)/.test(location.pathname);
+    } catch (x) {
+      return false;
+    }
+  }
+
+  // The Short on the screen: the address says which (it follows the swipes). null when it names none.
+  function shortsVideo() {
+    try {
+      var m = /^\/shorts\/([A-Za-z0-9_-]{11})(?:\/|$)/.exec(location.pathname);
+      return m ? { kind: 'shorts', id: m[1] } : null;
+    } catch (x) {
+      return null;
+    }
+  }
+
+  // What the buttons of a Short that are not its three dots are called (the like, comments, share ... column).
+  var SHORTS_ACTION_RE = /like|comment|share|subscribe|أعجب|إعجاب|تعليق|مشاركة|اشتراك|اشترك/i;
+
+  // True when `btn` is the three dots of a Short. Its own menu element or label, or its drawing (three little shapes), say so;
+  // the like / dislike / comments / share / subscribe buttons never do.
+  function isShortsDots(btn) {
+    try {
+      if (!btn) return false;
+      if (btn.closest('ytm-menu, ytm-menu-renderer')) return true;
+      if (btn.closest('[aria-pressed]')) return false;
+      var label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || '');
+      if (label && label.length < 60 && SHORTS_ACTION_RE.test(label)) return false;
+      if (label && label.length < 60 && MORE_RE.test(label)) return true;
+      return looksLikeDots(btn);
+    } catch (x) {
+      return false;
+    }
+  }
+
+  // A tap on a Short. Only the three dots start the wait for a menu; any other button (like, comments, share ...) ends it and
+  // takes away a row that is still there, so nothing is ever added over the Short or to the comments sheet.
+  function noteShortsTap(t, e, now) {
+    var btn = t.closest(BUTTONS);
+    var vid = null;
+    if (btn && isShortsDots(btn)) {
+      vid = shortsVideo();
+      if (!vid) {
+        var c = cardFromPath(e);
+        vid = c ? c.v : null;
+      }
+    }
+    if (vid && last && last.dots && last.v.id === vid.id && now - last.at < SAME_TAP_MS) return;
+    clearRows();
+    if (vid) {
+      last = { v: vid, title: '', at: now, dots: true };
+      startPolling();
+    } else {
+      last = null;
+    }
   }
 
   // The video of a watch page: the address says which (a Short has its own page and is not handled here).
@@ -335,7 +405,7 @@
     for (var i = 0; i < nodes.length; i++) {
       if (nodes[i].closest('[data-wt-dl]')) continue;
       var item = outer(nodes[i]);
-      if (!item.parentNode || inSheet.indexOf(item) >= 0 || other.indexOf(item) >= 0 || !seen(item)) continue;
+      if (!item.parentNode || inSheet.indexOf(item) >= 0 || other.indexOf(item) >= 0 || item.closest(COMMENTS) || !seen(item)) continue;
       (item.closest(SHEETS) ? inSheet : other).push(item);
     }
     return (inSheet.length ? inSheet : other).sort(byTop);
@@ -409,6 +479,7 @@
 
   function scan() {
     if (!active() || !bridge()) return;
+    if (onShorts() && !last.dots) return; // on a Short only the three dots ask for the row
     var now = Date.now();
     if (now - scanAt < SCAN_GAP_MS) return;
     scanAt = now;
@@ -779,6 +850,10 @@
   }
 
   function noteTap(t, e) {
+    if (onShorts()) {
+      noteShortsTap(t, e, Date.now());
+      return;
+    }
     var btn = t.closest(BUTTONS);
     var watching = watchVideo();
     var more = !!(btn && watching && isMoreTap(btn));

@@ -1,0 +1,1 @@
+Fixed: on a Short, the "Download video" row no longer shows over the video or in the comments sheet; it shows only in the three-dots menu.

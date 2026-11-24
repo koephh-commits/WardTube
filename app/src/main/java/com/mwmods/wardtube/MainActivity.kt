@@ -399,7 +399,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         allowAutoplayFor(url)
         if (::playerHost.isInitialized) {
             playerHost.miniHidden = UrlUtils.isShortsPage(url)
-            updatePipParams()
+            updateShortTarget(url)
         }
         webView.loadUrl(url)
     }
@@ -435,7 +435,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     /** A link to another YouTube page was tapped in the player: show that page and leave the video playing. */
     private fun openPageFromPlayer(url: String) {
         if (isDestroyed) return
-        if (UrlUtils.isShortsPage(url)) pauseVideo() // Shorts play on their own
+        if (UrlUtils.isShortsPage(url)) pausePlayerVideo() // Shorts play on their own
         showBrowse()
         loadBrowse(url)
     }
@@ -455,6 +455,16 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (::playerHost.isInitialized) playerHost.setPlaying(false)
     }
 
+    /**
+     * Pauses the video of the player (the long one), never a Short of the browsing page: a Short that was opened is the thing
+     * that plays, and the player's video waits behind it. Used when a Short is opened and on every change of Short.
+     */
+    private fun pausePlayerVideo() {
+        PlayerController.pausePlayer()
+        if (::playerHost.isInitialized) playerHost.setPlaying(false)
+        if (!PlayerController.onShort) videoPlaying = false
+    }
+
     private fun applyScriptSettings() {
         scripts.applySettings(webView)
         playerHost.webView?.let { playerScripts.applySettings(it) }
@@ -465,8 +475,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         onOpenVideo = { url -> if (!isDestroyed) openVideo(url) },
         onOpenPage = { url -> openPageFromPlayer(url) },
         isMiniNow = { ::playerHost.isInitialized && playerHost.miniWanted },
-        pipAspectNow = { if (::playerHost.isInitialized) playerHost.pipAspect else 0f },
-        onPipVideo = { width, height -> onPageVideoReport(width, height) },
+        // The browsing page's answer is the shape of the window while a Short is in it (see enterShortPipUi), the player's its own.
+        pipAspectNow = { if (page === webView) shortPipAspect else if (::playerHost.isInitialized) playerHost.pipAspect else 0f },
+        onPipVideo = { width, height -> onPageVideoReport(width, height, fromBrowse = page === webView) },
         // A call (ringing or on) paused the video: it is not started again behind the person's back.
         canAutoResumeNow = {
             runCatching {
@@ -518,6 +529,10 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     }
 
     private fun onPlayerModeChanged(mode: PlayerHost.Mode) {
+        // Full screen puts the player's video in front of a Short that may be on the browsing page, and the small box gives it back.
+        updateShortTarget()
+        // A long video in front of a Short of the browsing page: the Short stops instead of playing on behind it, unseen.
+        if (mode == PlayerHost.Mode.EXPANDED && UrlUtils.isShortsPage(webView.url)) webView.evaluateJavascript(WebMedia.PAUSE_SCRIPT, null)
         if (mode == PlayerHost.Mode.EXPANDED) setBarHidden(false)
         updateBarColors()
         updateBackgroundPlayback()
@@ -1129,7 +1144,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         return !resumed && prefs.pipAuto && SystemClock.uptimeMillis() - leftAppAt < PIP_LEAVE_MEMORY_MS
     }
 
-    private fun canEnterPip(): Boolean = pipSupported && ::playerHost.isInitialized && playerHost.canPip
+    private fun canEnterPip(): Boolean =
+        pipSupported && ::playerHost.isInitialized && (playerHost.canPip || PlayerController.onShort)
 
     /** The little window was just left and the player still shows its picture until the window has its size back (see PlayerHost.exitHolding). */
     private fun playerExitHeld(): Boolean = ::playerHost.isInitialized && playerHost.exitHolding
@@ -1145,8 +1161,11 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * next poll (up to 3 seconds later while the video is full screen): leaving the app inside that time found the window not
      * armed, or armed for a video that had just been paused. Same grace after the window's own button as the poll has.
      */
-    private fun onPageVideoReport(width: Int, height: Int) {
+    private fun onPageVideoReport(width: Int, height: Int, fromBrowse: Boolean = false) {
         if (isDestroyed || !::playerHost.isInitialized) return
+        // Only the page the controls act on is listened to: a Short of the browsing page, or else the player's video. The
+        // pause of the player's video behind a Short, or a preview of the home page, must not turn the window off.
+        if (fromBrowse != PlayerController.onShort) return
         val playing = width > 0 && height > 0
         if (playing) videoAspect = width.toFloat() / height
         if (SystemClock.uptimeMillis() - pipToggledAt > PIP_TOGGLE_GRACE_MS) videoPlaying = playing
@@ -1171,6 +1190,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private fun pipRatio(): Rational {
         pipWindowRatio?.let { return it } // the window is up: its shape is fixed (see [pipWindowRatio])
         val aspect = when {
+            // A Short fills the window with its own picture (vertical, as a rule): the player's box is not what is shown.
+            PlayerController.onShort -> if (videoAspect > 0f) videoAspect else SHORT_DEFAULT_ASPECT
             isFullscreen && videoAspect > 0f -> videoAspect
             boxAspect > 0f -> boxAspect
             videoAspect > 0f -> videoAspect
@@ -1233,7 +1254,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
     private fun updatePipParams() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !pipSupported) return
         if (isDestroyed || isFinishing || !::playerHost.isInitialized) return
-        pipArmed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && prefs.pipAuto && videoPlaying && playerHost.canPip
+        pipArmed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && prefs.pipAuto && videoPlaying &&
+            (playerHost.canPip || PlayerController.onShort)
         val ratio = pipRatio()
         val sourceRect = pipSourceRect(ratio)
         val key = "$ratio|$videoPlaying|$pipArmed|$sourceRect"
@@ -1252,7 +1274,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * the player's own box is hidden behind it then, and its old place would crop the window to the wrong part.
      */
     private fun pipSourceRect(ratio: Rational): Rect? =
-        if (isFullscreen) null else playerHost.pipSourceRect(ratio.toFloat())
+        if (isFullscreen || PlayerController.onShort) null else playerHost.pipSourceRect(ratio.toFloat())
 
     /** Asks Android to shrink the app into the little window now. Returns false when that is not possible. */
     private fun enterPip(): Boolean {
@@ -1317,6 +1339,11 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         val playerWasFullscreen = playerChrome?.isFullscreen == true || (leftRecently && playerFullscreenAtLeave)
         val playedAtLeave = leftRecently && playingAtLeave
         forgetStateAtLeave()
+        // A Short of the browsing page (not in the system's full screen): the page itself shows only the video in the window.
+        if (!fullscreen && PlayerController.onShort) {
+            enterShortPipUi(wasPlaying = videoPlaying || playedAtLeave)
+            return
+        }
         val takeOver = playerWasFullscreen && playerHost.canPip
         // Nothing to show (no video, or a Short is on the page): the window is left as the app is.
         if (!fullscreen && !playerHost.canPip) return
@@ -1343,6 +1370,69 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
         // From the normal watch page too, not only after full screen: the page can pause the video when the window shrinks.
         if (wasPlaying) guardPipPlayback()
+    }
+
+    // ---- Shorts: the little window, and play in the background ----
+    //
+    // A Short plays in the browsing WebView (the player's own WebView is for long videos), so the machinery that makes the window and
+    // the notification for the player has to be pointed at it:
+    //  - [updateShortTarget] tells [PlayerController] when a Short is the thing on view (notification, window buttons, screen-on poll),
+    //    keeps the browsing page "visible" to Chromium and starts the playback service: the Short plays in the background and has
+    //    the same notification (cover, previous / next, seek bar) as a long video;
+    //  - the window shows only the Short's video: the page hides the rest of itself ([enterShortPipUi], and "Picture in picture for
+    //    a Short" in wardtube.js) and the app's own bars are hidden.
+
+    /** The shape of the window while a Short is in it, 0 when none is. Asked by the browsing page (NativeBridge.pipAspect), hence @Volatile. */
+    @Volatile
+    private var shortPipAspect = 0f
+
+    /** The window is up and a Short of the browsing page is what it shows. */
+    private var shortPipUi = false
+
+    /**
+     * Decides what the app's play controls act on: a Short of the browsing page ([url] is its address) as long as the player's
+     * video is not in front of it (full screen), else the player's video. Called whenever the page or the player's mode changes.
+     */
+    private fun updateShortTarget(url: String? = webView.url) {
+        if (!::playerHost.isInitialized || !::webView.isInitialized) return
+        val short = UrlUtils.isShortsPage(url) && playerHost.mode != PlayerHost.Mode.EXPANDED
+        val was = PlayerController.onShort
+        if (short) PlayerController.attachShort(webView) else PlayerController.detachShort()
+        if (was != short) {
+            // What was known about the other video (playing, its shape) is not about this one: the page's next report says.
+            videoPlaying = false
+            videoAspect = 0f
+            boxAspect = 0f
+            updateBackgroundPlayback() // (a start refused from the background is caught in PlaybackService.start)
+            if (short && prefs.backgroundPlay) askForNotificationPermission()
+        }
+        updatePipParams()
+    }
+
+    /** The window came up with a Short in it: the app's bars go and the page shows only the video (wardtube.js: setShortPip). */
+    private fun enterShortPipUi(wasPlaying: Boolean) {
+        pipUiOn = true
+        shortPipUi = true
+        menuController.dismissSheet()
+        errorSnackbar?.dismiss()
+        errorSnackbar = null
+        // The shape the window came out in is fixed while it is up, as for the player (see [pipWindowRatio]).
+        val ratio = pipRatioInEffect ?: pipRatio()
+        pipWindowRatio = ratio
+        shortPipAspect = ratio.toFloat()
+        showChrome(false)
+        // The page asks (NativeBridge.pipAspect) on every tick; this is the same thing said at once.
+        webView.evaluateJavascript("window.__wardtube&&window.__wardtube.setShortPip&&window.__wardtube.setShortPip($shortPipAspect)", null)
+        if (wasPlaying) guardPipPlayback()
+    }
+
+    /** The window is the app again (or it was closed): the page shows itself in full again. */
+    private fun leaveShortPipUi() {
+        shortPipUi = false
+        shortPipAspect = 0f
+        if (::webView.isInitialized) {
+            webView.evaluateJavascript("window.__wardtube&&window.__wardtube.setShortPip&&window.__wardtube.setShortPip(0)", null)
+        }
     }
 
     /**
@@ -1382,6 +1472,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (!pipUiOn) return
         pipUiOn = false
         showChrome(true)
+        if (shortPipUi) leaveShortPipUi()
         playerHost.exitPip()
         // Closed with its X: the activity is already stopped by now. The video stops too, but stays in the player.
         if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) pauseVideo()
@@ -1448,7 +1539,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
             PlayerController.queryState { state ->
                 // Awake only while the video really plays: a paused video (full screen or not) lets the screen time out.
                 setKeepScreenOn(state?.playing == true)
-                if (state != null && playerHost.mode == PlayerHost.Mode.MINI) playerHost.onPlaybackState(state.playing)
+                if (state != null && playerHost.mode == PlayerHost.Mode.MINI && !PlayerController.onShort) {
+                    playerHost.onPlaybackState(state.playing)
+                }
                 onVideoState(state)
             }
             val fast = playerHost.mode == PlayerHost.Mode.MINI || isInPictureInPictureMode
@@ -1511,7 +1604,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         }
         // The playback service keeps running while a video page is open (it was started in the foreground,
         // which newer Android versions require); it is only stopped when the user leaves the video page.
-        if (!playerHost.isActive) PlaybackService.stop(this)
+        if (!playerHost.isActive && !PlayerController.onShort) PlaybackService.stop(this)
         // Automatic ad-filter update: every four days, checked each time the app comes to the foreground.
         adBlocker.refreshIfStale()
         sleepHandler.removeCallbacks(sleepTick)
@@ -1546,7 +1639,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         if (recreating) return // being rebuilt for a theme change: no background service needed
         if (prefs.backgroundPlay) {
             // Normally already running (started while the page was visible); this is only a fallback.
-            if (playerHost.isActive) PlaybackService.start(this)
+            if (playerHost.isActive || PlayerController.onShort) PlaybackService.start(this)
         } else if (!toPip) {
             PlayerController.pause()
         }
@@ -1557,7 +1650,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         // onPause left the video playing because the picture-in-picture window was expected; if the activity is really
         // out of sight now (the window did not come, was closed, or the screen went off) and background play is off,
         // nothing may go on playing.
-        if (!recreating && !prefs.backgroundPlay && ::playerHost.isInitialized && playerHost.isActive) {
+        if (!recreating && !prefs.backgroundPlay && ::playerHost.isInitialized &&
+            (playerHost.isActive || PlayerController.onShort)
+        ) {
             PlayerController.pause()
         }
     }
@@ -1628,6 +1723,7 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         errorSnackbar?.dismiss()
         errorSnackbar = null
         allowAutoplayFor(url) // a Short reached by a tap on a link of YouTube's page loads as a new page too
+        updateShortTarget(url)
     }
 
     override fun onPageCommitVisible(url: String?) {
@@ -1659,9 +1755,9 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
                 // A Short plays by itself: do not let it talk over a video in the mini player, and keep the
                 // (paused) mini player out of its way until the Short is left.
                 val onShorts = UrlUtils.isShortsPage(url)
-                if (onShorts && playerHost.isActive) pauseVideo()
+                if (onShorts && playerHost.isActive) pausePlayerVideo()
                 playerHost.miniHidden = onShorts
-                updatePipParams()
+                updateShortTarget(url)
                 // A Short opened from the feed (YouTube changes the page without a load) arrives with the bar still
                 // hidden by the scrolling that came before it. On Shorts the bar must always be there, not only
                 // after the first swipe (onPageScrolled brings it back for that).
@@ -1682,8 +1778,11 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
      * It runs while the player has a video, full screen or in the mini player.
      */
     fun updateBackgroundPlayback() {
-        val active = playerHost.isActive && prefs.backgroundPlay
-        playerHost.webView?.keepVisible = active
+        val short = PlayerController.onShort
+        val active = (playerHost.isActive || short) && prefs.backgroundPlay
+        playerHost.webView?.keepVisible = playerHost.isActive && prefs.backgroundPlay
+        // The browsing page stays "visible" to Chromium only while a Short plays in it (the same way the player's page does).
+        if (::webView.isInitialized) webView.keepVisible = short && prefs.backgroundPlay
         if (active) PlaybackService.start(this) else PlaybackService.stop(this)
     }
 
@@ -2026,6 +2125,8 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         const val PIP_REQUEST_NEXT = 3
         const val PIP_REQUEST_PLAY = 4
         const val PIP_TOGGLE_GRACE_MS = 1500L
+        /** The window's shape for a Short whose picture size is not known yet: the usual vertical 9:16. */
+        const val SHORT_DEFAULT_ASPECT = 9f / 16f
         const val PIP_MIN_ASPECT = 0.45f
         const val PIP_MAX_ASPECT = 2.35f
         const val PIP_ASK_WINDOW_MS = 1500L

@@ -73,13 +73,33 @@ object PlayerController {
 
     private var webViewRef: WeakReference<WebView>? = null
 
+    // A Short plays in the browsing WebView, not in the player's. While one is the thing on view the app's play controls
+    // (the notification, the picture-in-picture window's buttons, the screen-on poll) act on it: see [attachShort].
+    private var shortRef: WeakReference<WebView>? = null
+
+    /** The page the controls act on: the Short that is on view if there is one, else the player's page. */
+    private val target: WebView? get() = shortRef?.get() ?: webViewRef?.get()
+
     fun attach(webView: WebView) {
         webViewRef = WeakReference(webView)
     }
 
     fun detach(webView: WebView) {
         if (webViewRef?.get() === webView) webViewRef = null
+        if (shortRef?.get() === webView) shortRef = null
     }
+
+    /** A Short is on view in [webView] (the browsing page): the controls act on it until [detachShort]. */
+    fun attachShort(webView: WebView) {
+        if (shortRef?.get() !== webView) shortRef = WeakReference(webView)
+    }
+
+    fun detachShort() {
+        shortRef = null
+    }
+
+    /** True while the controls act on a Short of the browsing page (and not on the player's video). */
+    val onShort: Boolean get() = shortRef?.get() != null
 
     // Every play / pause the app asks for first tells the page (window.__wardtube.wantPlay) that it is on purpose: the page's
     // picture-in-picture guard starts a video again that YouTube paused by itself, and must never fight a pause that
@@ -89,6 +109,12 @@ object PlayerController {
     fun play() = run("var v=$VIDEO;$WANT_PLAY(true);if(v)v.play();")
 
     fun pause() = run("var v=$VIDEO;$WANT_PLAY(false);if(v)v.pause();")
+
+    /** Pauses the player's own video even while a Short is the target (the long video waits, paused, behind the Short). */
+    fun pausePlayer() {
+        val webView = webViewRef?.get() ?: return
+        webView.post { webView.evaluateJavascript("var v=$VIDEO;$WANT_PLAY(false);if(v)v.pause();", null) }
+    }
 
     fun toggle() = run("var v=$VIDEO;if(v){if(v.paused){$WANT_PLAY(true);v.play();}else{$WANT_PLAY(false);v.pause();}}")
 
@@ -107,7 +133,7 @@ object PlayerController {
 
     /** Id of the video on the current page (watch, Shorts or youtu.be link), or "" if there is none. */
     fun videoId(): String {
-        val url = webViewRef?.get()?.url ?: return ""
+        val url = target?.url ?: return ""
         val uri = Uri.parse(url)
         val id = uri.getQueryParameter("v")
             ?: uri.pathSegments.takeIf { it.size >= 2 && it[0] in setOf("shorts", "embed", "live") }?.get(1)
@@ -116,11 +142,11 @@ object PlayerController {
     }
 
     /** Title of the current page without the " - YouTube" suffix, or "" if there is no page. */
-    fun title(): String = webViewRef?.get()?.title.orEmpty().removeSuffix(" - YouTube")
+    fun title(): String = target?.title.orEmpty().removeSuffix(" - YouTube")
 
     /** Reports the player state, or null if the WebView no longer exists. */
     fun queryState(callback: (State?) -> Unit) {
-        val webView = webViewRef?.get()
+        val webView = target
         if (webView == null) {
             callback(null)
             return
@@ -158,7 +184,7 @@ object PlayerController {
         run("var v=$VIDEO;if(v&&isFinite(v.duration)&&v.duration>0)v.currentTime=${positionMs.coerceAtLeast(0) / 1000.0};")
 
     private fun run(script: String) {
-        val webView = webViewRef?.get() ?: return
+        val webView = target ?: return
         webView.post { webView.evaluateJavascript(script, null) }
     }
 }

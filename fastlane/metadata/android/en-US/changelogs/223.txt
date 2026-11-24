@@ -1,0 +1,1 @@
+New: Shorts now have picture in picture (a button on the Short, and the window opens when you press Home) and keep playing in the background with the same notification as long videos.

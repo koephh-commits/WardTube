@@ -1049,7 +1049,9 @@
   //     own size as the outer size, so while the window shrank (a moment before the app lays the page out at full size
   //     again) the player stopped by itself and the app had to start it again. innerWidth / innerHeight are left alone:
   //     they are the real viewport, and the layout depends on them.
-  if (cfg.route === 'player') {
+  // The page being browsed does the same while a Short is on it (a Short plays there, see "Picture in picture for a Short" below):
+  // the app reads the picture's size from it and the page keeps its outer window size. On every other page of it nothing changes.
+  if (cfg.route === 'player' || cfg.route === 'browse') {
     try {
       var keepOuterSize = function (key, screenKey) {
         var real = Object.getOwnPropertyDescriptor(window, key);
@@ -1059,6 +1061,7 @@
           get: function () {
             var own = 0, screenSize = 0;
             try { own = real && real.get ? real.get.call(window) : (real ? real.value : 0); } catch (e) {}
+            if (cfg.route === 'browse' && !onShorts()) return own;
             try { screenSize = window.screen[screenKey] || 0; } catch (e) {}
             return Math.max(own || 0, screenSize);
           }
@@ -1070,6 +1073,9 @@
 
     var pipReported = '';
     var reportPipVideo = function () {
+      // The browsing page speaks only while a Short is on it (the app listens to one page at a time, see MainActivity.onPageVideoReport).
+      // Leaving the Short forgets what was said, so the next Short is reported again even when its picture has the same size.
+      if (cfg.route === 'browse' && !onShorts()) { pipReported = ''; return; }
       var w = 0, h = 0;
       try {
         var v = currentVideo();
@@ -1137,9 +1143,9 @@
     } catch (e) { /* never break the page */ }
   }
 
-  if (cfg.route === 'player') {
+  if (cfg.route === 'player' || cfg.route === 'browse') {
     // A pause is looked at right away (not only at the next tick); the short wait lets a pause that YouTube follows with
-    // its own play settle first.
+    // its own play settle first. (On the browsing page it only does anything while a Short is in the window: pipAspect is 0 else.)
     document.addEventListener('pause', function (e) {
       if (pipAspect > 0 && e.target && e.target.tagName === 'VIDEO') setTimeout(pipGuardTick, 300);
     }, true);
@@ -1551,6 +1557,181 @@
     }, { capture: true, passive: true });
   }
 
+  // ---- Picture in picture for a Short ---------------------------------------------
+  // A Short plays in the page being browsed (route 'browse'); the player's own page is for long videos. So the little window, and
+  // the button that opens it, are done here too, the same way the player's are:
+  //  - The window: the app says the window is up and what shape it has (WardTubeNative.pipAspect for this page, 0 outside the window;
+  //    setShortPip says the same at once). While it is up the page hides everything except the Short's video: every element from
+  //    the video up to the document is marked (data-wt-spip-chain), and the rules below hide the rest with `visibility`, which
+  //    moves nothing (the Shorts feed is a scrolling list that YouTube keeps track of by position: its layout is left alone).
+  //    The video stays where YouTube put it; the window has the shape of the picture, so it fills it.
+  //  - The button: the round button of the player's page (same size, colour and drawing, see "a button in the player"), at the right
+  //    edge above the column of buttons of the Short. It is the app that opens the window (WardTubeNative.enterPip).
+  var SPIP_CHAIN = 'data-wt-spip-chain';
+  var SPIP_BTN_ID = 'wardtube-spip-btn';
+  var spipBtn = null;
+  var shortPipOn = false;
+
+  whenRoot(function () {
+    if (cfg.route !== 'browse') return;
+    var id = '#' + SPIP_BTN_ID;
+    addStyle('wardtube-spip-css',
+      'html[data-wt-spip],html[data-wt-spip] body{background:#000!important}' +
+      'html[data-wt-spip] body *{visibility:hidden!important}' +
+      'html[data-wt-spip] [' + SPIP_CHAIN + ']{visibility:visible!important}' +
+      'html[data-wt-spip] video[' + SPIP_CHAIN + ']{object-fit:contain!important}' +
+      id + '{display:flex;position:fixed;top:22%;right:12px;left:auto;z-index:2147483646;align-items:center;' +
+      'justify-content:center;width:40px;height:40px;margin:0;padding:0;border:0;border-radius:50%;' +
+      'background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .2s;' +
+      '-webkit-tap-highlight-color:transparent;touch-action:manipulation}' +
+      id + '.wt-show{opacity:1;pointer-events:auto}' +
+      id + ':active{background:rgba(255,255,255,.3)}' +
+      id + ' svg{width:24px;height:24px;pointer-events:none}' +
+      // Clear of the display's cut-out when the phone is turned.
+      '@media (orientation:landscape){' + id + '{right:calc(16px + env(safe-area-inset-right,0px))}}');
+  });
+
+  // Marks the Short's video and every element above it (up to the document), and unmarks what was marked before and no longer
+  // holds it (YouTube swapped the video or its wrappers when the Short changed).
+  function markShortChain(on) {
+    var keep = [];
+    var video = on ? currentVideo() : null;
+    if (video) {
+      keep.push(video);
+      for (var n = video.parentElement; n && n !== document.documentElement; n = n.parentElement) keep.push(n);
+    }
+    var old = document.querySelectorAll('[' + SPIP_CHAIN + ']');
+    for (var i = 0; i < old.length; i++) {
+      if (keep.indexOf(old[i]) < 0) old[i].removeAttribute(SPIP_CHAIN);
+    }
+    for (var j = 0; j < keep.length; j++) {
+      if (!keep[j].hasAttribute(SPIP_CHAIN)) keep[j].setAttribute(SPIP_CHAIN, '');
+    }
+  }
+
+  // The Short is back in the app: the video is looked after for a moment (as after the player's window, see afterPipExit): the
+  // page is told it has its size back, the picture's layer is nudged, and a video that was playing and was paused meanwhile plays again
+  // (never one the person or the app paused on purpose, see pipUserPaused).
+  function afterShortPipExit() {
+    var wasPlaying = !!(pipPlaying && !pipUserPaused);
+    setTimeout(pokeVideoLayer, 150);
+    setTimeout(function () {
+      if (pipAspect > 0) return; // back in the window meanwhile
+      fireResize();
+      pokeVideoLayer();
+      try {
+        var v = currentVideo();
+        if (wasPlaying && !pipUserPaused && v && v.paused && !v.ended) {
+          var played = v.play();
+          if (played && typeof played.catch === 'function') played.catch(function () {});
+        }
+      } catch (e) {}
+    }, 500);
+    setTimeout(function () { if (pipAspect <= 0) fireResize(); }, 1500);
+  }
+
+  // Called on every tick, and by setShortPip: the window is up for a Short, or it is not.
+  function keepShortPip() {
+    if (cfg.route !== 'browse') return;
+    var root = document.documentElement;
+    if (!root) return;
+    var asked = appSaysPipAspect();
+    if (asked !== null) pipAspect = asked;
+    if (pipAspect > 0 && onShorts()) {
+      if (!root.hasAttribute('data-wt-spip')) root.setAttribute('data-wt-spip', '');
+      shortPipOn = true;
+      markShortChain(true);
+    } else if (shortPipOn || root.hasAttribute('data-wt-spip')) {
+      shortPipOn = false;
+      root.removeAttribute('data-wt-spip');
+      markShortChain(false);
+      afterShortPipExit();
+    }
+  }
+
+  // A sheet over the Short (the comments, a menu): the button would float over it, so it steps aside. Found by what it is (a layer
+  // above the page that covers a good part of the window), with a short list of YouTube's names and the dialog role.
+  function sheetOverShort() {
+    var list = document.querySelectorAll(
+      'ytm-bottom-sheet-renderer,ytm-engagement-panel,ytm-comments-sheet,ytm-shorts-comments-sheet,[role="dialog"]');
+    var h = window.innerHeight || 0;
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i].getBoundingClientRect();
+      if (r.height < h * 0.25 || r.width < 100 || r.bottom <= 0 || r.top >= h) continue;
+      var cs;
+      try { cs = getComputedStyle(list[i]); } catch (e) { continue; }
+      if (cs.display !== 'none' && cs.visibility !== 'hidden') return true;
+    }
+    return false;
+  }
+
+  function makeShortPipButton() {
+    var btn = makePipButton(); // the very button of the player (same drawing, label and handlers), with its own id
+    btn.id = SPIP_BTN_ID;
+    return btn;
+  }
+
+  // Keeps the button on the page while a Short is on view and the window is not up.
+  function syncShortPipButton() {
+    if (cfg.route !== 'browse') return;
+    try {
+      var show = onShorts() && pipAspect <= 0 && !!currentVideo() && pipButtonAllowed() &&
+        !document.fullscreenElement && !document.webkitFullscreenElement && !sheetOverShort();
+      if (!show) {
+        if (spipBtn) spipBtn.classList.remove('wt-show');
+        return;
+      }
+      if (!spipBtn) spipBtn = makeShortPipButton();
+      var host = document.body;
+      if (host && spipBtn.parentNode !== host) host.appendChild(spipBtn);
+      spipBtn.classList.add('wt-show');
+    } catch (e) { /* never break the page */ }
+  }
+
+  // ---- Next / previous Short (the notification, a headset, the window's buttons) ------------------
+  var PREV_BTN = [
+    '#navigation-button-up button', '.navigation-button-up button',
+    'button[aria-label="Previous video"]', 'button[aria-label="السابق"]'
+  ].join(',');
+
+  // The list that holds the Shorts and scrolls (the nearest scrolling ancestor of the video).
+  function shortScroller(video) {
+    for (var n = video && video.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+      var oy = '';
+      try { oy = getComputedStyle(n).overflowY; } catch (e) {}
+      if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 10) return n;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  // Moves one Short on (dir = 1) or back (dir = -1): the page's own button if it has one, else the neighbouring item scrolled into
+  // view, else the list scrolled by one window. Returns how it was done, for tests.
+  function moveShort(dir) {
+    var active = document.querySelector(ACTIVE_REEL);
+    var button = document.querySelector(dir > 0 ? NEXT_BTN : PREV_BTN);
+    if (button && !button.disabled) { button.click(); return 'button'; }
+    var sib = active && (dir > 0 ? active.nextElementSibling : active.previousElementSibling);
+    if (sib && sib.scrollIntoView) { sib.scrollIntoView({ block: 'start' }); return 'item'; }
+    var box = shortScroller(currentVideo());
+    if (box && box.scrollBy) {
+      box.scrollBy({ top: dir * (box.clientHeight || window.innerHeight || 600), behavior: 'auto' });
+      return 'scroll';
+    }
+    return 'none';
+  }
+
+  function skipShort(step) {
+    try {
+      if (step > 0) return moveShort(1);
+      var v = currentVideo();
+      // Like every media player: back to the start after the first seconds, the Short before it otherwise.
+      if (v && v.currentTime > 3) { v.currentTime = 0; return 'restart'; }
+      var how = moveShort(-1);
+      if (how === 'none' && v) { v.currentTime = 0; return 'restart-fallback'; }
+      return how;
+    } catch (e) { return 'none'; }
+  }
+
   // ---- Timer --------------------------------------------------------------
 
   var ticks = 0;
@@ -1562,6 +1743,8 @@
     autoOriginalAudio();
     keepTop();
     syncPipButton();
+    keepShortPip();
+    syncShortPipButton();
     skipShortsAd();
     autoUnmuteShort();
     if (ticks % 5 === 0) { dropIframes(); keepWatching(); }
@@ -1612,7 +1795,17 @@
     },
     /** Next (step > 0) or previous video, for the notification buttons. */
     skip: function (step) {
+      if (onShorts()) return skipShort(step);
       return step > 0 ? skipNext() : skipPrevious();
+    },
+    /**
+     * The app says the little window is up and shows the Short on this page, in the shape [aspect] (width / height), or that it
+     * is not (0 or nothing). The page asks the app too, on every tick; this says it at once.
+     */
+    setShortPip: function (aspect) {
+      pipAspect = aspect > 0 ? +aspect : 0;
+      keepShortPip();
+      syncShortPipButton();
     },
     /**
      * The app shows the player as a small box (true) or full screen (false). [aspect]: the shape (width / height) of the
