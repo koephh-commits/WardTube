@@ -27,7 +27,7 @@ library that works offline. Free software under the [GPL-3.0](LICENSE).
 - **Playlists**: share or paste a playlist, Mix or channel link (YouTube, and any other site yt-dlp reads as a list),
   tick the videos you want and they join the queue.
 - **Download from any video**: long-press a video's picture or title (Home, search, history, a channel, or the list under the
-  player) and tap *Download video*. Or tap the video's three dots: a *Download* button floats above YouTube's menu and opens
+  player) and tap *Download video*. Or tap the video's three dots: a *Download video* row is added to YouTube's menu (under the video, beside the like and share buttons, when there are no three dots), and as a backup a *Download* button floats above the menu and opens
   the same sheet.
 - **Download by sharing**: share a video link from any app and pick Ward Tube.
 - **Library** of your downloads, available without internet. Rename a file from its menu, or select several files to share or delete them together.

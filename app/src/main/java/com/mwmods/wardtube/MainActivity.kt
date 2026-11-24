@@ -474,6 +474,10 @@ class MainActivity : AppCompatActivity(), PageEvents, WardTubeChromeClient.Micro
         onMenuDownload = { url, title ->
             if (!isDestroyed && ::videoLongPress.isInitialized) videoLongPress.openFromPage(page, url, title)
         },
+        // The "Download video" row of the menu of a card's three dots (menu-download.js): the usual download flow, straight away.
+        onMenuRowDownload = { url, title -> if (!isDestroyed) startMenuDownload(url, title) },
+        // The same row, or the button beside the like / share buttons, under the video of a watch page: the video that page shows.
+        onMenuRowDownloadCurrent = { url -> if (!isDestroyed) startDownloadFlow(url) },
     )
 
     // ---- The video player ----

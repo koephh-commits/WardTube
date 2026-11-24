@@ -1552,7 +1552,9 @@
   }
 
   // ---- A floating "Download" button over a video's three-dots menu ------------------
-  // The second way into a download from a card, beside the long press (web/VideoLongPress.kt). A tap on the three dots of a
+  // The fallback for the "Download video" row that menu-download.js puts in the menu itself (the first way into a download from
+  // a card, the one the person sees in the menu): the button stays away while that row is in sight, and shows only when the row
+  // could not be put in (a menu of a kind that script does not know). The long press (web/VideoLongPress.kt) is the other way. A tap on the three dots of a
   // video's card makes YouTube open its own menu (a sheet over the page); while that menu is open, a "Download" button floats just
   // above it. A tap on the button asks the app for the very sheet that a long press on the card opens (WardTubeNative.
   // downloadFromMenu -> VideoLongPress.openFromPage: the video, "Download video", share, copy the link), and the page's menu is
@@ -1588,6 +1590,9 @@
   var DL_ABOVE = 28;        // px between the button and the first row of the menu: clear of the sheet's edge and handle
   var DL_WAIT_MS = 2200;    // how long after a tap on the dots a menu is waited for
   var DL_CLICK_GAP_MS = 800; // the click that follows a touch is the same tap
+  var DL_ROW_GRACE_MS = 500; // a menu is given this long after the tap to get the row of menu-download.js before the button shows
+  var DL_FALLBACK_MS = 900;  // dots that are surely a menu button but no menu seen after this long: the button shows anyway
+  var DL_FALLBACK_MAX_MS = 9000; // ... and goes by itself after this long if no tap took it away
   var dlBtn = null;
   var dlOk = null;          // does the app offer it? asked once the bridge is there
   var dlShown = false;
@@ -1600,6 +1605,9 @@
   var dlTop = -1;           // the menu's top edge (px from the top of the window) when last looked at
   var dlSteady = 0;         // how many looks in a row found the menu at the same place
   var dlMissed = 0;         // how many looks in a row found no menu while the button shows
+  var dlSure = false;       // the last tap's dots were told by a known box or label (not only by being a small icon button)
+  var dlFallback = false;   // the button shows without a menu seen (the page's menu is of a kind this does not know)
+  var dlShownAt = 0;
 
   whenRoot(function () {
     var id = '#' + DL_BTN_ID;
@@ -1673,16 +1681,50 @@
     return '';
   }
 
+  // The id of the video that a link names ('' for any other link): same kinds of link as dlVideoLink.
+  function dlVideoId(href) {
+    var m = /[?&]v=([A-Za-z0-9_-]{11})(?:[&#]|$)/.exec(href) || /\/(?:shorts|live)\/([A-Za-z0-9_-]{11})(?:[?\/#]|$)/.exec(href) ||
+      /youtu\.be\/([A-Za-z0-9_-]{11})(?:[?\/#]|$)/.exec(href);
+    return m ? m[1] : '';
+  }
+
+  // A card of a layout DL_CARDS does not know: the nearest box around the tapped button that links exactly one video, is no
+  // bigger than a card can be, and holds no player. null when there is none.
+  function dlUnknownCard(t) {
+    var btn = t.closest('button,[role="button"]') || t.closest(DL_DOTS);
+    if (!btn || btn.closest('a[href]')) return null;
+    var h = window.innerHeight || 800;
+    var el = btn.parentElement;
+    for (var depth = 0; el && depth < 7 && el !== document.body && el !== document.documentElement; depth++, el = el.parentElement) {
+      var ids = {}, count = 0;
+      var links = el.querySelectorAll('a[href]');
+      for (var i = 0; i < links.length && i < 80; i++) {
+        var link = dlVideoLink(links[i].getAttribute('href') || '');
+        var id = link ? dlVideoId(link) : '';
+        if (id && !ids[id]) { ids[id] = 1; count++; if (count > 1) return null; }
+      }
+      if (count === 1) {
+        if (el.querySelector('video,#player-container-id')) return null;
+        return el.getBoundingClientRect().height <= h * 0.7 ? el : null;
+      }
+    }
+    return null;
+  }
+
   // The card whose three dots [t] (the target of a tap) is, or null when the tap is not on a card's menu button.
+  // dlSure tells afterwards whether the dots were told by a known box or by their label (and not only by being a small icon button).
   function dlCardOfDots(t) {
-    var card = t.closest(DL_CARDS);
+    dlSure = false;
+    var known = t.closest(DL_CARDS);
+    var card = known || dlUnknownCard(t);
     if (!card) return null;
     if (t.closest('a[href]')) return null; // the picture or the title: the long press has that
     var dots = t.closest(DL_DOTS);
-    if (dots && card.contains(dots)) return card;
+    if (dots && card.contains(dots)) { dlSure = true; return card; }
     var btn = t.closest('button,[role="button"]');
     if (!btn || !card.contains(btn)) return null;
-    if (DL_DOTS_LABEL.test((btn.getAttribute('aria-label') || '') + ' ' + (btn.getAttribute('title') || ''))) return card;
+    if (DL_DOTS_LABEL.test((btn.getAttribute('aria-label') || '') + ' ' + (btn.getAttribute('title') || ''))) { dlSure = true; return card; }
+    if (!known) return null; // an unknown card is only trusted for dots that name themselves
     // A button with no words, only a drawing, and small: that is the menu button of a layout this does not know.
     var r = btn.getBoundingClientRect();
     if ((btn.textContent || '').replace(/\s+/g, '') || r.width > 72 || r.height > 72) return null;
@@ -1707,6 +1749,19 @@
     return out;
   }
 
+  // True while the "Download video" row of menu-download.js is in sight: on the screen and on top (what is drawn at its centre is
+  // the row itself), the way that script tells it. A menu kept in the page but not open does not count.
+  function dlRowIn() {
+    try {
+      var row = document.querySelector('[data-wt-dl="1"]');
+      if (!row || !row.isConnected) return false;
+      var r = row.getBoundingClientRect(), w = window.innerWidth || 0, h = window.innerHeight || 0;
+      if (r.width < 4 || r.height < 4 || r.bottom <= 0 || r.top >= h || r.right <= 0 || r.left >= w) return false;
+      var t = document.elementFromPoint(Math.min(Math.max(r.left + r.width / 2, 1), w - 1), Math.min(Math.max(r.top + r.height / 2, 1), h - 1));
+      return !!t && (row === t || row.contains(t));
+    } catch (e) { return false; }
+  }
+
   // The menu that the tap opened: { top } (its top edge), or null while there is none. It is what is on screen now and was not
   // before the tap. The top is that of its first row; with no row (a menu made of something this does not know) it is the
   // top of its sheet, unless that sheet fills the window (then it is a layer around the menu, and the middle of the window is used).
@@ -1725,6 +1780,16 @@
     return top < Infinity ? { top: top } : null;
   }
 
+  function dlShow(top) {
+    if (!dlBtn) dlBtn = dlMakeButton();
+    if (dlBtn.parentNode !== document.documentElement) document.documentElement.appendChild(dlBtn);
+    dlPlace(top);
+    dlBtn.classList.add('wt-show');
+    dlShown = true;
+    dlShownAt = Date.now();
+    dlMissed = 0;
+  }
+
   function dlPlace(top) {
     // Above the menu; when the menu reaches the top of the window the button stays on screen (over the menu's own top).
     dlBtn.style.setProperty('top', Math.round(Math.max(12, top - DL_ABOVE - DL_HEIGHT)) + 'px');
@@ -1732,6 +1797,7 @@
 
   function dlHide() {
     dlShown = false;
+    dlFallback = false;
     if (dlTimer) { clearTimeout(dlTimer); dlTimer = 0; }
     if (dlBtn) dlBtn.classList.remove('wt-show');
   }
@@ -1742,32 +1808,37 @@
     dlTimer = 0;
     var keep;
     try {
+      // The menu has the "Download video" row of menu-download.js: the button is not needed (and goes if it already showed).
+      if (dlRowIn()) { dlHide(); return; }
       var found = dlFresh();
       var now = Date.now();
       if (!dlShown) {
         if (found) {
           dlSteady = dlTop >= 0 && Math.abs(found.top - dlTop) < 3 ? dlSteady + 1 : 0;
           dlTop = found.top;
-          if (dlSteady >= 1) {
-            if (!dlBtn) dlBtn = dlMakeButton();
-            if (dlBtn.parentNode !== document.documentElement) document.documentElement.appendChild(dlBtn);
-            dlPlace(found.top);
-            dlBtn.classList.add('wt-show');
-            dlShown = true;
-            dlMissed = 0;
+          if (dlSteady >= 1 && now - dlTapAt >= DL_ROW_GRACE_MS) {
+            dlShow(found.top);
           } else if (now > dlUntil - 600) {
             dlUntil = now + 600; // a menu that is still sliding in is given a little more time
           }
+        } else if (dlSure && now - dlTapAt >= DL_FALLBACK_MS) {
+          // The dots are surely a menu button, yet no menu of a kind this knows has shown: the page's menu is made of something
+          // unknown. The button shows anyway, in the middle of the window; a menu found later moves it above its rows.
+          dlTop = Math.round((window.innerHeight || 600) * 0.5);
+          dlShow(dlTop);
+          dlFallback = true;
         }
         keep = dlShown || now < dlUntil;
       } else {
         if (found) {
           dlMissed = 0;
+          dlFallback = false;
           if (Math.abs(found.top - dlTop) >= 3) { dlTop = found.top; dlPlace(found.top); }
-        } else {
+        } else if (!dlFallback) {
           dlMissed++;
         }
-        keep = dlMissed < 2;
+        // Without a menu to follow, the button goes with the next touch on the page (dlOnTap) or after DL_FALLBACK_MAX_MS.
+        keep = dlFallback ? now - dlShownAt < DL_FALLBACK_MAX_MS : dlMissed < 2;
         if (!keep) dlHide();
       }
     } catch (e) { dlHide(); return; }
@@ -1841,6 +1912,8 @@
       if (!t || !t.closest || (dlBtn && dlBtn.contains(t))) return;
       // A row or a button of the page was used while the button shows: the menu is used up or turned into another panel.
       if (dlShown && e.type === 'click' && t.closest(MENU_ROWS + ',' + CLICKABLE)) dlHide();
+      // A button shown without a menu seen has nothing to follow: the next touch on the page (the menu used or closed) takes it away.
+      if (dlShown && dlFallback && e.type === 'touchstart') dlHide();
       var now = Date.now();
       if (now - dlTapAt < DL_CLICK_GAP_MS) return; // the click of the touch that was just looked at
       var card = dlCardOfDots(t);

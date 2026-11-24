@@ -2,7 +2,9 @@
 // Copyright (C) MWMods
 //
 // "Download video" row for the menu YouTube opens from the three dots beside a video.
-// Installed for every YouTube page of the browsing WebView and of the player WebView (MenuDownload.kt).
+// Runs on every YouTube page of the browsing WebView and of the player WebView: PageScripts.kt puts it after wardtube.js in
+// the same script (so it also reaches WebViews without document-start scripts), and it asks the app through the page's
+// WardTubeNative bridge (NativeBridge.menuDownload / menuDownloadCurrent).
 // It never changes YouTube's own rows: it adds one row of its own, built by hand, and never uses innerHTML
 // (YouTube's Trusted Types rules refuse it).
 //
@@ -12,10 +14,9 @@
 //      kept in the page hidden, transparent or off the screen is never used), the top one: the row goes before it;
 //   2. no such row (a menu whose rows have names this script does not know): the rows are found by how they are drawn
 //      (wide boxes with text, one above the other, in a layer fixed to the screen) and the row goes before the top one;
-//   3. still none, or the row cannot be seen where it was put: nothing more is done in the page. The app was told (cardMenu)
-//      which video the card is the moment the three dots were tapped, and when the row is not seen in the menu (rowShown)
-//      it shows a "Download video" button of its own, drawn by the app over the page, and lights the download button of
-//      its bottom bar for that video. That works whatever the menu looks like, because it does not need the menu.
+//   3. still none, or the row cannot be seen where it was put: nothing more is done here. wardtube.js (the floating
+//      "Download" button over a video's three-dots menu) then offers the download itself, whatever the menu looks like; it
+//      stays away while this script's row is in sight (it looks for the `data-wt-dl` row).
 //   (A tap is noted on `pointerup` as well as on `click`: a page that opens its menu from the touch and cancels the click
 //   would never have been seen.)
 //
@@ -27,7 +28,7 @@
 //      download button of the app's bottom bar is the way to download.
 (function () {
   'use strict';
-  if (window.__wtMenuDl) return;
+  if (window.top !== window || window.__wtMenuDl) return;
   window.__wtMenuDl = true;
 
   var WINDOW_MS = 6000; // how long the menu is waited for after a tap on a button inside a video card
@@ -75,13 +76,12 @@
   var clipped = false;    // the row was added to the menu and could not be seen there: it is not added again
   var insertedAt = 0;
   var scanAt = 0;
-  var rowReported = false; // the app was told that the row can be seen in this menu
   var fallbackOn = false; // a menu could not take the row: the watch page gets its own button
   var hooked = null;      // the three dots of the watch page that the menu row is waited for from
   var syncTimer = 0;
 
   function bridge() {
-    return window.WardTubeMenuDl || null;
+    return window.WardTubeNative || null;
   }
 
   // ---- Which video is this card? ----
@@ -413,16 +413,9 @@
     var now = Date.now();
     if (now - scanAt < SCAN_GAP_MS) return;
     scanAt = now;
-    if (last.late && !last.told && (overlayUp() || menuRows().length)) { // a menu opened after the click: it is this card's
-      last.told = true;
-      tellApp();
-    }
     var mine = document.querySelector('[data-wt-dl="1"]');
     if (mine) {
-      if (mine.isConnected && seen(mine)) {
-        reportRow();
-        return; // already added to this menu, and in sight
-      }
+      if (mine.isConnected && seen(mine)) return; // already added to this menu, and in sight
       if (now - insertedAt < CLIP_MS) return; // the menu may still be sliding in
       // Not in sight: the menu was closed, or the row went where it cannot be seen. It is taken out and not put back.
       if (mine.parentNode) mine.parentNode.removeChild(mine);
@@ -449,36 +442,14 @@
       insertedAt = now;
       return;
     }
-    // (no row in the menu: the app offers its own button, see cardMenu; the watch page has a button of its own for this:
-    // see the end of startPolling)
-  }
-
-  // Tells the app that its own button is not needed for this menu: the row is in it and in sight.
-  function reportRow() {
-    if (rowReported) return;
-    rowReported = true;
-    try {
-      var api = bridge();
-      if (api && typeof api.rowShown === 'function') api.rowShown();
-    } catch (x) { /* the app is not there */ }
-  }
-
-  // Tells the app which video the three dots of a card belong to, the moment they are tapped: if the row does not show in
-  // the menu, the app offers the download itself (a button of its own, and its bottom bar's download button).
-  function tellApp() {
-    try {
-      var api = bridge();
-      if (api && last && !last.cur && typeof api.cardMenu === 'function') {
-        api.cardMenu(last.v.kind, last.v.id, last.title || '');
-      }
-    } catch (x) { /* the app is not there */ }
+    // (no row in the menu: wardtube.js offers its floating button for a card; the watch page has a button of its own for
+    // this: see the end of startPolling)
   }
 
   function startPolling() {
     clearInterval(poll);
     inserted = false;
     clipped = false;
-    rowReported = false;
     insertedAt = 0;
     scanAt = 0;
     var runs = 0;
@@ -516,8 +487,8 @@
     try {
       var api = bridge();
       if (!api) return;
-      if (info.cur && typeof api.downloadCurrent === 'function') api.downloadCurrent(info.kind, info.id);
-      else api.download(info.kind, info.id, info.title || '');
+      if (info.cur && typeof api.menuDownloadCurrent === 'function') api.menuDownloadCurrent(info.kind, info.id);
+      else if (typeof api.menuDownload === 'function') api.menuDownload(info.kind, info.id, info.title || '');
     } catch (x) { /* the app is not there */ }
   }
 
@@ -767,8 +738,8 @@
   var SAME_TAP_MS = 600; // `pointerup` and then `click` of one tap are one tap
 
   // A tap on `t` (not on the script's own row or button, not inside a menu). On the three dots of a card the menu that
-  // opens gets the row, and the app is told which video the menu is for; on the three dots under the video of a watch
-  // page the row is waited for in the same way; anywhere else the wait for a menu ends.
+  // opens gets the row; on the three dots under the video of a watch page the row is waited for in the same way;
+  // anywhere else the wait for a menu ends.
   // The video named by the data YouTube keeps on an element (a bounded look: no cycles, no page nodes).
   function idInData(o, depth, seen, budget) {
     if (!o || depth > 8 || budget.n-- < 0 || typeof o !== 'object' || o.nodeType || o === window) return '';
@@ -825,10 +796,9 @@
     } else if (card) {
       last = { v: card.v, title: titleOf(card.el), at: now };
       startPolling();
-      tellApp();
     } else if (late) {
-      last = { v: late.v, title: titleOf(late.el), at: now, late: true, told: false };
-      startPolling(); // the app is told when a menu really opens (see scan)
+      last = { v: late.v, title: titleOf(late.el), at: now, late: true };
+      startPolling(); // the row goes in only if a menu really opens (see scan)
     } else {
       last = null;
     }
@@ -876,14 +846,6 @@
       noteTap(t, e);
     } catch (x) { /* never break the page */ }
   }, true);
-
-  // The app calls this after its own "Download video" button was used: the YouTube menu that is still open is closed,
-  // the way a finger would (a tap on the dimmed page above it, then Escape).
-  window.__wtCloseMenu = function () {
-    try {
-      if (overlayUp()) closeSheet(null);
-    } catch (x) { /* nothing more to try */ }
-  };
 
   try {
     new MutationObserver(function () {

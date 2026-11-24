@@ -1,5 +1,63 @@
 # Changelog
 
+## 2.6.171
+- Added: **a "Download video" row inside the menu of a video's three dots, and a "Download" button beside the buttons under the video when
+  that row has no three dots**, the way the older versions had them (`assets/wardtube/menu-download.js` back, `web/PageScripts.kt`,
+  `web/NativeBridge.kt`, `MainActivity.kt`, `assets/wardtube/wardtube.js`, `README.md`, `README.ar.md`, `fastlane/.../217.txt`,
+  `app/build.gradle.kts`).
+  - **Before:** from a card the download was only a long press or the floating red button over YouTube's menu (2.6.169 / 2.6.170); the row
+    inside the menu and the button of the watch page's row had been removed in 2.6.123.
+  - **Now:** tap the three dots of a video (Home, Search, a channel, the list under the player): YouTube's menu opens and a *Download video*
+    row, drawn like the menu's own rows, is put before its first row. Tap it: the usual download choice opens at once and YouTube's menu
+    closes. Under the playing video: the three dots of the row of buttons (like, dislike, share ...) get the same row, and it downloads the
+    video the page shows (the live check of the bottom bar's download button is kept); a row of buttons with no three dots gets a *Download*
+    button of its own beside the last button, drawn like it.
+  - **How:** the old page script `menu-download.js` is back, without what only the removed app-side button needed (`cardMenu`, `rowShown`,
+    `closeMenu`). It is now part of the script that `PageScripts` injects (after `wardtube.js`), so it runs on the browsing page and the
+    player's page, also on WebViews without document-start scripts, and it is limited to the top frame. It talks to the existing
+    `WardTubeNative` bridge: new `NativeBridge.menuDownload(kind, id, title)` and `menuDownloadCurrent(kind, id)` (the app builds the
+    `https://m.youtube.com/...` address from the 11-character id itself; two calls less than 0.6 s apart count as one), which reach
+    `MainActivity.startMenuDownload` and `startDownloadFlow`.
+  - **The floating button is now the backup.** It stays away while the row is in sight (`dlRowIn` in `wardtube.js`, which looks for the
+    row the way the script itself does: what is drawn at its centre is the row) and waits 0.5 s after the tap before it may show, so it
+    does not flash while the row goes in. A menu the script cannot put a row in (rows it has no name for and cannot find by how they are
+    drawn) still gets the floating button, as in 2.6.170.
+  - **Unchanged:** the long press, the sheet, the Subscriptions screen's own menu (it has its own *Download* row), the bottom bar's button.
+  - **Tried:** `wardtube.js` + `menu-download.js` together, as one injected script, in headless Chromium with touch on mock pages (18 checks):
+    a card with a menu of a known kind (row before the first row, no floating button at any moment of 2.5 s, one `menuDownload` call with the
+    right kind, id and title, YouTube's menu closed behind it); a menu of an unknown kind found by how it is drawn; a menu no row can go in
+    (no row, the floating button shows and calls `downloadFromMenu`); a watch page with three dots (row in their menu, `menuDownloadCurrent`);
+    a watch page without three dots (button beside the last button, `menuDownloadCurrent`); a tap on the picture (nothing); the source run
+    twice (one row); three opens of the menu in a row (one row each time). The same page with 2.6.170's `wardtube.js` alone gets no row, only
+    the floating button. **Not tried:** not compiled here (no Android SDK) and not tried on a phone or against live YouTube, whose real menu
+    and card elements may differ from the mocks (the script is the one of the older versions, which showed no row on the Search page at
+    first; if it still does not show on some page, the floating button comes instead). Please build it and try: (1) Home: tap the dots of a video: the
+    *Download video* row is in the menu, tap it, (2) the same in Search results, in a channel and in the list under the player, (3) under the
+    playing video: the three dots (or the *Download* button beside the buttons), (4) tap the dots and then outside the menu: nothing stays
+    on the page. If the row does not show, please say on which page.
+
+## 2.6.170
+- Fixed: **the floating "Download" button over a video's three-dots menu did not show** (`assets/wardtube/wardtube.js`,
+  `fastlane/.../216.txt`, `app/build.gradle.kts`).
+  - **Why it could stay away.** The button was shown only when the script *recognised the menu that opened* (its sheet and rows by YouTube's element
+    names) and only for cards of the layouts it had a list for. If YouTube's menu is made of anything not in that list, or a card is of a new
+    layout, nothing showed, with no message. (On the mock pages of 2.6.169 both were known, which is why they passed.)
+  - **Now.** (1) When the tapped dots are surely a menu button (YouTube's menu box or its "more actions / action menu / more options" label) and no
+    menu of a known kind has been seen 0.9 s later, the button shows anyway, in the middle of the window; if a menu is found later it moves above
+    its first row as before. Without a menu to follow it goes with the next touch on the page, or after 9 s. (2) A card of a layout the list does
+    not know is found as the nearest box around the dots that links exactly one video (no bigger than 70 % of the window, no player inside); for
+    such a card only dots that name themselves (label / menu box) count.
+  - **Unchanged.** Dots inside a video link are still not taken (the page's own routing opens the video for that tap), a small icon-only button
+    that opens nothing still shows nothing, a playlist or channel card (several videos) gets no button. The app's own Subscriptions screen is
+    native (Compose, over the page): the button is part of the page behind it, so it never shows there; that screen's own menu has its own
+    "Download" row.
+  - **Tried:** `wardtube.js` in headless Chromium with touch on 8 mock layouts (the old card, the `yt-lockup-view-model` card, a card + a menu of an
+    unknown kind, an unknown card tag, dots inside a link, an icon-only button that opens nothing, a page with one video and a header "Menu"
+    button, a card of two videos): 2.6.169 fails the two new cases and passes the rest; this version passes all eight, the bridge is called once
+    with the right link and title, and the fallback button goes with the next touch. **Not tried:** not compiled here (no Android SDK) and not
+    tried on a phone or against live YouTube, whose real elements may differ from the mocks. Please build it and try: tap the dots of a video on
+    Home, Search, a channel and under the player. If it still does not show, please say on which page.
+
 ## 2.6.169
 - Added: **a floating "Download" button over a video's three-dots menu**, a second way into a download from a card beside the long press
   (`assets/wardtube/wardtube.js`, `web/NativeBridge.kt`, `web/VideoLongPress.kt`, `MainActivity.kt`, `ui/VideoSheet.kt`, `README.md`,

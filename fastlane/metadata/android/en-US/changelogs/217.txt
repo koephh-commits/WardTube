@@ -1,0 +1,1 @@
+Added: a "Download video" row inside the menu of a video's three dots, and a "Download" button beside the like / share buttons under the video when that row has no three dots, as in the older versions. The floating "Download" button stays only as a backup when the row cannot be added.

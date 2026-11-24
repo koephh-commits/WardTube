@@ -30,10 +30,15 @@ class NativeBridge(
     private val pipSupportedNow: () -> Boolean = { false },
     /** The floating "Download" button over a video's three-dots menu was pressed (see [downloadFromMenu]). [title] may be empty. Runs on the main thread. */
     private val onMenuDownload: (url: String, title: String?) -> Unit = { _, _ -> },
+    /** The "Download video" row that menu-download.js put in the menu of a card's three dots was tapped (see [menuDownload]). [title] may be null. Runs on the main thread. */
+    private val onMenuRowDownload: (url: String, title: String?) -> Unit = { _, _ -> },
+    /** The same row (or the button beside the buttons under the video) of a watch page, for the video that page shows (see [menuDownloadCurrent]). Runs on the main thread. */
+    private val onMenuRowDownloadCurrent: (url: String) -> Unit = {},
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var lastEnterPipAt = 0L
     private var lastMenuDownloadAt = 0L
+    private var lastMenuRowAt = 0L
 
     /** A video link was tapped on a browsing page: play it in the player instead of in the page. */
     @JavascriptInterface
@@ -136,6 +141,49 @@ class NativeBridge(
         main.post { onMenuDownload(url, title) }
     }
 
+    /**
+     * The person tapped the "Download video" row that the page script adds to YouTube's menu of a video's three dots
+     * (assets/wardtube/menu-download.js). [kind] is "video" or "shorts" and [id] the 11-character video id: the app builds the
+     * address itself from them (a page cannot hand it any other address), and the usual download flow starts (MainActivity.startMenuDownload).
+     * Any frame of a page can call this, but all it can do is open that flow, which still asks the person what to download,
+     * for a YouTube video id; two calls less than 0.6 s apart count as one.
+     */
+    @JavascriptInterface
+    fun menuDownload(kind: String?, id: String?, title: String?) {
+        val url = videoUrl(kind, id) ?: return
+        if (!menuRowGapPassed()) return
+        val name = title?.trim()?.take(MAX_TITLE_LENGTH)?.takeUnless { it.isEmpty() }
+        main.post { onMenuRowDownload(url, name) }
+    }
+
+    /**
+     * The same, for the video the watch page itself shows: the row of its menu, or the "Download" button that the page script
+     * puts beside the like / share buttons under the video when that row has no three dots (MainActivity.startDownloadFlow: it
+     * asks the player whether the video is live first). Same checks as [menuDownload].
+     */
+    @JavascriptInterface
+    fun menuDownloadCurrent(kind: String?, id: String?) {
+        val url = videoUrl(kind, id) ?: return
+        if (!menuRowGapPassed()) return
+        main.post { onMenuRowDownloadCurrent(url) }
+    }
+
+    /** The address of the video whose id the page gave; null when [id] is not a YouTube video id. */
+    private fun videoUrl(kind: String?, id: String?): String? {
+        val videoId = id?.takeIf { VIDEO_ID.matches(it) } ?: return null
+        return if (kind == "shorts") "https://m.youtube.com/shorts/$videoId" else "https://m.youtube.com/watch?v=$videoId"
+    }
+
+    /** False when the row was tapped less than [MENU_DOWNLOAD_GAP_MS] ago (a double click); otherwise notes this tap. */
+    private fun menuRowGapPassed(): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        synchronized(this) {
+            if (now - lastMenuRowAt < MENU_DOWNLOAD_GAP_MS) return false
+            lastMenuRowAt = now
+        }
+        return true
+    }
+
     private companion object {
         /** A second tap on the button this soon after the first is the same tap (a double click), not another request. */
         const val ENTER_PIP_GAP_MS = 1000L
@@ -145,6 +193,12 @@ class NativeBridge(
 
         /** No video link of a page is longer than this; anything beyond is not one. */
         const val MAX_LINK_LENGTH = 2048
+
+        /** A card's title is cut to this many characters (the page script cuts it too). */
+        const val MAX_TITLE_LENGTH = 200
+
+        /** YouTube's video id. */
+        val VIDEO_ID = Regex("[A-Za-z0-9_-]{11}")
 
         /** No real picture is wider or higher; anything beyond is a wrong value. */
         const val MAX_VIDEO_SIDE = 16384

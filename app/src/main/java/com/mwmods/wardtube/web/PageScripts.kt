@@ -13,7 +13,9 @@ import com.mwmods.wardtube.adblock.AdBlocker
 import org.json.JSONObject
 
 /**
- * Injects assets/wardtube/wardtube.js into YouTube pages.
+ * Injects assets/wardtube/wardtube.js into YouTube pages, followed by assets/wardtube/menu-download.js (the "Download video"
+ * row of the menu of a video's three dots, and the "Download" button beside the buttons under the video of a watch page): one
+ * script, so the second one reaches every page, and every WebView that cannot run scripts at the start of a page, the same way.
  *
  * On WebViews that support document-start scripts the script runs before the page's own
  * scripts (needed to strip ads from the first player response). Older WebViews get it
@@ -28,6 +30,7 @@ class PageScripts(
 ) {
 
     private val script: String
+    private val menuScript: String
     private val baseCss: String
     private var handle: ScriptHandler? = null
 
@@ -38,6 +41,10 @@ class PageScripts(
         val assets = context.applicationContext.assets
         script = assets.open("wardtube/wardtube.js").bufferedReader().use { it.readText() }
         baseCss = assets.open("wardtube/base.css").bufferedReader().use { it.readText() }
+        // Without this file the page still works, it only has no download row of its own.
+        menuScript = runCatching {
+            assets.open("wardtube/menu-download.js").bufferedReader().use { it.readText() }
+        }.getOrDefault("")
     }
 
     /** Registers the script for every future page load. Safe to call again after a setting changes. */
@@ -80,7 +87,8 @@ class PageScripts(
     private fun source(): String {
         val config = flags().put("baseCss", baseCss).put("adCss", adBlocker.cosmeticCss)
         if (route != null) config.put("route", route)
-        return "window.__wardtubeConfig=$config;\n$script"
+        val main = "window.__wardtubeConfig=$config;\n$script"
+        return if (menuScript.isEmpty()) main else "$main\n;\n$menuScript"
     }
 
     private companion object {
