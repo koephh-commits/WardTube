@@ -1551,6 +1551,394 @@
     }, { capture: true, passive: true });
   }
 
+  // ---- A floating "Download" button over a video's three-dots menu ------------------
+  // The fallback for the "Download video" row that menu-download.js puts in the menu itself (the first way into a download from
+  // a card, the one the person sees in the menu): the button stays away while that row is in sight, and shows only when the row
+  // could not be put in (a menu of a kind that script does not know). The long press (web/VideoLongPress.kt) is the other way. A tap on the three dots of a
+  // video's card makes YouTube open its own menu (a sheet over the page); while that menu is open, a "Download" button floats just
+  // above it. A tap on the button asks the app for the very sheet that a long press on the card opens (WardTubeNative.
+  // downloadFromMenu -> VideoLongPress.openFromPage: the video, "Download video", share, copy the link), and the page's menu is
+  // closed behind it. It is on the browsing page and on the player's page (the list under the video) alike, and never anywhere
+  // else: it shows only after a tap on a card's three dots AND only if a menu really opened because of that tap.
+  //  - The three dots are found by what they are: a button inside a video card that is not the card's picture / title link, and
+  //    that is YouTube's menu button (its element or class names, its label in a few languages, or just an icon-only small button).
+  //    A button that matches by mistake costs nothing: no menu opens, so no button shows.
+  //  - A menu "opened" when menu rows or a sheet that were not visible at the tap are visible after it (MENU_ROWS / MENU_SHEETS, the
+  //    ones the "Open app" row code above already relies on). The button then waits until the menu has stopped sliding in, sits
+  //    above its first row, follows it if it moves, and goes when the menu is gone, when a row or button of the page is tapped
+  //    (the menu is used up, or turns into another panel such as Share), or when the page navigates.
+  //  - The video is the card's own link (a watch page, a Short, a live page, youtu.be), the title is the card's heading. The app
+  //    checks the link again (VideoLinks.parse) because any frame of a page can call the bridge.
+  // The button is built with createElement / createElementNS and setAttribute only (Trusted Types refuses an innerHTML string),
+  // and it is added to <html> itself, not <body>, so nothing the page does to its body (inert, a lock on scrolling) reaches it.
+  // The touches on it never reach the page.
+
+  var DL_BTN_ID = 'wardtube-dl-btn';
+  // The same as the cards of VideoLongPress.TITLE_JS: one video's card on any of YouTube's layouts.
+  var DL_CARDS = 'ytm-media-item,ytm-compact-video-renderer,ytm-video-card-renderer,ytm-playlist-video-renderer,' +
+    'ytm-rich-item-renderer,ytm-video-with-context-renderer,ytm-grid-video-renderer,ytm-reel-item-renderer,' +
+    'ytm-shorts-lockup-view-model,ytm-shorts-lockup-view-model-v2,yt-lockup-view-model,' +
+    'ytd-video-renderer,ytd-grid-video-renderer,ytd-compact-video-renderer,ytd-playlist-video-renderer';
+  var DL_HEADINGS = 'h3,h4,#video-title,.media-item-headline,.yt-lockup-metadata-view-model__title,.title';
+  var DL_DOTS = 'ytm-menu,ytm-menu-renderer,.media-item-menu,.yt-lockup-metadata-view-model__menu-button,' +
+    '.shortsLockupViewModelHostOutsideMetadataMenu,[class*="menu-button"]';
+  var DL_DOTS_LABEL = /action menu|more actions|more options|^more$|menu|المزيد|قائمة|الإجراءات|خيارات/i;
+  var DL_BADGE = /^(?:\d+:)*\d+$|^live$/i; // the length or LIVE badge of a picture is not a title
+  // The same download drawing as the app's (res/drawable/ic_download_24dp.xml).
+  var DL_ICON = 'M19,9h-4V3H9v6H5l7,7 7,-7zM5,18v2h14v-2H5z';
+  var DL_HEIGHT = 44;       // px, the button's height (see the style below)
+  var DL_ABOVE = 28;        // px between the button and the first row of the menu: clear of the sheet's edge and handle
+  var DL_WAIT_MS = 2200;    // how long after a tap on the dots a menu is waited for
+  var DL_CLICK_GAP_MS = 800; // the click that follows a touch is the same tap
+  var DL_ROW_GRACE_MS = 500; // a menu is given this long after the tap to get the row of menu-download.js before the button shows
+  var DL_FALLBACK_MS = 900;  // dots that are surely a menu button but no menu seen after this long: the button shows anyway
+  var DL_FALLBACK_MAX_MS = 9000; // ... and goes by itself after this long if no tap took it away
+  var dlBtn = null;
+  var dlOk = null;          // does the app offer it? asked once the bridge is there
+  var dlShown = false;
+  var dlTapAt = 0;
+  var dlTimer = 0;
+  var dlUntil = 0;
+  var dlBefore = [];        // the rows and sheets that were visible when the dots were tapped
+  var dlUrl = '';
+  var dlTitle = '';
+  var dlTop = -1;           // the menu's top edge (px from the top of the window) when last looked at
+  var dlSteady = 0;         // how many looks in a row found the menu at the same place
+  var dlMissed = 0;         // how many looks in a row found no menu while the button shows
+  var dlSure = false;       // the last tap's dots were told by a known box or label (not only by being a small icon button)
+  var dlFallback = false;   // the button shows without a menu seen (the page's menu is of a kind this does not know)
+  var dlShownAt = 0;
+
+  whenRoot(function () {
+    var id = '#' + DL_BTN_ID;
+    addStyle('wardtube-dl-btn-css',
+      id + '{display:none;position:fixed;top:40%;left:50%;z-index:2147483647;align-items:center;justify-content:center;' +
+      'gap:8px;box-sizing:border-box;height:' + DL_HEIGHT + 'px;margin:0;padding:0 20px 0 16px;border:0;border-radius:' + DL_HEIGHT / 2 + 'px;' +
+      'background:#e62118;color:#fff;font:600 15px/1 Roboto,Arial,sans-serif;white-space:nowrap;transform:translateX(-50%);' +
+      'box-shadow:0 4px 14px rgba(0,0,0,.45);-webkit-tap-highlight-color:transparent;touch-action:manipulation;' +
+      '-webkit-user-select:none;user-select:none}' +
+      id + '.wt-show{display:flex;animation:wardtube-dl-in .16s ease-out}' +
+      id + ':active{background:#c31c13}' +
+      id + ' svg{width:22px;height:22px;flex:none;pointer-events:none}' +
+      id + ' span{pointer-events:none}' +
+      '@keyframes wardtube-dl-in{from{opacity:0;transform:translateX(-50%) translateY(8px)}' +
+      'to{opacity:1;transform:translateX(-50%) translateY(0)}}' +
+      'html[data-wt-mini] ' + id + ',html[data-wt-pip] ' + id + '{display:none!important}');
+  });
+
+  // May the button be shown? The app says so: it has the method.
+  function dlAllowed() {
+    if (dlOk !== null) return dlOk;
+    try {
+      var bridge = window.WardTubeNative;
+      if (!bridge) return false; // the bridge may be a moment behind the script: asked again at the next tap
+      dlOk = typeof bridge.downloadFromMenu === 'function';
+    } catch (e) { return false; }
+    return dlOk;
+  }
+
+  // The address of a video that a link names (a watch page, a Short, a live page, youtu.be), absolute; '' for any other link.
+  // These are the kinds of link the app's VideoLinks.parse accepts.
+  function dlVideoLink(href) {
+    var u;
+    try { u = new URL(href, location.href); } catch (e) { return ''; }
+    var host = u.hostname, id = '';
+    if (host === 'youtu.be') {
+      id = u.pathname.slice(1);
+    } else if (host === 'youtube.com' || host.slice(-12) === '.youtube.com') {
+      if (u.pathname === '/watch') {
+        id = u.searchParams.get('v') || '';
+      } else {
+        var m = /^\/(?:shorts|live)\/([^\/]+)/.exec(u.pathname);
+        if (m) id = m[1];
+      }
+    }
+    return /^[A-Za-z0-9_-]{11}$/.test(id) ? u.href : '';
+  }
+
+  // The video of a card: the first of its links that names one.
+  function dlCardLink(card) {
+    var links = card.querySelectorAll('a[href]');
+    for (var i = 0; i < links.length; i++) {
+      var link = dlVideoLink(links[i].getAttribute('href') || '');
+      if (link) return link;
+    }
+    return '';
+  }
+
+  // The card's heading names the video best; a link's own label is the second choice. '' when the page gives none (the app
+  // then shows its own "YouTube video").
+  function dlCardTitle(card) {
+    var head = card.querySelector(DL_HEADINGS);
+    var text = head && head.textContent && head.textContent.trim();
+    if (text && !DL_BADGE.test(text)) return text.slice(0, 200);
+    var links = card.querySelectorAll('a[href]');
+    for (var i = 0; i < links.length; i++) {
+      if (!dlVideoLink(links[i].getAttribute('href') || '')) continue;
+      var label = (links[i].getAttribute('title') || links[i].getAttribute('aria-label') || '').trim();
+      if (label && !DL_BADGE.test(label)) return label.slice(0, 200);
+    }
+    return '';
+  }
+
+  // The id of the video that a link names ('' for any other link): same kinds of link as dlVideoLink.
+  function dlVideoId(href) {
+    var m = /[?&]v=([A-Za-z0-9_-]{11})(?:[&#]|$)/.exec(href) || /\/(?:shorts|live)\/([A-Za-z0-9_-]{11})(?:[?\/#]|$)/.exec(href) ||
+      /youtu\.be\/([A-Za-z0-9_-]{11})(?:[?\/#]|$)/.exec(href);
+    return m ? m[1] : '';
+  }
+
+  // A card of a layout DL_CARDS does not know: the nearest box around the tapped button that links exactly one video, is no
+  // bigger than a card can be, and holds no player. null when there is none.
+  function dlUnknownCard(t) {
+    var btn = t.closest('button,[role="button"]') || t.closest(DL_DOTS);
+    if (!btn || btn.closest('a[href]')) return null;
+    var h = window.innerHeight || 800;
+    var el = btn.parentElement;
+    for (var depth = 0; el && depth < 7 && el !== document.body && el !== document.documentElement; depth++, el = el.parentElement) {
+      var ids = {}, count = 0;
+      var links = el.querySelectorAll('a[href]');
+      for (var i = 0; i < links.length && i < 80; i++) {
+        var link = dlVideoLink(links[i].getAttribute('href') || '');
+        var id = link ? dlVideoId(link) : '';
+        if (id && !ids[id]) { ids[id] = 1; count++; if (count > 1) return null; }
+      }
+      if (count === 1) {
+        if (el.querySelector('video,#player-container-id')) return null;
+        return el.getBoundingClientRect().height <= h * 0.7 ? el : null;
+      }
+    }
+    return null;
+  }
+
+  // The card whose three dots [t] (the target of a tap) is, or null when the tap is not on a card's menu button.
+  // dlSure tells afterwards whether the dots were told by a known box or by their label (and not only by being a small icon button).
+  function dlCardOfDots(t) {
+    dlSure = false;
+    var known = t.closest(DL_CARDS);
+    var card = known || dlUnknownCard(t);
+    if (!card) return null;
+    if (t.closest('a[href]')) return null; // the picture or the title: the long press has that
+    var dots = t.closest(DL_DOTS);
+    if (dots && card.contains(dots)) { dlSure = true; return card; }
+    var btn = t.closest('button,[role="button"]');
+    if (!btn || !card.contains(btn)) return null;
+    if (DL_DOTS_LABEL.test((btn.getAttribute('aria-label') || '') + ' ' + (btn.getAttribute('title') || ''))) { dlSure = true; return card; }
+    if (!known) return null; // an unknown card is only trusted for dots that name themselves
+    // A button with no words, only a drawing, and small: that is the menu button of a layout this does not know.
+    var r = btn.getBoundingClientRect();
+    if ((btn.textContent || '').replace(/\s+/g, '') || r.width > 72 || r.height > 72) return null;
+    return btn.querySelector('svg,yt-icon,c3-icon,.yt-spec-icon-shape') ? card : null;
+  }
+
+  // The rows and sheets of menus that are on screen now (see MENU_ROWS / MENU_SHEETS: the "Open app" row code above).
+  function dlCollect() {
+    var out = [];
+    try {
+      var all = document.querySelectorAll(MENU_ROWS + ',' + MENU_SHEETS);
+      var w = window.innerWidth || 0, h = window.innerHeight || 0;
+      for (var i = 0; i < all.length && i < 120; i++) {
+        var el = all[i];
+        var r = el.getBoundingClientRect();
+        if (r.width < 100 || r.height < 28 || r.bottom <= 0 || r.top >= h || r.right <= 0 || r.left >= w) continue;
+        var cs = getComputedStyle(el);
+        if (cs.visibility === 'hidden' || +cs.opacity < 0.05) continue;
+        out.push(el);
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  // True while the "Download video" row of menu-download.js is in sight: on the screen and on top (what is drawn at its centre is
+  // the row itself), the way that script tells it. A menu kept in the page but not open does not count.
+  function dlRowIn() {
+    try {
+      var row = document.querySelector('[data-wt-dl="1"]');
+      if (!row || !row.isConnected) return false;
+      var r = row.getBoundingClientRect(), w = window.innerWidth || 0, h = window.innerHeight || 0;
+      if (r.width < 4 || r.height < 4 || r.bottom <= 0 || r.top >= h || r.right <= 0 || r.left >= w) return false;
+      var t = document.elementFromPoint(Math.min(Math.max(r.left + r.width / 2, 1), w - 1), Math.min(Math.max(r.top + r.height / 2, 1), h - 1));
+      return !!t && (row === t || row.contains(t));
+    } catch (e) { return false; }
+  }
+
+  // The menu that the tap opened: { top } (its top edge), or null while there is none. It is what is on screen now and was not
+  // before the tap. The top is that of its first row; with no row (a menu made of something this does not know) it is the
+  // top of its sheet, unless that sheet fills the window (then it is a layer around the menu, and the middle of the window is used).
+  function dlFresh() {
+    var now = dlCollect();
+    var rowsTop = Infinity, sheetsTop = Infinity, h = window.innerHeight || 0;
+    for (var i = 0; i < now.length; i++) {
+      var el = now[i];
+      if (dlBefore.indexOf(el) >= 0) continue;
+      var r = el.getBoundingClientRect();
+      if (el.matches(MENU_ROWS)) rowsTop = Math.min(rowsTop, r.top);
+      else if (r.height < h * 0.95) sheetsTop = Math.min(sheetsTop, r.top);
+      else sheetsTop = Math.min(sheetsTop, h * 0.55);
+    }
+    var top = rowsTop < Infinity ? rowsTop : sheetsTop;
+    return top < Infinity ? { top: top } : null;
+  }
+
+  function dlShow(top) {
+    if (!dlBtn) dlBtn = dlMakeButton();
+    if (dlBtn.parentNode !== document.documentElement) document.documentElement.appendChild(dlBtn);
+    dlPlace(top);
+    dlBtn.classList.add('wt-show');
+    dlShown = true;
+    dlShownAt = Date.now();
+    dlMissed = 0;
+  }
+
+  function dlPlace(top) {
+    // Above the menu; when the menu reaches the top of the window the button stays on screen (over the menu's own top).
+    dlBtn.style.setProperty('top', Math.round(Math.max(12, top - DL_ABOVE - DL_HEIGHT)) + 'px');
+  }
+
+  function dlHide() {
+    dlShown = false;
+    dlFallback = false;
+    if (dlTimer) { clearTimeout(dlTimer); dlTimer = 0; }
+    if (dlBtn) dlBtn.classList.remove('wt-show');
+  }
+
+  // Looks for the menu (every 100 ms until one is steady, at most DL_WAIT_MS) and, once the button shows, for the menu going
+  // (every 250 ms). Stops by itself: it never runs while no tap on a card's dots is being followed.
+  function dlWatch() {
+    dlTimer = 0;
+    var keep;
+    try {
+      // The menu has the "Download video" row of menu-download.js: the button is not needed (and goes if it already showed).
+      if (dlRowIn()) { dlHide(); return; }
+      var found = dlFresh();
+      var now = Date.now();
+      if (!dlShown) {
+        if (found) {
+          dlSteady = dlTop >= 0 && Math.abs(found.top - dlTop) < 3 ? dlSteady + 1 : 0;
+          dlTop = found.top;
+          if (dlSteady >= 1 && now - dlTapAt >= DL_ROW_GRACE_MS) {
+            dlShow(found.top);
+          } else if (now > dlUntil - 600) {
+            dlUntil = now + 600; // a menu that is still sliding in is given a little more time
+          }
+        } else if (dlSure && now - dlTapAt >= DL_FALLBACK_MS) {
+          // The dots are surely a menu button, yet no menu of a kind this knows has shown: the page's menu is made of something
+          // unknown. The button shows anyway, in the middle of the window; a menu found later moves it above its rows.
+          dlTop = Math.round((window.innerHeight || 600) * 0.5);
+          dlShow(dlTop);
+          dlFallback = true;
+        }
+        keep = dlShown || now < dlUntil;
+      } else {
+        if (found) {
+          dlMissed = 0;
+          dlFallback = false;
+          if (Math.abs(found.top - dlTop) >= 3) { dlTop = found.top; dlPlace(found.top); }
+        } else if (!dlFallback) {
+          dlMissed++;
+        }
+        // Without a menu to follow, the button goes with the next touch on the page (dlOnTap) or after DL_FALLBACK_MAX_MS.
+        keep = dlFallback ? now - dlShownAt < DL_FALLBACK_MAX_MS : dlMissed < 2;
+        if (!keep) dlHide();
+      }
+    } catch (e) { dlHide(); return; }
+    if (keep) dlTimer = setTimeout(dlWatch, dlShown ? 250 : 100);
+  }
+
+  // The page's menu is closed the way a person closes it: a tap on the dimmed part of the page above the menu. Only a layer above
+  // the page that is not a button, link or row is tapped, so the page's own content is never touched; if the menu cannot be
+  // found that way it stays open (and the app's sheet shows over it).
+  function dlCloseMenu() {
+    try {
+      if (dlTop < 90) return; // a menu that reaches the top of the window leaves no free place to tap
+      var x = (window.innerWidth || 0) / 2, y = 40;
+      var el = document.elementFromPoint(x, y);
+      if (!el || el === document.documentElement || el === document.body) return;
+      if (el.closest('a,button,[role="button"],input,textarea,video') || el.closest(MENU_ROWS)) return;
+      if (!overlayOf(el)) return;
+      var init = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0 };
+      ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function (type) {
+        var Ctor = type.indexOf('pointer') === 0 && window.PointerEvent ? PointerEvent : MouseEvent;
+        el.dispatchEvent(new Ctor(type, init));
+      });
+    } catch (e) {}
+  }
+
+  function dlPress(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    var url = dlUrl, title = dlTitle;
+    dlHide();
+    if (!url) return;
+    try {
+      var bridge = window.WardTubeNative;
+      if (bridge && typeof bridge.downloadFromMenu === 'function') bridge.downloadFromMenu(url, title);
+    } catch (err) {}
+    setTimeout(dlCloseMenu, 60);
+  }
+
+  function dlMakeButton() {
+    var ns = 'http://www.w3.org/2000/svg';
+    var btn = document.createElement('button');
+    btn.id = DL_BTN_ID;
+    btn.type = 'button';
+    var lang = (document.documentElement.lang || navigator.language || '').toLowerCase();
+    var label = lang.indexOf('ar') === 0 ? 'تنزيل' : 'Download';
+    btn.setAttribute('aria-label', label);
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    var path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', DL_ICON);
+    path.setAttribute('fill', '#fff');
+    svg.appendChild(path);
+    btn.appendChild(svg);
+    var text = document.createElement('span');
+    text.textContent = label;
+    btn.appendChild(text);
+    // Nothing done on the button is seen by the page: its menu would take a touch outside the menu for a tap on its dimmed part.
+    ['touchstart', 'touchend', 'touchmove', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'dblclick'].forEach(function (type) {
+      btn.addEventListener(type, function (e) { e.stopPropagation(); });
+    });
+    btn.addEventListener('click', dlPress);
+    return btn;
+  }
+
+  // Every tap on the page: the first touch (before the page's own handlers, so what was on screen is known) and the click that
+  // follows it (for a tap that came without a touch).
+  function dlOnTap(e) {
+    try {
+      var t = e.target;
+      if (!t || !t.closest || (dlBtn && dlBtn.contains(t))) return;
+      // A row or a button of the page was used while the button shows: the menu is used up or turned into another panel.
+      if (dlShown && e.type === 'click' && t.closest(MENU_ROWS + ',' + CLICKABLE)) dlHide();
+      // A button shown without a menu seen has nothing to follow: the next touch on the page (the menu used or closed) takes it away.
+      if (dlShown && dlFallback && e.type === 'touchstart') dlHide();
+      var now = Date.now();
+      if (now - dlTapAt < DL_CLICK_GAP_MS) return; // the click of the touch that was just looked at
+      var card = dlCardOfDots(t);
+      if (!card || !dlAllowed()) return;
+      var link = dlCardLink(card);
+      if (!link) return; // a playlist or channel card: no one video to give
+      dlTapAt = now;
+      dlHide();
+      dlUrl = link;
+      dlTitle = dlCardTitle(card);
+      dlBefore = dlCollect();
+      dlTop = -1;
+      dlSteady = 0;
+      dlMissed = 0;
+      dlUntil = now + DL_WAIT_MS;
+      dlTimer = setTimeout(dlWatch, 120);
+    } catch (err) { /* never break the page */ }
+  }
+
+  document.addEventListener('touchstart', dlOnTap, { capture: true, passive: true });
+  document.addEventListener('click', dlOnTap, true);
+  // The page moved on (a link of the menu, the back button): the button goes with the menu.
+  window.addEventListener('popstate', dlHide);
+  window.addEventListener('pagehide', dlHide);
+
   // ---- Timer --------------------------------------------------------------
 
   var ticks = 0;

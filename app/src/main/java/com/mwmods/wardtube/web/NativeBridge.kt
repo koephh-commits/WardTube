@@ -28,6 +28,8 @@ class NativeBridge(
     private val onEnterPip: () -> Unit = {},
     /** Does this phone have picture in picture (Android 8+, the feature not switched off)? Called on a WebView thread. */
     private val pipSupportedNow: () -> Boolean = { false },
+    /** The floating "Download" button over a video's three-dots menu was pressed (see [downloadFromMenu]). [title] may be empty. Runs on the main thread. */
+    private val onMenuDownload: (url: String, title: String?) -> Unit = { _, _ -> },
     /** The "Download video" row that menu-download.js put in the menu of a card's three dots was tapped (see [menuDownload]). [title] may be null. Runs on the main thread. */
     private val onMenuRowDownload: (url: String, title: String?) -> Unit = { _, _ -> },
     /** The same row (or the button beside the buttons under the video) of a watch page, for the video that page shows (see [menuDownloadCurrent]). Runs on the main thread. */
@@ -35,6 +37,7 @@ class NativeBridge(
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var lastEnterPipAt = 0L
+    private var lastMenuDownloadAt = 0L
     private var lastMenuRowAt = 0L
 
     /** A video link was tapped on a browsing page: play it in the player instead of in the page. */
@@ -120,6 +123,25 @@ class NativeBridge(
     }
 
     /**
+     * The person pressed the floating "Download" button that shows over the menu of a video's three dots (wardtube.js, "A floating
+     * "Download" button over a video's three-dots menu"): [url] is the link of the card's video and [title] the card's heading. The
+     * app answers with the sheet that a long press on the card opens ([VideoLongPress.openFromPage] decides whether it can).
+     * Any frame of a page can call this, but all it can do is open that sheet for a link that VideoLinks.parse accepts (a YouTube
+     * video, a Short, a live page or a youtu.be link; the title is cut to a line there), and the sheet downloads nothing by itself:
+     * the person still taps "Download video". Two calls less than 0.6 s apart count as one.
+     */
+    @JavascriptInterface
+    fun downloadFromMenu(url: String?, title: String?) {
+        if (url == null || url.length > MAX_LINK_LENGTH) return
+        val now = android.os.SystemClock.uptimeMillis()
+        synchronized(this) {
+            if (now - lastMenuDownloadAt < MENU_DOWNLOAD_GAP_MS) return
+            lastMenuDownloadAt = now
+        }
+        main.post { onMenuDownload(url, title) }
+    }
+
+    /**
      * The person tapped the "Download video" row that the page script adds to YouTube's menu of a video's three dots
      * (assets/wardtube/menu-download.js). [kind] is "video" or "shorts" and [id] the 11-character video id: the app builds the
      * address itself from them (a page cannot hand it any other address), and the usual download flow starts (MainActivity.startMenuDownload).
@@ -166,8 +188,11 @@ class NativeBridge(
         /** A second tap on the button this soon after the first is the same tap (a double click), not another request. */
         const val ENTER_PIP_GAP_MS = 1000L
 
-        /** Two taps on the "Download video" row of the three-dots menu this close count as one. */
+        /** The same, for the Download button of the three-dots menu. */
         const val MENU_DOWNLOAD_GAP_MS = 600L
+
+        /** No video link of a page is longer than this; anything beyond is not one. */
+        const val MAX_LINK_LENGTH = 2048
 
         /** A card's title is cut to this many characters (the page script cuts it too). */
         const val MAX_TITLE_LENGTH = 200
