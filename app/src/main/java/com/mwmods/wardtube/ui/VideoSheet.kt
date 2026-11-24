@@ -23,7 +23,7 @@ import com.mwmods.wardtube.R
 import com.mwmods.wardtube.util.VideoLinks
 
 /**
- * The sheet a long press on a video's picture or title opens (or a tap on the three dots of its card),
+ * The sheet a long press on a video's picture or title opens (or the floating "Download" button over its three-dots menu),
  * wherever that video is shown (Home, search, history, a channel, the list under the player ...): the video itself (its picture and title, so it is plain which one the press
  * found), the big "Download video" button and, below it, the smaller actions (share, copy the link).
  *
@@ -37,18 +37,8 @@ class VideoSheet(private val activity: AppCompatActivity, private val snackbarAn
     /** True while the sheet is open: a second long press does not open another one over it. */
     val isShowing: Boolean get() = dialog?.isShowing == true
 
-    /**
-     * Opens the sheet for [video]; [title] is its name, or null when the page gave none. [onAction] runs when any of the sheet's
-     * actions is picked (download, share, copy), after the sheet closed and before the action itself; closing the sheet by
-     * a tap outside or Back does not run it.
-     */
-    fun show(
-        video: VideoLinks.Video,
-        title: String?,
-        onDownload: () -> Unit,
-        onShare: () -> Unit,
-        onAction: () -> Unit = {},
-    ) {
+    /** Opens the sheet for [video]; [title] is its name, or null when the page gave none. */
+    fun show(video: VideoLinks.Video, title: String?, onDownload: () -> Unit, onShare: () -> Unit) {
         if (isShowing || activity.isFinishing || activity.isDestroyed) return
 
         val content = activity.layoutInflater.inflate(R.layout.bottom_sheet_video, null)
@@ -74,13 +64,12 @@ class VideoSheet(private val activity: AppCompatActivity, private val snackbarAn
 
         content.findViewById<View>(R.id.videoSheetDownload).setOnClickListener {
             sheet.dismiss()
-            onAction()
             onDownload()
         }
 
         val rows = content.findViewById<LinearLayout>(R.id.videoSheetRows)
-        addRow(sheet, rows, R.string.share, R.drawable.ic_share_24dp, R.color.menuAccentBlue, onAction) { onShare() }
-        addRow(sheet, rows, R.string.omniboxCopy, R.drawable.ic_copy_24dp, R.color.menuAccentTeal, onAction) { copyLink(video) }
+        addRow(sheet, rows, R.string.share, R.drawable.ic_share_24dp, R.color.menuAccentBlue) { onShare() }
+        addRow(sheet, rows, R.string.omniboxCopy, R.drawable.ic_copy_24dp, R.color.menuAccentTeal) { copyLink(video) }
 
         sheet.show()
     }
@@ -92,7 +81,6 @@ class VideoSheet(private val activity: AppCompatActivity, private val snackbarAn
         @StringRes title: Int,
         @DrawableRes icon: Int,
         @ColorRes accent: Int,
-        onAction: () -> Unit,
         onClick: () -> Unit,
     ) {
         if (card.childCount > 0) card.addView(activity.layoutInflater.inflate(R.layout.item_menu_divider, card, false))
@@ -105,7 +93,6 @@ class VideoSheet(private val activity: AppCompatActivity, private val snackbarAn
         tile.imageTintList = ColorStateList.valueOf(color)
         row.setOnClickListener {
             sheet.dismiss()
-            onAction()
             onClick()
         }
         card.addView(row)

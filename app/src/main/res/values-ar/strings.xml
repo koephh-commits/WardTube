@@ -13,7 +13,6 @@
     <string name="pictureInPicture">صورة داخل صورة</string>
     <string name="pictureInPictureOn">عند الخروج من التطبيق يستمر الفيديو في نافذة صغيرة عائمة</string>
     <string name="pictureInPictureOff">متوقف: الخروج من التطبيق يُبقي الصوت فقط (إذا كان التشغيل في الخلفية مفعّلاً)</string>
-    <string name="pictureInPictureNote">ملاحظة: هذه الميزة غير موثوقة في وضع ملء الفيديو أو وضع ملء الشاشة. تعمل بشكل جيد مع الفيديو في وضع الشاشة بالطول أو في الوضع المصغّر.</string>
     <string name="preferH264">تفضيل H.264 (حرارة أقل وبطارية أطول)</string>
     <string name="preferH264On">يرسل يوتيوب فيديو H.264 الذي يفكّه الهاتف بالعتاد مباشرةً: حرارة أقل واستهلاك بطارية أقل. أعلى جودة 1080p فقط. يُطبَّق من الفيديو التالي الذي تفتحه.</string>
     <string name="preferH264Off">متوقف: قد يرسل يوتيوب VP9 / AV1 وهذا قد يُسخّن الهاتف ويستنزف البطارية في الفيديوهات الطويلة</string>
@@ -452,13 +451,14 @@
     <string name="videoSheetUntitled">فيديو يوتيوب</string>
     <!-- الرسالة التي تظهر عند فتح البرنامج، وتوضح طرق تنزيل الفيديو (ui/DownloadGuideDialog) -->
     <string name="guideTitle">طرق التنزيل</string>
-    <string name="guideWay1Title">1. زر التنزيل</string>
+    <string name="guideSubtitle">طريقتان لتنزيل أي فيديو</string>
+    <string name="guideWay1Title">زر التنزيل</string>
     <string name="guideWay1Text">والفيديو يعمل، يظهر زر تنزيل بجانب أزرار الإعجاب أو في قائمة الثلاث نقاط. وإن لم يظهر زر التنزيل فاستخدمه من القائمة الجانبية أو من الشريط السفلي.</string>
     <string name="guideCaptionButtons">بجانب أزرار الإعجاب</string>
     <string name="guideCaptionMenu">في قائمة الثلاث نقاط</string>
     <string name="guideCaptionBar">في الشريط السفلي (أو القائمة الجانبية)</string>
-    <string name="guideWay2Title">2. الضغط المطول</string>
-    <string name="guideWay2Text">اضغط مطولًا على أي فيديو، أو اضغط على زر الثلاث نقاط بجانبه، فتظهر نافذة فيها «تنزيل الفيديو».</string>
+    <string name="guideWay2Title">الضغط المطول</string>
+    <string name="guideWay2Text">اضغط مطولًا على أي فيديو لتنزيله.\n\nفي الرئيسية: زر الثلاث نقاط ثم زر التنزيل، وإن لم يظهر فاضغط مطولًا على الفيديو.</string>
     <string name="guideCaptionLongPress">الضغط المطول على الفيديو</string>
     <string name="guideDontShow">عدم العرض مرة أخرى</string>
     <string name="guideClose">حسنًا</string>

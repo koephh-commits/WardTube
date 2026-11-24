@@ -15,7 +15,6 @@
     <string name="pictureInPicture">Picture in picture</string>
     <string name="pictureInPictureOn">When you leave the app, the video keeps playing in a small floating window</string>
     <string name="pictureInPictureOff">Off: leaving the app keeps only the sound (if play in background is on)</string>
-    <string name="pictureInPictureNote">Note: not reliable when the video is in fill or full-screen mode. It works well with the video in the portrait page or in the mini player.</string>
     <string name="preferH264">Prefer H.264 (cooler, saves battery)</string>
     <string name="preferH264On">YouTube sends H.264 video, which the phone decodes in hardware: less heat and battery use. Quality goes up to 1080p only. Applies from the next video you open.</string>
     <string name="preferH264Off">Off: YouTube may send VP9 / AV1, which can heat the phone and drain the battery on long videos</string>
@@ -446,13 +445,14 @@
     <string name="videoSheetUntitled">YouTube video</string>
     <!-- The message shown when the app opens, about the ways to download a video (ui/DownloadGuideDialog) -->
     <string name="guideTitle">How to download videos</string>
-    <string name="guideWay1Title">1. Download button</string>
+    <string name="guideSubtitle">Two ways to download any video</string>
+    <string name="guideWay1Title">Download button</string>
     <string name="guideWay1Text">While a video is playing, a Download button works beside the like buttons or in the three-dots menu. If the Download button does not show, use it from the side menu or the bottom bar.</string>
     <string name="guideCaptionButtons">Beside the like buttons</string>
     <string name="guideCaptionMenu">In the three-dots menu</string>
     <string name="guideCaptionBar">In the bottom bar (or the side menu)</string>
-    <string name="guideWay2Title">2. Press and hold</string>
-    <string name="guideWay2Text">Press and hold any video, or tap the three-dots button beside it, and a sheet with Download video opens.</string>
+    <string name="guideWay2Title">Press and hold</string>
+    <string name="guideWay2Text">Press and hold any video to download it.\n\nOn the Home page: the three-dots button, then Download. If it does not show, press and hold the video.</string>
     <string name="guideCaptionLongPress">Press and hold the video</string>
     <string name="guideDontShow">Don\'t show again</string>
     <string name="guideClose">OK</string>

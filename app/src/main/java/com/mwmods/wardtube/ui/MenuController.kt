@@ -268,9 +268,7 @@ class MenuController(
             addSwitchRow(
                 R.string.pictureInPicture, R.drawable.ic_menu_pip, prefs.pipAuto,
                 subtitle = { on ->
-                    // The state, then (always, on or off) the note that the window is not reliable from full screen.
-                    activity.getString(if (on) R.string.pictureInPictureOn else R.string.pictureInPictureOff) +
-                        "\n" + activity.getString(R.string.pictureInPictureNote)
+                    activity.getString(if (on) R.string.pictureInPictureOn else R.string.pictureInPictureOff)
                 }
             ) { on ->
                 prefs.pipAuto = on

@@ -32,13 +32,10 @@ class NativeBridge(
     private val onMenuRowDownload: (url: String, title: String?) -> Unit = { _, _ -> },
     /** The same row (or the button beside the buttons under the video) of a watch page, for the video that page shows (see [menuDownloadCurrent]). Runs on the main thread. */
     private val onMenuRowDownloadCurrent: (url: String) -> Unit = {},
-    /** The three dots of a card were tapped (see [openVideoSheet]): the sheet of a long press on that card's video. [title] may be null. Runs on the main thread. */
-    private val onOpenVideoSheet: (url: String, title: String?) -> Unit = { _, _ -> },
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var lastEnterPipAt = 0L
     private var lastMenuRowAt = 0L
-    private var lastSheetAt = 0L
 
     /** A video link was tapped on a browsing page: play it in the player instead of in the page. */
     @JavascriptInterface
@@ -149,25 +146,6 @@ class NativeBridge(
         main.post { onMenuRowDownloadCurrent(url) }
     }
 
-    /**
-     * The person tapped the three dots of a video's card (assets/wardtube/menu-download.js): the same sheet as after a long
-     * press on that video opens (the video, "Download video", share, copy the link; [VideoLongPress.openFromPage]), so the
-     * download no longer depends on finding YouTube's menu. [kind] is "video" or "shorts" and [id] the 11-character video id:
-     * the app builds the address itself from them (a page cannot hand it any other address), and the sheet only opens on the
-     * page that asked, under the same conditions as for a long press. Two calls less than 0.5 s apart count as one.
-     */
-    @JavascriptInterface
-    fun openVideoSheet(kind: String?, id: String?, title: String?) {
-        val url = videoUrl(kind, id) ?: return
-        val now = android.os.SystemClock.uptimeMillis()
-        synchronized(this) {
-            if (now - lastSheetAt < SHEET_GAP_MS) return
-            lastSheetAt = now
-        }
-        val name = title?.trim()?.take(MAX_TITLE_LENGTH)?.takeUnless { it.isEmpty() }
-        main.post { onOpenVideoSheet(url, name) }
-    }
-
     /** The address of the video whose id the page gave; null when [id] is not a YouTube video id. */
     private fun videoUrl(kind: String?, id: String?): String? {
         val videoId = id?.takeIf { VIDEO_ID.matches(it) } ?: return null
@@ -190,9 +168,6 @@ class NativeBridge(
 
         /** Two taps on the "Download video" row of the three-dots menu this close count as one. */
         const val MENU_DOWNLOAD_GAP_MS = 600L
-
-        /** Two taps on the three dots of a card this close count as one (the sheet is already opening). */
-        const val SHEET_GAP_MS = 500L
 
         /** A card's title is cut to this many characters (the page script cuts it too). */
         const val MAX_TITLE_LENGTH = 200

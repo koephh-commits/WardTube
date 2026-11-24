@@ -1,0 +1,1 @@
+Removed the note under the "Picture in picture" row of the menu (about it not being reliable in full-screen mode); the row now shows only its short description.
